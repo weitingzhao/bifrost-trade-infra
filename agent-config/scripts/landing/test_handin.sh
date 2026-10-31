@@ -549,5 +549,32 @@ def material(root,repo,env,git,run,args,base,commit):
     assert all(c[c.index('-X')+1]=='GET' and '/material?stg_release=' in c[-1] for c in calls)
     assert 'SENTINEL' not in before
 
-for name,fn in [('B-03',http),('R-03',squash),('TD-458-squash',squash_attempts),('TD-458-prepared',squash_prepared),('TD-458-prepared-identity',squash_prepared_identity),('TD-458-legacy-identity',squash_legacy_identity),('R-04',recovery),('R-05',cleanup),('R-01-push',push_cleanup),('N-01',tokens),('N-02',refresh),('C-7-claim',claim_error),('TD-458-ready',claim_ready),('C-7-material',material)]: test(name,fn)
+def plan_node(root,repo,env,git,run,args,base,commit):
+    # D5 (module progress view): a hand-in names its plan step instead of an
+    # off-plan reason; without --plan-node the request is what it was.
+    def proposed():
+        calls=[json.loads(line) for line in (root/'calls').read_text().splitlines()]
+        c=calls[-1]
+        assert c[c.index('-X')+1]=='POST' and c[-1].endswith('/missions/M-1/tasks')
+        return json.loads(c[c.index('--data-binary')+1])
+    common=['propose','--mission','M-1','--title','unit','--repo','bifrost-platform','--base',base]
+    assert task in run(*common).stdout
+    off=proposed()
+    assert off['tasks'][0]['off_plan_reason']=='handed in by the coordinator' and 'plan_node_id' not in off['tasks'][0]
+    assert task in run(*common,'--plan-node','R5:5.1-3').stdout
+    on=proposed()
+    assert on['tasks'][0]['plan_node_id']=='R5:5.1-3' and 'off_plan_reason' not in on['tasks'][0]
+    assert {k:v for k,v in on['tasks'][0].items() if k!='plan_node_id'}=={k:v for k,v in off['tasks'][0].items() if k!='off_plan_reason'}
+    # The off-plan key is unchanged; the step makes its own key.
+    expect=lambda s: 'handin:'+hashlib.sha256(s.encode()).hexdigest()[:16]
+    assert off['idempotency_key']==expect('M-1 unit '+base)
+    assert on['idempotency_key']==expect('M-1 unit '+base+' R5:5.1-3')
+    assert task in run(*common,'--plan-node','R5:5.2b-10','--key','k').stdout and proposed()['idempotency_key']=='k'
+    before=(root/'calls').read_text()
+    for bad in ('R5:5.1','R5','5.1-3','R5:5.1-0','R5:5.1-3 ','R5:5.1-3;x','ARCH:bus',''):
+        run(*common,'--plan-node',bad,success=False)
+    run(*common,'--plan-node',success=False)
+    assert before==(root/'calls').read_text(), 'an invalid step made an HTTP request'
+
+for name,fn in [('B-03',http),('R-03',squash),('TD-458-squash',squash_attempts),('TD-458-prepared',squash_prepared),('TD-458-prepared-identity',squash_prepared_identity),('TD-458-legacy-identity',squash_legacy_identity),('R-04',recovery),('R-05',cleanup),('R-01-push',push_cleanup),('N-01',tokens),('N-02',refresh),('C-7-claim',claim_error),('TD-458-ready',claim_ready),('C-7-material',material),('D5-plan-node',plan_node)]: test(name,fn)
 PY

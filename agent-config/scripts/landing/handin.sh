@@ -4,10 +4,11 @@
 # agent-config/work/multi-agent/DESIGN-coordinator-landing-v3-2026-10-29.md
 # §2.1, §2.5, §2.6, §12.3).
 #
-#   handin.sh propose --mission M-n --title T --repo R --base SHA [--key K] [--core]
+#   handin.sh propose --mission M-n --title T --repo R --base SHA [--key K] [--core] [--plan-node R5:5.1-3]
 #       Propose the pinned task as the proposer seat (seat:coordinator); its
-#       spec is the platform's, the providers declared [anthropic]. Prints the
-#       task id.
+#       spec is the platform's, the providers declared [anthropic]. With
+#       --plan-node the task is that plan step's own work (plan_node_id);
+#       without it, it is off the plan. Prints the task id.
 #   handin.sh squash --task t_… --base SHA --commit SHA [--commit SHA…] [--title T] [--attempt N]
 #       Make the explicitly selected isolated branch history one commit on BASE whose message lists the commits it replaces, with one
 #       Agentrt-Task trailer and one Change-Id. Never amend it afterwards.
@@ -186,7 +187,7 @@ heartbeat() {
 }
 
 cmd_propose() {
-  local mission="" title="" repo="" base="" key="" core=false
+  local mission="" title="" repo="" base="" key="" core=false plan_node="" plan_given=false
   while [ $# -gt 0 ]; do
     case "$1" in
       --mission) mission="$2"; shift 2 ;;
@@ -195,17 +196,27 @@ cmd_propose() {
       --base) base="$2"; shift 2 ;;
       --key) key="$2"; shift 2 ;;
       --core) core=true; shift ;;
+      --plan-node) [ $# -ge 2 ] || die "propose: --plan-node needs a step id"; plan_node="$2"; plan_given=true; shift 2 ;;
       *) die "propose: unknown $1" ;;
     esac
   done
   [ -n "$mission" ] && [ -n "$title" ] && [ -n "$repo" ] && [ -n "$base" ] || die "propose: --mission, --title, --repo and --base"
-  [ -n "$key" ] || key="handin:$(printf '%s' "$mission $title $base" | shasum -a 256 | cut -c1-16)"
+  # A step id is <root>:<item>-<n> (design v5 §5.1.2); the platform checks
+  # the rest (a step, not dropped, of a tree the mission may bind). An empty
+  # one is refused, never read as off the plan.
+  [ "$plan_given" = false ] || [[ "$plan_node" =~ ^R[1-9][0-9]{0,3}:[0-9]+\.[0-9]{1,3}[a-z]?-[1-9][0-9]*$ ]] ||
+    die "propose: --plan-node is a step id such as R5:5.1-3, not '$plan_node'"
+  # The step is part of the request the key stands for: an off-plan key
+  # stays what it was, and the same work on another step gets its own key.
+  [ -n "$key" ] || key="handin:$(printf '%s' "$mission $title $base${plan_node:+ $plan_node}" | shasum -a 256 | cut -c1-16)"
   local body out
-  body=$(jq -n --arg key "$key" --arg title "$title" --arg repo "$repo" --arg base "$base" --argjson core "$core" '{
+  body=$(jq -n --arg key "$key" --arg title "$title" --arg repo "$repo" --arg base "$base" --argjson core "$core" \
+    --arg plan "$plan_node" '{
     idempotency_key: $key,
-    tasks: [{ref: "handin", off_plan_reason: "handed in by the coordinator", role: "implement", task_class: "handin",
+    tasks: [({ref: "handin", role: "implement", task_class: "handin",
       title: $title, effect_class: "branch", repo: $repo, base_commit: $base, core: $core,
-      executor_pin: "external:coordinator", providers: ["anthropic"]}]}')
+      executor_pin: "external:coordinator", providers: ["anthropic"]}
+      + (if $plan == "" then {off_plan_reason: "handed in by the coordinator"} else {plan_node_id: $plan} end))]}')
   call proposer POST "/missions/$mission/tasks" "$body" -H "X-Bifrost-Session: ${BIFROST_SESSION:-}"
   out=$RESPONSE
   ok || die "propose: HTTP $CODE: $out"
@@ -564,5 +575,5 @@ case "${1:-}" in
   status) shift; cmd_status "$@" ;;
   refresh) shift; cmd_refresh "$@" ;;
   material) shift; cmd_material "$@" ;;
-  *) sed -n '2,35p' "$0"; exit 2 ;;
+  *) sed -n '2,36p' "$0"; exit 2 ;;
 esac
