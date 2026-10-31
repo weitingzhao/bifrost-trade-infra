@@ -3643,6 +3643,39 @@
 - **防线**：PG 测试——两张并行单，先落一张，另一张干净重放后不需新单即可落地；patch-id 变化（冲突解决）时必须新单。
 - **验收**：两件并行改动 Owner 各批一次即全部落地。
 
+### TD-470
+
+**P3 · STG agentrt · 统筹主机在 STG 领不到自己钉的任务（no_lease：no tool of the host is on the task's route）**
+
+- **状态**：未开始（2026-10-31）。根因未查。
+- **证据**：2026-10-31 01:3x S6 T80（STG 演练，统筹本机 `handin.sh run` 日志第 1 行）：`handin.sh run` 的 claim/pinned 得 HTTP 409 `no_lease: store: no_lease: no tool of the host is on the task's route now`；同一套令牌、同一台主机在 PROD 上领取正常（T81、卡片修复）。判定点在 platform `api/internal/agentrt/store/claim.go:322,392`。T80 因此跳过（Owner 2026-10-31 同意），S6 的 STG 演练没有做。
+- **影响**：STG 上无法用 handin 演练落地；S6 之后 infra 的 STG drill（`AGENTRT_LANDING_DRILL=on`）只能靠 PROD 真落地验证。
+- **修法**：对照 STG 与 PROD 的 routing 规则与主机登记（coordinator-mbp 在 STG 的 tools / route），查清为什么该主机的工具不在钉给它的任务的路由上；修 STG 的规则或登记，再把 T80 跑一遍。
+- **防线**：handin 在 propose 之后、run 之前先查一次 `route`，主机不在路由上就在 propose 时拒绝并说明，不留 proposed 任务。
+- **验收**：STG 上 `handin.sh run` 领到钉给 coordinator-mbp 的任务并走到 verifying。
+
+### TD-469
+
+**P3 · scripts/gitea/protect-repo.sh · Gitea 对 glob 规则回空 branch_name，--apply 中途停在 invalid protection metadata**
+
+- **状态**：未开始（2026-10-31）。
+- **证据**：2026-10-31 01:1x `protect-repo.sh --apply --owner weitingzhao bifrost-trade-infra`：第一步写入后回读，`scripts/gitea/protection_state.py:46-47` 要求每条规则的 `branch_name` 等于规则名，而 Gitea 1.21 对 `land/prod/**` 这类 glob 规则回的 `branch_name` 是空串，于是 `StateError("invalid protection metadata")`，脚本按设计 `stop_partial`。Owner 随后在 Gitea 页面上手工完成（team landing-prod 加 infra Write、main 白名单加 agentrt-lander）。
+- **影响**：S6 加白名单这一步脚本做不完，要人手补；下次任何仓库的 glob 规则都会撞上。
+- **修法**：`protection_state.py` 把 `branch_name` 当元数据：glob 规则允许空串，非 glob 仍要求等于规则名；补一条 glob 规则回读的夹具测试。
+- **防线**：`scripts/gitea/test_protection_state.py`（新）：glob 规则 `branch_name=""` 不再判 invalid。
+- **验收**：`protect-repo.sh --check --owner weitingzhao bifrost-trade-infra bifrost-platform` 退出 0。
+
+### TD-468
+
+**P3 · platform landing · infra 落地在 branch_pushed 后固定空等 10 分钟，且等待期间没有任何事件**
+
+- **状态**：未开始（2026-10-31）。
+- **证据**：`api/internal/agentrt/landing/drill.go:129-133`（NextDrill）：候选 CI 为 `Missing` 时等到 `PreparedAt+10min` 才返回 `ci_kick`，之前返回 `wait`；`controller/landing_drill.go` 的 switch 里 `wait` 不写事件、不打日志。infra 的候选 CI 只认 `infraPreparedKey`（`server/agentrt_landing_ci.go:24-36`：purpose=landing、base、platformRevision、generation 全要对上），只有 `EnsureInfraCI` 会建，推送 webhook 永远建不出合格候选，所以这 10 分钟对 infra 纯属空等。实测两次：T81 第一次 07:11:53Z prepared → 07:22:02Z ci_kick；第二次 08:33:43Z → 08:43:55Z。platform 走 grant 时 `PinCI` 为真，立即 kick，不受影响。
+- **影响**：每次 infra 落地多 10 分钟；等待期间 Console 和事件流都像卡死（2026-10-31 02:1x 曾误判并派人查）。
+- **修法**：`drill.go:131` 对 `bifrost-trade-infra` 且 `!o.Kicked` 直接返回 `ci_kick`；落地状态（CUT §11.13 那一栏）显示「等 CI 宽限到 HH:MM」或 workers 打一条 debug。
+- **防线**：landing 包单测：infra 在 branch_pushed 之后、同一个 pass 内就 kick。
+- **验收**：一次 infra 落地从 branch_pushed 到 ci_kick 小于 30 秒。
+
 ### TD-467
 
 **P2 · S5 · 检查器镜像地址用的是集群内服务名，节点拉不到**
