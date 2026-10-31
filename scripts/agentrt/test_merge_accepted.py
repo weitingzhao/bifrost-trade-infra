@@ -45,6 +45,11 @@ def identity(monkeypatch: pytest.MonkeyPatch) -> None:
     # Commits made without an explicit author (other work, reverts) fall back
     # to EMAIL; a CI pod's hostname has no domain to invent one from.
     monkeypatch.setenv("EMAIL", "tester@example.invalid")
+    # Some hosts' service users have no name either (agentd on agent-06);
+    # environment config sits below the explicit GIT_AUTHOR_* the tests set.
+    for k, v in {"GIT_CONFIG_COUNT": "2", "GIT_CONFIG_KEY_0": "user.name", "GIT_CONFIG_VALUE_0": "tester",
+                 "GIT_CONFIG_KEY_1": "user.email", "GIT_CONFIG_VALUE_1": "tester@example.invalid"}.items():
+        monkeypatch.setenv(k, v)
     for k, v in {"GIT_COMMITTER_NAME": "coordinator", "GIT_COMMITTER_EMAIL": "coordinator@example.invalid"}.items():
         monkeypatch.setenv(k, v)
     for k in ("CLAUDE_CODE_HOST_SESSION_ID", "CLAUDE_CODE_SESSION_ID", "GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "PLATFORM_ROOT"):

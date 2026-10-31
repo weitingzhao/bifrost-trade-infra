@@ -30,7 +30,11 @@ def two_repo_clone(tmp_path_factory):
     base = commit(infra)
     put(infra, 'review777-candidate.txt', 'single-parent candidate\n')
     revision = commit(infra)
-    platform = next(p for p in (ROOT.parent / 'platform', ROOT.parent / 'bifrost-platform') if (p / '.git').exists())
+    platform = next((p for p in (ROOT.parent / 'platform', ROOT.parent / 'bifrost-platform') if (p / '.git').exists()), None)
+    if platform is None:
+        # agentd's runtime verify checks out infra alone; ci-infra and a full
+        # workspace have the platform sibling and run these two tests.
+        pytest.skip('needs the bifrost-platform sibling checkout (absent in the agentd infra workspace)')
     psha = git(platform, 'rev-parse', 'HEAD')
     subprocess.run(['git', 'clone', '-q', '--no-hardlinks', str(platform), str(source / 'bifrost-platform')], check=True)
     git(source / 'bifrost-platform', 'checkout', '--detach', psha)
