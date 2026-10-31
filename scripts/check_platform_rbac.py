@@ -106,7 +106,6 @@ ACTIONS = [
     ("start_pipeline", "B/C", "create", "pipelineruns.tekton.dev", "cicd"),
     ("delete_pipeline_run", "B", "delete", "pipelineruns.tekton.dev", "cicd"),
     ("delete_pipeline_run", "B", "delete", "pods", "cicd"),
-    ("stg_release_sample_finalize", "C", "patch", "pipelineruns.tekton.dev", "cicd"),
     ("gitops_sync", "B/C", "patch", "applications.argoproj.io", "cicd"),
     ("gitops_rollback", "B/C", "patch", "applications.argoproj.io", "cicd"),
     ("rollout_restart", "C", "update", "deployments.apps", "data"),
