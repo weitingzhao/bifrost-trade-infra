@@ -3572,12 +3572,13 @@
 
 **P3 · platform 测试 · 落地 PG 测试的启用栅栏按冻结时钟放，偶发 before_enable**
 
-- **状态**：未开始（2026-10-29）。
+- **状态**：未开始（2026-10-29；10-30 查清根因）。
 - **证据**：`api/internal/server/agentrt_landing_708_pg_test.go:239` `TestReview708FinalGatesTwoConnectionsPG` 在 server 包整包运行时偶发失败：STG 子用例 `drill final gate: failed stale`，PROD 子用例 `gate did not authorize … Reason:before_enable`。基线 `78cd8d26` 上连跑两次 server 包，第二次 6 个子用例全红；单独跑通过。同类根因已在 S6-6 的 T50–T55 夹具里确认并修掉（codex-work-721，platform `b728f2f0`）：启用事件按冻结的事件时钟写，mission 的 `created_at` 取 PostgreSQL `now()`，两者先后颠倒时资格判定正确地给出 `before_enable`。
 - **同类第二例**（2026-10-29 19:0x CDT，S6-6 落地 CI `landing-ci-a48a84e3f01c0e4e3381260f-1`）：`internal/agentrt/store` `TestLiveGateRefusesARootPastItsWindow/during_the_reads` 报 `landing gate: the UTC day changed during the gate`——CI 恰好跨过 UTC 午夜；测试用真实时钟，日界附近必然误报。修法同：测试注入时钟，不读墙钟。
 - **已排除**：server 包不冻结事件时钟（`FreezeEventClock` 只在 store 包的 export_test）；本机测试库比本机时钟快约 8 ms（2026-10-29 量），方向上只会让 mission 更晚，不能解释 `before_enable`。根因待查，先看资格判定里比较的是哪两个时间（规则 `effective_at` 截到秒、启用事件、mission 创建、验收事件）。
+- **根因（2026-10-30 22:50 查清）**：夹具用 Go 事件时钟（`store.eventClock = time.Now`）给 landing「enabled」事件盖时间，用 PostgreSQL `now()`（事务开始时间）给 mission 的 `created_at` 盖时间；两个时钟之间的偏差会漂。10-30 晚本机测试库量得 `db - host = -1.56 ms`（5 次，往返 0.3 ms，与 10-29 量的 +8 ms 方向相反），于是下一事务在 enabled 之后 1.5 ms 内开始时 `mission.created_at < fence`，夹具自己的时钟顺序检查（`agentrt_landing_708_pg_test.go:189`）失败。与时序有关：d99c04c 单独能过，d99c04c+TD-460、d99c04c+S5 本机 3/3 失败，与那两项改动无关。生产上最终闸门同样拿库时钟的 `created_at` 比事件时钟的栅栏，跨 Pod 偏差只会让启用后偏差以内创建的 mission 被判不合格（失败即拒绝）。
 - **影响**：CI 与本机全套偶发红，推 main 前要重跑；真实回归可能被当成偶发放过。
-- **修法**：查清后再定；若是时钟对齐问题，708 夹具（及其他按冻结时钟放启用栅栏的落地 PG 夹具）改为读 PostgreSQL `now()`，把启用事件放在它与测试时间之前。
+- **修法**：夹具在创建 mission 前循环读 `clock_timestamp()`，直到库内时间晚于栅栏再建（不改写 `created_at`）；或两边用同一个时钟盖章。其他按事件时钟放启用栅栏的落地 PG 夹具一并改。
 - **防线**：在 PG 测试 harness 里加一个检查：启用栅栏晚于库内 `now()` 时夹具直接失败并说明原因，而不是让资格判定给出 `before_enable`。
 - **验收**：`go test -count=5 ./internal/server/ -run TestReview708` 带库连续五次通过。
 
@@ -3642,11 +3643,22 @@
 - **防线**：PG 测试——两张并行单，先落一张，另一张干净重放后不需新单即可落地；patch-id 变化（冲突解决）时必须新单。
 - **验收**：两件并行改动 Owner 各批一次即全部落地。
 
+### TD-464
+
+**P3 · handin · 报告过大被拒后 key 绑死，新 key 要等 15 分钟宽限**
+
+- **状态**：未开始（2026-10-30）。
+- **证据**：2026-10-30 15:4x S6 quick（`t_01M6796F06X57VF6T36PNFCQWV`）：`handin.sh run` 在 claim 之后上传 13 KB 报告得 HTTP 422；该 key 随即绑定到这份报告（再用同 key 报 `key is bound to a different report`），换新 key 又报 `leased, not ready`，要等旧尝试过 Grace（15 分钟，`api/internal/agentrt/store/kernel.go:44`）。
+- **影响**：一次报告超长就白等 15 分钟以上，且要人工判断换 key。
+- **修法**：`handin.sh run` 在 claim 之前按 API 给出的上限检查报告大小，超限直接拒绝、不 claim；脚本说明里写明宽限等待。
+- **防线**：handin 的 shell 测试：超长报告在 claim 之前失败、不产生任何尝试。
+- **验收**：用一份超限报告跑 `handin.sh run`，返回大小错误且平台上没有新尝试。
+
 ### TD-463
 
 **P3 · platform AI assessment · 改为 Owner 点了才生成（Owner 2026-10-30 早上提出）**
 
-- **状态**：未开始（2026-10-30）。
+- **状态**：在做——已落 platform main `d99c04c`（#213，2026-10-30 22:32）；发布到 PROD 后跑验收再进「待你签收」。
 - **来源**：Owner 原话：「有了 AI assessment 的能力很好，我想这个能力可以让我手动点击去问，默认不用，我点了，再给我 Assessment」。
 - **现状**：`api/internal/agentrt/controller/assess.go:30` 的 `Assess` 按 `AssessEvery` 定时扫描，每张等 Owner 的审批单和每张卡都自动交给参谋长席位评估；Console `pages/ApprovalsPage.tsx:400` 与 `pages/question/AssessmentPanel.tsx` 直接展示。
 - **修法**：默认不生成；审批页 / 问题页的 Assessment 区放一个「Ask for assessment」按钮，点了才登记评估请求，由现有循环处理并在页面上显示进度与结果；已生成的保留。是否保留某些类别自动评估，先问 Owner。
