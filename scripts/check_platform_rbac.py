@@ -73,6 +73,10 @@ MATRIX = [
     ("update", "configmaps", "data", False, True),
     ("get", "secret/minio-backup", "data", False, True),
     ("create", "pipelineruns.tekton.dev", "cicd", False, True),
+    # B5 / TD-460: remove the B5 hold finalizer after archiving evidence
+    ("patch", "pipelineruns.tekton.dev", "cicd", False, True),
+    ("update", "pipelineruns.tekton.dev", "cicd", False, False),
+    ("patch", "taskruns.tekton.dev", "cicd", False, False),
     ("patch", "applications.argoproj.io", "cicd", False, True),
     # never
     ("get", "pods:log", "kube-system", False, False),
@@ -102,6 +106,7 @@ ACTIONS = [
     ("start_pipeline", "B/C", "create", "pipelineruns.tekton.dev", "cicd"),
     ("delete_pipeline_run", "B", "delete", "pipelineruns.tekton.dev", "cicd"),
     ("delete_pipeline_run", "B", "delete", "pods", "cicd"),
+    ("stg_release_sample_finalize", "C", "patch", "pipelineruns.tekton.dev", "cicd"),
     ("gitops_sync", "B/C", "patch", "applications.argoproj.io", "cicd"),
     ("gitops_rollback", "B/C", "patch", "applications.argoproj.io", "cicd"),
     ("rollout_restart", "C", "update", "deployments.apps", "data"),

@@ -149,7 +149,11 @@ rules:
     verbs: [get]
 ---
 # PROD only, in cicd: start / delete PipelineRuns and TaskRuns, Argo sync and
-# rollback.
+# rollback. patch on PipelineRuns only: B5 and the TD-460 sample finalize
+# remove the B5 hold finalizer (guarded JSON patch with UID / resourceVersion
+# / finalizer-index tests) after archiving the run's evidence. No update, no
+# TaskRun patch; the bifrost-platform-pipelinerun admission policy still
+# validates every UPDATE.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -159,6 +163,9 @@ rules:
   - apiGroups: [tekton.dev]
     resources: [pipelineruns, taskruns]
     verbs: [create, delete]
+  - apiGroups: [tekton.dev]
+    resources: [pipelineruns]
+    verbs: [patch]
   - apiGroups: [argoproj.io]
     resources: [applications]
     verbs: [update, patch]
