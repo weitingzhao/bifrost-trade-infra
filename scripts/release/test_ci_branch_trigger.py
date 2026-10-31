@@ -86,7 +86,9 @@ def test_every_ci_filter_has_the_same_ref_rule():
         expr = " ".join(filters()[name].split())
         assert expr.startswith("body.ref.startsWith('refs/heads/') && body.after.matches('^[0-9a-f]{40}$') && "
                                "body.after != '" + ZERO + "' && "), name
-    assert set(filters()) == set(CI) | {"github-sync"}
+    # infra-ci (W-31 S6) has its own rule (repository first, no land/ or agent/
+    # refs), pinned by scripts/landing/test_ci_infra_pins.py.
+    assert set(filters()) == set(CI) | {"github-sync", "infra-ci"}
 
 
 def test_a_posted_body_runs_nothing_unless_after_is_a_commit():
