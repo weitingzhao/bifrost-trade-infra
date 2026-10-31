@@ -1,7 +1,7 @@
 rule_id: standing-envelope:dev
-rule_version: 5
+rule_version: 6
 direction: loosen
-effective_at: 2026-10-29T00:00:00Z
+effective_at: 2026-10-31T00:00:00Z
 expires_at: 2027-01-15T00:00:00Z
 tenant: dev
 max_action: branch
@@ -16,5 +16,5 @@ external_hosts:
     proposer: seat:coordinator
     executor: exec:claude
     provider: anthropic
-    repos: [bifrost-platform]
+    repos: [bifrost-platform, bifrost-trade-infra]
     roles: [implement]
