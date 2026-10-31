@@ -1,14 +1,19 @@
 rule_id: landing:dev
-rule_version: 2
+rule_version: 3
 direction: loosen
-effective_at: 2026-10-29T00:00:00Z
-expires_at: 2026-11-28T00:00:00Z
+effective_at: 2026-10-31T00:00:00Z
+expires_at: 2026-11-30T00:00:00Z
 tenant: dev
 repos:
   - repo: bifrost-platform
     allow: ["console/src/components/**/*.tsx", "console/src/components/**/*.css", "console/src/pages/**/*.tsx", "console/src/styles/**/*.css"]
     deny: []
     stg_release: none
+  - repo: bifrost-trade-infra
+    allow: ["agent-config/work/multi-agent/CUT-*.md", "agent-config/work/multi-agent/DESIGN-*.md", "agent-config/work/multi-agent/REPORT-*.md", "agent-config/work/multi-agent/REVIEW-*.md", "agent-config/work/multi-agent/LESSONS-*.md", "agent-config/work/multi-agent/reviews/*.md"]
+    deny: []
+    stg_release: none
+    limits: {max_files: 5, max_changed_lines: 1500, max_in_flight: 1}
 limits:
   max_files: 10
   max_changed_lines: 300
