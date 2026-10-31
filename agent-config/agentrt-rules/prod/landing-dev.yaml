@@ -1,5 +1,5 @@
 rule_id: landing:dev
-rule_version: 3
+rule_version: 4
 direction: loosen
 effective_at: 2026-10-31T00:00:00Z
 expires_at: 2026-11-30T00:00:00Z
@@ -8,7 +8,7 @@ repos:
   - repo: bifrost-platform
     allow: ["console/src/components/**/*.tsx", "console/src/components/**/*.css", "console/src/pages/**/*.tsx", "console/src/styles/**/*.css"]
     deny: []
-    stg_release: none
+    stg_release: bifrost-deliver-platform
   - repo: bifrost-trade-infra
     allow: ["agent-config/work/multi-agent/CUT-*.md", "agent-config/work/multi-agent/DESIGN-*.md", "agent-config/work/multi-agent/REPORT-*.md", "agent-config/work/multi-agent/REVIEW-*.md", "agent-config/work/multi-agent/LESSONS-*.md", "agent-config/work/multi-agent/reviews/*.md"]
     deny: []
