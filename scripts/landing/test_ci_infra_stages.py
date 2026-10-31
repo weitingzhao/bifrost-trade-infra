@@ -132,7 +132,7 @@ def test_health_fails_unreadable_or_partial(tmp_path):
 
 
 def test_tools_exact_version_and_missing(tmp_path, monkeypatch):
-    answers = ['Python 3.12.4\n', 'git version 2.39.5\n', '5.2.15(1)-release',
+    answers = ['Python 3.12.16\n', 'git version 2.39.5\n', '5.2.15(1)-release',
                '{"clientVersion":{"gitVersion":"v1.31.4"}}', 'go version go1.25.3 linux/amd64\n']
     expected = tmp_path / 'expected'
     expected.write_bytes((ROOT / 'docker/ci-infra/TOOLS.expected').read_bytes())

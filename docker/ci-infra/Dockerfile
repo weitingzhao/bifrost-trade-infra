@@ -1,6 +1,8 @@
-# linux/amd64 only. This seed pin is published by Docker Official Images.
-# Before the FIRST build, coordinator must resolve the build-day 3.12 tag,
-# update FROM + TOOLS.expected, and review the lock change (design §5.3).
+# linux/amd64 only. Resolved 2026-10-30 with
+# `docker buildx imagetools inspect python:3.12-slim-bookworm`: OCI index
+# below, linux/amd64 manifest sha256:623674a14ef93d052bb9b0de4dbf5f28eb578a35263838941cc8aa43213c1487,
+# PYTHON_VERSION=3.12.16 (TOOLS.expected). Re-resolve and update both before
+# a later build changes the base (design §5.3).
 FROM python:3.12-slim-bookworm@sha256:e697c81897302a4c4333bade000d98038fbb21eb064f8ee1fd42d02ebcd9d337
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
