@@ -3643,6 +3643,17 @@
 - **防线**：PG 测试——两张并行单，先落一张，另一张干净重放后不需新单即可落地；patch-id 变化（冲突解决）时必须新单。
 - **验收**：两件并行改动 Owner 各批一次即全部落地。
 
+### TD-472
+
+**P2 · S5 · 准入策略文件里的 S5 段在 Kubernetes 1.35 上 CEL 编译不过，从未装上；main 与线上不一致**
+
+- **状态**：未开始（2026-10-31）。
+- **证据**：2026-10-31 11:17 #233（owner_run_command）对 infra main f871bc4 的 `k8s/platform-rbac/40-admission.yaml` 做服务端 dry-run 被拒：S5 模板比较处 `expected type 'string' but found 'map(string, dyn)'`、`expected type 'bool' but found 'map(string, string)'` 等类型错误，来自 10-30 的 6a9bf12、f416ea7、25d7b23（`variables.s5`）。线上 `bifrost-platform-pipelinerun` 一直是 e889aa6（10-24）版；B5 改用安装快照 971956d（分支 `install/b5-admission-2026-10-31`：e889aa6 + B5 repo-url 一条规则）装上（#234）。
+- **影响**：main 上的准入文件装不上去；S5 启用前必须修；在修好之前，任何人按 main 重装都会在 dry-run 失败（失败即不改，安全）。
+- **修法**：把 S5 段里的列表 / map 字面量改成同构（`dyn()` 包裹或逐字段比较），每次改动在集群上做服务端 dry-run；装上后 main 与线上一致，删安装快照分支。
+- **防线**：infra CI 的 statics 阶段对 `40-admission.yaml` 做与集群版本一致的 CEL 编译检查，编不过就红。
+- **验收**：`git show origin/main:k8s/platform-rbac/40-admission.yaml | kubectl apply --dry-run=server -f -` 通过。
+
 ### TD-471
 
 **P2 · S5 · 检查器镜像里没有清单绑定的依赖声明文件，启用后每次检查都会报 S5_TYPE，且构建期发现不了**
