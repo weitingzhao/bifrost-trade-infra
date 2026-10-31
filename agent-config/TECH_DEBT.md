@@ -3675,3 +3675,25 @@
 - **修法**：加一个 STG 专用、只能在 `stg_release` 首次开门流程里调用的平台动作（建样本、收尾各一），走现有审批分级；或在设计里改为由 B5 控制循环在首次 run 时自建样本并在终态收尾。二选一前先问 Owner。
 - **防线**：canary 文档里每一步都对应一个存在的平台动作；加一条文档测试（检查文档里引用的动作名都在动作表里）。
 - **验收**：在 STG 按 `B5-CANARY.md` 从头到尾跑完一次，无需替代步骤。
+
+### TD-465
+
+**P2 · infra 落地 · 文档消费者棘轮：reader / constraint / skip 只按命中行哈希，复用已有路径变量的新读取看不见**
+
+- **状态**：未开始（2026-10-30）。
+- **证据**：`scripts/landing/doc_consumers.py:29` 的 `fingerprint` 只对命中行（S1/S2）取哈希，`:46-52` 的 `verify` 只在命中行改变时报 `consumer_changed`。已登记的读者都把文档目录放在一个变量里：`scripts/release/test_dl5_approval_consistency.py:9` 的 `ROOT`、`agent-config/scripts/validate_plan_view.py:9` 的 `DEFAULT`、`scripts/agentrt/issue_index_check.py:33` 的 `CREW`、`scripts/cicd/test_landing_owner_steps.py:13` 的 `DOCUMENT`、`scripts/agent-host/test_probe_gitea_protection.py:911` 的 `steps`。之后在同一文件里写 `ROOT / 'REPORT-x.md'` 之类的新读取，命中行一行不变，哈希照旧，登记里的读集（`reads`）就不再完整，`registry_overlap` 不变式也查不到它。constraint 和 skip 同样只看命中行。
+- **影响**：开放集合与读者读集不相交，是 infra 文档落地的前提（DESIGN-S6-v3 §4.4）。这个缺口让新读者可以在不触发棘轮的情况下进 main，只剩复核者人工发现（§4.5 第 1 条的剩余信任）。
+- **修法**：`reader`、`constraint`、`skip` 三类改为对整个文件取哈希（文件任何改动都要重新核实登记）；`data`、`mention`、`token` 仍按命中行。`doc_consumers.py` 按类别选哈希方式，登记表随之重算。
+- **防线**：`scripts/landing/test_doc_policy.py` 加用例：已登记的 reader 在不改命中行的情况下加一行新读取 → 红 `consumer_changed`；同样的改动放在 mention 文件里 → 绿。
+- **验收**：`python -m pytest -q scripts/landing` 全绿，且新用例在去掉整文件哈希后变红。
+
+### TD-466
+
+**P2 · infra 落地 · 平台侧发现把单词 work 也当信号，平台任何一处新 token 都让 infra 落地整条变红**
+
+- **状态**：未开始（2026-10-30）；修法要 Owner 定。
+- **证据**：`scripts/landing/doc_consumers.py:12` 的 S1 含 `["']work["']` 和 `/work/`，`:69` 对平台检出也用 S1。平台 9997c113 有 89 个命中文件，其中 64 个登记为 `token`（JSON 键、路由 id、夹具目录名，与 infra 文档无关）。S5 落地（9997c113）一次就新增 3 个这样的文件（`api/internal/agentrt/rules/s5check/ci_test.go`、`landing_contract_test.go`、`policies/manifest.json`），每一个都会让 infra 落地红在 `unregistered_consumer`，直到 Owner 手推更新登记（登记表在硬底线）。
+- **影响**：平台的日常开发会不断关掉 infra 文档落地，每次都要 Owner 手推一个只为登记 token 的提交，抵消了 S6 让 Owner 不再手推 infra 的目的。
+- **修法**（二选一，先问 Owner）：A. 平台侧只认目录信号 `multi-agent|agent-config/work|work/multi`，单独的 `"work"` 与 `/work/` 不再算（平台读 infra 只经三条 Gitea 读取路径，都指向硬底线文件，§12）；B. 规则不变，但平台侧只命中 token 型信号的新增文件降为告警，不变红。推荐 A：规则简单，降级判断不依赖分类。
+- **防线**：`scripts/landing/test_doc_policy.py` 加用例：平台新增一行 `"work"` → 绿（A）或告警（B）；平台新增 `agent-config/work/multi-agent/...` 引用 → 仍红 `unregistered_consumer`。
+- **验收**：在平台夹具里加一个只含 `"work"` 键的新文件，`doc_consumers.py` 不红；加一个含文档目录路径的新文件，红。
