@@ -233,6 +233,7 @@ def live() -> list[str]:
     pr_steps = (PR_POLICY, "tekton-deliver runs only the listed delivery steps")
     pr_params = (PR_POLICY, "platform run parameters must be plain strings")
     pr_gitea = (PR_POLICY, "platform run giteaBase must be the in-cluster Gitea")
+    pr_repo_url = (PR_POLICY, "platform run repo-url must be the bifrost-platform repository")
     tr_identity = (TR_POLICY, "platform TaskRuns run as default")
     tr_pod = (TR_POLICY, "TaskRun podTemplate may set only nodeSelector, tolerations and affinity")
     tr_params = (TR_POLICY, "platform TaskRun parameters must be plain strings")
@@ -250,6 +251,13 @@ def live() -> list[str]:
         # TD-436: which steps may run as which identity, and plain parameters (TD-435).
         ("ci-template-deliver-pipelinerun", platform, "cicd", tekton_run("bifrost-ci-platform", [], template_sa="tekton-deliver"), True, pr_steps),
         ("gitea-base-pipelinerun", platform, "cicd", tekton_run("bifrost-ci-platform", [], params=[("giteaBase", "http://example.invalid/bifrost")]), True, pr_gitea),
+        # W-31 B5: repo-url is the clone source of P, so only the platform repository passes.
+        ("repo-url-other-host-pipelinerun", platform, "cicd",
+         tekton_run("bifrost-ci-platform", [], params=[("repo-url", "http://example.invalid/bifrost/bifrost-platform.git")]), True, pr_repo_url),
+        ("repo-url-other-repo-pipelinerun", platform, "cicd",
+         tekton_run("bifrost-ci-platform", [], params=[("repo-url", "http://gitea.cicd.svc.cluster.local:3000/bifrost/bifrost-ui.git")]), True, pr_repo_url),
+        ("repo-url-platform-pipelinerun", platform, "cicd",
+         tekton_run("bifrost-ci-platform", [], params=[("repo-url", "http://gitea.cicd.svc.cluster.local:3000/bifrost/bifrost-platform.git")]), False),
         ("applier-taskrun", platform, "cicd", tekton_taskrun("bifrost-apply-manifest", "bifrost-applier"), True, tr_identity),
         ("deliver-other-taskrun", platform, "cicd", tekton_taskrun("bifrost-git-clone-gitea", "tekton-deliver"), True, tr_identity),
         ("refresh-taskrun", platform, "cicd", tekton_taskrun("bifrost-refresh-dockerfile-cms", "tekton-deliver"), False),

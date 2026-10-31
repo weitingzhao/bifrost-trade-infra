@@ -46,6 +46,13 @@ spec:
     - name: giteaBase
       type: string
       default: http://gitea.cicd.svc.cluster.local:3000/bifrost
+    # W-31 B5 (DESIGN-B5-v3 §4.2): the repository P is cloned from, as run
+    # identity. The B5 release reader requires every run to carry it in
+    # spec.params and never infers it from this default; the trigger and the
+    # platform pass it explicitly, and admission allows only this value.
+    - name: repo-url
+      type: string
+      default: http://gitea.cicd.svc.cluster.local:3000/bifrost/bifrost-platform.git
   workspaces:
     - name: source
   tasks:
@@ -54,7 +61,7 @@ spec:
         name: bifrost-git-clone-gitea
       params:
         - name: url
-          value: $(params.giteaBase)/bifrost-platform.git
+          value: $(params.repo-url)
         - name: revision
           value: $(params.revision)
         - name: subdir

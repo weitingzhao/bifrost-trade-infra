@@ -217,6 +217,14 @@ spec:
             && p.value.startsWith('http://gitea.cicd.svc.cluster.local:3000/bifrost/'))))
       message: >-
         platform run giteaBase must be the in-cluster Gitea and url must point into it (TD-435, TD-436, review 546 R2)
+    # W-31 B5: bifrost-ci-platform clones P from repo-url, and other CI readers do not
+    # check it, so a run may name only the platform repository in Gitea.
+    - expression: >-
+        !has(object.spec.params)
+        || object.spec.params.all(p,
+          p.name != 'repo-url' || p.value == 'http://gitea.cicd.svc.cluster.local:3000/bifrost/bifrost-platform.git')
+      message: >-
+        platform run repo-url must be the bifrost-platform repository in the in-cluster Gitea (W-31 B5)
     - expression: >-
         !has(object.spec.pipelineRef) || !has(object.spec.pipelineRef.name)
         || object.spec.pipelineRef.name != 'bifrost-ci-s5' || variables.s5

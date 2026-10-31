@@ -129,7 +129,8 @@ EXPECTED_CLONE = {
     "name": "clone",
     "taskRef": {"name": "bifrost-git-clone-gitea"},
     "params": [
-        {"name": "url", "value": "$(params.giteaBase)/bifrost-platform.git"},
+        # W-31 B5: P is cloned from the run's repo-url (its identity), not giteaBase.
+        {"name": "url", "value": "$(params.repo-url)"},
         {"name": "revision", "value": "$(params.revision)"},
         {"name": "subdir", "value": "bifrost-platform"},
     ],
