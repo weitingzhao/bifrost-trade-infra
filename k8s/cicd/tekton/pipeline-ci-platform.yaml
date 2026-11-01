@@ -4,6 +4,10 @@
 # tsconfig paths → bifrost-ui/dist), so bifrost-ui is cloned and built first.
 # Lightweight: clone → go vet + go test → console type-check, lint, test and build → check-spine →
 # ops-context parity against the infra copies. No deploy.
+# R5:5.7-1: task changes reads which files the commit changes against main; when all of
+# them are console/** outside console/src/api, or Markdown outside api/ and config/, test-api runs
+# only the Go tests that read files outside api/ (it still runs, so the run's reason
+# stays Succeeded: no task is skipped). Anything it cannot tell runs every Go test.
 apiVersion: tekton.dev/v1
 kind: Pipeline
 metadata:
@@ -110,12 +114,168 @@ spec:
       workspaces:
         - name: output
           workspace: source
+    # R5:5.7-1: the files revision changes against main, from its merge base with Gitea's
+    # main (a branch push, and a landing run, whose commit is prepared on main). It answers
+    # api-scope=console only when every change is a plain file under console/ outside
+    # console/src/api, or a Markdown file outside api/ and config/ (Go tests read both
+    # trees). Anything else answers full: another path, a commit on main (no change
+    # against main), a revision that is not a SHA (a bifrost-ui push runs main), a list
+    # it cannot read or of more than 2000 files, any failure. It writes full before
+    # anything else and always exits 0, so it never fails a run. No workspace: it clones
+    # into its own container (blobless).
+    - name: changes
+      params:
+        - name: repo-url
+          value: $(params.repo-url)
+        - name: revision
+          value: $(params.revision)
+      taskSpec:
+        params:
+          - name: repo-url
+            type: string
+          - name: revision
+            type: string
+        results:
+          - name: api-scope
+            description: full, or console when the Go code is main's and only console or Markdown changed
+          - name: why
+            description: One line on how api-scope was chosen
+        steps:
+          - name: diff
+            image: alpine/git:2.45.2
+            computeResources:
+              requests:
+                cpu: 100m
+                memory: 64Mi
+              limits:
+                cpu: "1"
+                memory: 512Mi
+            env:
+              - name: GIT_USERNAME
+                valueFrom:
+                  secretKeyRef:
+                    name: gitea-ci-reader
+                    key: username
+              - name: GIT_PASSWORD
+                valueFrom:
+                  secretKeyRef:
+                    name: gitea-ci-reader
+                    key: password
+              - name: REPO_URL
+                value: $(params.repo-url)
+              - name: REVISION
+                value: $(params.revision)
+            script: |
+              #!/bin/sh
+              set -u
+              scope_file="$(results.api-scope.path)"
+              why_file="$(results.why.path)"
+              printf 'full' > "$scope_file"
+              printf 'not decided' > "$why_file"
+              answer() {
+                printf '%s' "$1" > "$scope_file"
+                printf '%s' "$2" | cut -c1-300 | tr -d '\n' > "$why_file"
+                echo "api-scope: $1 ($2)"
+                exit 0
+              }
+              full() { answer full "$1"; }
+              user="${GIT_USERNAME:-}"
+              password="${GIT_PASSWORD:-}"
+              unset GIT_USERNAME GIT_PASSWORD
+              [ -n "$user" ] && [ -n "$password" ] || full "no Gitea reader credential"
+              auth="$(printf '%s:%s' "$user" "$password" | base64 | tr -d '\n')"
+              unset user password
+              limit=""
+              command -v timeout >/dev/null 2>&1 && limit="timeout 120"
+              git_read() {
+                # shellcheck disable=SC2086
+                GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0 \
+                GIT_CONFIG_COUNT=5 \
+                GIT_CONFIG_KEY_0=http.http://gitea.cicd.svc.cluster.local:3000/.extraHeader \
+                GIT_CONFIG_VALUE_0="Authorization: Basic $auth" \
+                GIT_CONFIG_KEY_1=http.followRedirects GIT_CONFIG_VALUE_1=false \
+                GIT_CONFIG_KEY_2=credential.helper GIT_CONFIG_VALUE_2= \
+                GIT_CONFIG_KEY_3=http.lowSpeedLimit GIT_CONFIG_VALUE_3=1000 \
+                GIT_CONFIG_KEY_4=http.lowSpeedTime GIT_CONFIG_VALUE_4=30 \
+                $limit git "$@"
+              }
+              url="${REPO_URL:-}"
+              rev="${REVISION:-}"
+              case "$url" in *[!A-Za-z0-9._:/-]*|'') full "the repository address is not one this task reads" ;; esac
+              printf '%s' "$url" | grep -Eq '^http://gitea\.cicd\.svc\.cluster\.local:3000/[A-Za-z0-9_-]+/[A-Za-z0-9_-][A-Za-z0-9._-]*\.git$' ||
+                full "the repository is not in the in-cluster Gitea"
+              case "$rev" in *[!0-9a-f]*|'') full "revision is not a commit SHA" ;; esac
+              [ "${#rev}" -eq 40 ] || full "revision is not a commit SHA"
+              work="$(mktemp -d)" || full "no temporary directory"
+              repo="$work/repo.git"
+              # Blobless: the names of changed files need commits and trees only.
+              git_read clone -q --bare --filter=blob:none --no-tags "$url" "$repo" >/dev/null 2>&1 ||
+                full "cannot clone the repository from Gitea"
+              cd "$repo" || full "no clone"
+              # Nothing below may fetch a missing object on its own (git 2.44+).
+              export GIT_NO_LAZY_FETCH=1
+              if ! git cat-file -e "$rev^{commit}" 2>/dev/null; then
+                git_read fetch -q --no-tags origin "$rev" >/dev/null 2>&1 || true
+              fi
+              git cat-file -e "$rev^{commit}" 2>/dev/null || full "commit $rev is not in Gitea"
+              main="$(git rev-parse -q --verify 'refs/heads/main^{commit}')" || full "Gitea has no main"
+              base="$(git merge-base "$main" "$rev")" || full "no common history with main"
+              [ "$base" != "$rev" ] || full "the commit is on main: nothing to compare it with"
+              git diff --raw -z --no-renames --no-abbrev --ignore-submodules=none --no-ext-diff "$base" "$rev" > "$work/raw" ||
+                full "cannot read the changes against main"
+              echo "changes of $rev against main (merge base $base):"
+              tr '\0' '\n' < "$work/raw" | awk 'NR % 2 == 0' | head -50
+              # Records alternate: ":<old mode> <new mode> <old> <new> <status>", then the path.
+              verdict="$(tr '\0' '\n' < "$work/raw" | awk -v max=2000 '
+                BEGIN { n = 0; meta = 1; bad = ""; shown = 0; list = "" }
+                meta == 1 {
+                  if ($0 !~ /^:[0-7][0-7][0-7][0-7][0-7][0-7] [0-7][0-7][0-7][0-7][0-7][0-7] [0-9a-f]+ [0-9a-f]+ [ADM]$/) {
+                    bad = "a change that is not an add, delete or edit of one file"; exit
+                  }
+                  old = substr($0, 2, 6); new = substr($0, 9, 6); meta = 0; next
+                }
+                {
+                  meta = 1; n++; path = $0
+                  if (n > max) { bad = "more than " max " files changed"; exit }
+                  if (path !~ /^[A-Za-z0-9._@+-][A-Za-z0-9._@+\/-]*$/ || path ~ /(^|\/)\.\.?(\/|$)/ || path ~ /\/\// || path ~ /\/$/) {
+                    bad = "a path this task does not read"; exit
+                  }
+                  if (!((old == "000000" || old == "100644" || old == "100755") && (new == "000000" || new == "100644" || new == "100755"))) {
+                    bad = path " is not a plain file"; exit
+                  }
+                  console = (substr(path, 1, 8) == "console/" && substr(path, 1, 16) != "console/src/api/")
+                  doc = (path ~ /\.md$/ && substr(path, 1, 4) != "api/" && substr(path, 1, 7) != "config/")
+                  if (!console && !doc) { bad = path " is outside console scope"; exit }
+                  if (shown < 3) { list = list (shown ? ", " : "") path; shown++ }
+                }
+                END {
+                  if (bad == "" && meta == 0) bad = "the change list ends inside a record"
+                  if (bad == "" && n == 0) bad = "no change against main"
+                  if (bad != "") { print "full"; print bad; exit }
+                  print "console"
+                  print n " file(s), each console/** outside console/src/api or Markdown outside api/ and config/: " list
+                }')" || full "cannot classify the changes"
+              scope="$(printf '%s\n' "$verdict" | sed -n 1p)"
+              why="$(printf '%s\n' "$verdict" | sed -n 2p)"
+              case "$scope" in
+                console) answer console "$why" ;;
+                *) full "${why:-cannot classify the changes}" ;;
+              esac
     - name: test-api
       runAfter: [clone, clone-legacy]
+      # R5:5.7-1: the scope task changes chose (Tekton runs this task after it, as it
+      # reads its result). full runs go vet and every Go test, as before.
+      params:
+        - name: scope
+          value: $(tasks.changes.results.api-scope)
       workspaces:
         - name: source
           workspace: source
       taskSpec:
+        params:
+          - name: scope
+            type: string
+            default: full
         workspaces:
           - name: source
         # The agent runtime's database and Redis tests (W-31 2.1) need a real
@@ -190,6 +350,9 @@ spec:
                 value: redis://127.0.0.1:6379/0
               - name: AGENTRT_TEST_REQUIRED
                 value: "1"
+              # R5:5.7-1: full, or console (see task changes).
+              - name: API_SCOPE
+                value: $(params.scope)
             computeResources:
               requests:
                 cpu: 250m
@@ -205,6 +368,23 @@ spec:
 
               echo "==> go mod download"
               go mod download
+
+              # R5:5.7-1: console scope means every change since main is console/**
+              # outside console/src/api, or Markdown outside api/ and config/ (task changes): the Go
+              # code is main's, and only Go tests that read files outside api/ can answer
+              # differently: the landing hard-floor scans of console/src and the catalog
+              # (agentrt/rules) and the whole-repository scan (cluster). The fixtures the
+              # other tests read are under console/src/api and config/, which are always full.
+              # scripts/release/test_ci_platform_scope.py checks this list against the
+              # platform's Go tests.
+              CONSOLE_SCOPE_PACKAGES="./internal/agentrt/rules/... ./internal/cluster"
+              if [ "${API_SCOPE:-full}" = "console" ]; then
+                echo "==> console scope: go test ${CONSOLE_SCOPE_PACKAGES}; no go vet (the Go code is main's)"
+                # shellcheck disable=SC2086
+                go test ${CONSOLE_SCOPE_PACKAGES} -count=1 -timeout=900s
+                echo "==> Go API tests passed (console scope)"
+                exit 0
+              fi
 
               echo "==> go vet ./..."
               go vet ./...

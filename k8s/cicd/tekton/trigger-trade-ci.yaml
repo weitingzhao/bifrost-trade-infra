@@ -229,6 +229,7 @@ spec:
     # so a lane's commit has its CI before it is merged; push-main.sh requires a
     # Succeeded ci-* run for the exact commit it pushes. A push that deletes a branch
     # (after = forty zeros) runs nothing. github-sync below stays main and tags only.
+    # Platform attempt branches (agent/…) run no CI of their own (R5:5.7-1, platform-ci).
     # L2: Python repos (Trade + Research). code-health Task runs for
     # research + trade-api/core/worker (see pipeline-ci-python when clause).
     - name: python-ci
@@ -301,6 +302,11 @@ spec:
       template:
         ref: bifrost-ci-infra-template
     # L1: Platform repo (control plane)
+    # R5:5.7-1: not an attempt branch (refs/heads/agent/<task>/a<n>, which agentd and handin
+    # push). Its commit reaches main only through a landing: the landing pushes the same
+    # change, prepared on main, to refs/heads/land/<env>/<task>/<k> (platform
+    # api/internal/agentrt/controller/landing_branch.go), which runs this CI, and a landing
+    # that needs a grant runs its own pinned landing-ci-* on that commit as well.
     - name: platform-ci
       interceptors:
         - ref:
@@ -311,6 +317,7 @@ spec:
                 body.ref.startsWith('refs/heads/') &&
                 body.after.matches('^[0-9a-f]{40}$') &&
                 body.after != '0000000000000000000000000000000000000000' &&
+                !body.ref.startsWith('refs/heads/agent/') &&
                 body.repository.name == 'bifrost-platform'
       bindings:
         - ref: bifrost-gitea-push

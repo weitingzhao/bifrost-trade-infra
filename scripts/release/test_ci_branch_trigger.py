@@ -100,3 +100,18 @@ def test_a_posted_body_runs_nothing_unless_after_is_a_commit():
     assert "platform-ci" in fired(push("bifrost-platform", "refs/heads/feature/修复"))
     # github-sync passes the ref on, so it takes main and plain tags only
     assert "github-sync" not in fired(push("bifrost-platform", "refs/tags/v1;true"))
+
+
+def test_a_platform_attempt_branch_runs_no_ci():
+    # R5:5.7-1: an attempt (agent/<task>/a<n>, pushed by agentd or handin) reaches main only
+    # through a landing, whose branch land/<env>/<task>/<k> runs this CI on the same change.
+    attempt = "refs/heads/agent/t_01M6B2RDYZ5X554GXPGQDQGY3K/a1"
+    assert [n for n in fired(push("bifrost-platform", attempt)) if n in CI] == []
+    assert [n for n in fired(push("bifrost-platform", "refs/heads/land/prod/t_01M6B2RDYZ5X554GXPGQDQGY3K/1"))
+            if n in CI] == ["platform-ci"]
+    # Only the prefix: a lane branch whose name merely contains agent still runs.
+    for ref in ("refs/heads/w31/agent/x", "refs/heads/agentic", "refs/heads/main"):
+        assert "platform-ci" in fired(push("bifrost-platform", ref)), ref
+    # The other repositories keep their rule (bifrost-ui's attempt still runs both gates).
+    assert [n for n in fired(push("bifrost-ui", attempt)) if n in CI] == ["frontend-ci-ui", "platform-ci-ui"]
+    assert [n for n in fired(push("bifrost-trade-core", attempt)) if n in CI] == ["python-ci"]

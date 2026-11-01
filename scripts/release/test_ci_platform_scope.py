@@ -1,0 +1,476 @@
+"""R5:5.7-1: bifrost-ci-platform tests what a commit changes.
+
+Task changes reads the files a commit changes against main and answers
+api-scope: console when each is console/** outside console/src/api or Markdown
+outside api/ and config/, full otherwise. test-api in console scope runs only
+the Go tests that read files outside api/; it still runs, so no task is
+skipped and the run's reason stays Succeeded.
+
+These cases run the pipeline's own scripts: changes with dash and git against
+local repositories (Gitea's address is rewritten to them by a git wrapper),
+test-api's step with bash and go against a small module. The last ones check
+the console-scope package list against the platform's Go code when its
+checkout is beside this one (as push-main.sh lays it out).
+"""
+
+from __future__ import annotations
+
+import os
+import posixpath
+import re
+import shutil
+import subprocess
+from pathlib import Path
+
+import pytest
+import yaml
+
+ROOT = Path(__file__).resolve().parents[2]
+PIPELINE = ROOT / "k8s/cicd/tekton/pipeline-ci-platform.yaml"
+GITEA_URL = "http://gitea.cicd.svc.cluster.local:3000/bifrost/bifrost-platform.git"
+PASSWORD = "reader-password-not-printed"
+REAL_GIT = shutil.which("git")
+SHELL = shutil.which("dash") or "/bin/sh"
+GIT_ENV = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.invalid", "GIT_COMMITTER_NAME": "t",
+           "GIT_COMMITTER_EMAIL": "t@example.invalid", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+
+
+def tasks() -> dict:
+    doc = yaml.safe_load(PIPELINE.read_text())
+    return {t["name"]: t for t in doc["spec"]["tasks"]}
+
+
+def changes_script() -> str:
+    return tasks()["changes"]["taskSpec"]["steps"][0]["script"]
+
+
+def api_script() -> str:
+    return tasks()["test-api"]["taskSpec"]["steps"][0]["script"]
+
+
+def scope_packages() -> list[str]:
+    """CONSOLE_SCOPE_PACKAGES of test-api's step, as go test takes them."""
+    (line,) = [l for l in api_script().splitlines() if l.strip().startswith("CONSOLE_SCOPE_PACKAGES=")]
+    return line.split("=", 1)[1].strip().strip('"').split()
+
+
+def console_scope(path: str) -> bool:
+    """The rule task changes applies to one path (its awk), for the checks below."""
+    console = path.startswith("console/") and not path.startswith("console/src/api/")
+    doc = path.endswith(".md") and not path.startswith(("api/", "config/"))
+    return console or doc
+
+
+def git(cwd: Path, *args: str) -> str:
+    return subprocess.run([REAL_GIT, *args], cwd=cwd, env={**os.environ, **GIT_ENV}, check=True,
+                          capture_output=True, text=True).stdout.strip()
+
+
+# --- the pipeline's wiring -------------------------------------------------
+
+
+def test_no_task_is_skipped_so_the_reason_stays_succeeded():
+    doc = yaml.safe_load(PIPELINE.read_text())
+    assert "finally" not in doc["spec"]
+    for task in doc["spec"]["tasks"]:
+        assert "when" not in task, task["name"]
+
+
+def test_test_api_takes_its_scope_from_changes():
+    t = tasks()
+    api = t["test-api"]
+    assert api["params"] == [{"name": "scope", "value": "$(tasks.changes.results.api-scope)"}]
+    assert api["taskSpec"]["params"] == [{"name": "scope", "type": "string", "default": "full"}]
+    env = {e["name"]: e.get("value") for e in api["taskSpec"]["steps"][0]["env"]}
+    assert env["API_SCOPE"] == "$(params.scope)"
+    # Only the exact word console narrows the run; anything else is every test.
+    assert 'if [ "${API_SCOPE:-full}" = "console" ]; then' in api_script()
+    changes = t["changes"]
+    assert [r["name"] for r in changes["taskSpec"]["results"]] == ["api-scope", "why"]
+    assert "workspaces" not in changes and "when" not in changes and "onError" not in changes
+    step = changes["taskSpec"]["steps"][0]
+    secrets = {e["valueFrom"]["secretKeyRef"]["name"] for e in step["env"] if "valueFrom" in e}
+    assert secrets == {"gitea-ci-reader"}
+    # Parameters reach the script only through the environment (TD-435).
+    script = changes_script()
+    assert "$(params." not in script
+    lines = [l.strip() for l in script.splitlines()]
+    first_git = next(i for i, l in enumerate(lines) if "git_read clone" in l)
+    assert lines.index("printf 'full' > \"$scope_file\"") < first_git
+
+
+# --- task changes, run as written ------------------------------------------
+
+
+@pytest.fixture
+def platform(tmp_path):
+    """A bare origin whose main has the platform's shape, and a clone to commit on."""
+    origin = tmp_path / "origin.git"
+    git(tmp_path, "init", "-q", "--bare", "--initial-branch=main", str(origin))
+    git(origin, "config", "uploadpack.allowFilter", "true")
+    git(origin, "config", "uploadpack.allowAnySHA1InWant", "true")
+    work = tmp_path / "work"
+    git(tmp_path, "clone", "-q", str(origin), str(work))
+    git(work, "checkout", "-q", "-b", "main")
+    for rel, text in {
+        "api/go.mod": "module x\n",
+        "api/internal/x/x.go": "package x\n",
+        "api/cmd/probe/CANARY.md": "canary\n",
+        "console/src/pages/A.tsx": "export const A = 1\n",
+        "console/src/api/__fixtures__/f.json": "{}\n",
+        "config/sessions-catalog.yaml": "a: 1\n",
+        "mcp/x.ts": "export {}\n",
+        "README.md": "readme\n",
+    }.items():
+        (work / rel).parent.mkdir(parents=True, exist_ok=True)
+        (work / rel).write_text(text)
+    git(work, "add", "-A")
+    git(work, "commit", "-q", "-m", "init")
+    git(work, "push", "-q", "origin", "main")
+    return origin, work
+
+
+def branch(work: Path, name: str, change) -> str:
+    git(work, "checkout", "-q", "-b", name, "main")
+    change(work)
+    git(work, "add", "-A")
+    git(work, "commit", "-q", "-m", name)
+    git(work, "push", "-q", "origin", name)
+    sha = git(work, "rev-parse", "HEAD")
+    git(work, "checkout", "-q", "main")
+    return sha
+
+
+def run_changes(tmp_path: Path, origin: Path, revision: str, url: str = GITEA_URL, credential: bool = True):
+    results = tmp_path / "results"
+    results.mkdir(exist_ok=True)
+    for name in ("api-scope", "why"):
+        (results / name).unlink(missing_ok=True)
+    script = (changes_script().replace("$(results.api-scope.path)", str(results / "api-scope"))
+              .replace("$(results.why.path)", str(results / "why")))
+    path = tmp_path / "changes.sh"
+    path.write_text(script)
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    # Gitea's address goes to the local origin; everything else is git's own.
+    (bin_dir / "git").write_text(
+        "#!/bin/sh\n"
+        f'for a in "$@"; do [ "$a" = "{GITEA_URL}" ] && a="file://{origin}"; set -- "$@" "$a"; shift; done\n'
+        f'exec "{REAL_GIT}" "$@"\n')
+    # busybox's timeout, as the task's image has it: SECS PROG ARGS.
+    (bin_dir / "timeout").write_text(f'#!/bin/sh\necho "$1" >> "{tmp_path}/timeout-calls"\nshift\nexec "$@"\n')
+    for f in ("git", "timeout"):
+        (bin_dir / f).chmod(0o755)
+    env = {"PATH": f"{bin_dir}:{os.environ['PATH']}", "HOME": str(tmp_path), "TMPDIR": str(tmp_path),
+           "REPO_URL": url, "REVISION": revision}
+    if credential:
+        env.update(GIT_USERNAME="reader", GIT_PASSWORD=PASSWORD)
+    r = subprocess.run([SHELL, str(path)], env=env, capture_output=True, text=True, timeout=120)
+    out = r.stdout + r.stderr
+    assert r.returncode == 0, out
+    assert PASSWORD not in out
+    scope, why = (results / "api-scope").read_text(), (results / "why").read_text()
+    # One line: busybox's cut ends what it prints with a newline, macOS's does not always.
+    assert "\n" not in why and 0 < len(why) <= 300, repr(why)
+    return scope, why, out
+
+
+def write(rel: str, text: str = "changed\n"):
+    def change(work: Path) -> None:
+        (work / rel).parent.mkdir(parents=True, exist_ok=True)
+        (work / rel).write_text(text)
+    return change
+
+
+def remove(rel: str):
+    return lambda work: (work / rel).unlink()
+
+
+def both(*changes):
+    def change(work: Path) -> None:
+        for c in changes:
+            c(work)
+    return change
+
+
+def symlink(rel: str, target: str):
+    def change(work: Path) -> None:
+        (work / rel).parent.mkdir(parents=True, exist_ok=True)
+        os.symlink(target, work / rel)
+    return change
+
+
+def executable(rel: str):
+    return lambda work: (work / rel).chmod(0o755)
+
+
+CASES = [
+    # (name, change, paths it touches, scope)
+    ("console page", write("console/src/pages/A.tsx"), ["console/src/pages/A.tsx"], "console"),
+    ("console add and delete", both(write("console/src/pages/B.tsx"), remove("console/src/pages/A.tsx")),
+     ["console/src/pages/B.tsx", "console/src/pages/A.tsx"], "console"),
+    ("console test and css", both(write("console/src/pages/__tests__/A.test.tsx"), write("console/src/x.css")),
+     ["console/src/pages/__tests__/A.test.tsx", "console/src/x.css"], "console"),
+    ("markdown outside api and config", both(write("README.md"), write("docs/plan.md")), ["README.md", "docs/plan.md"],
+     "console"),
+    ("console file made executable", executable("console/src/pages/A.tsx"), ["console/src/pages/A.tsx"], "console"),
+    ("a fixture Go tests read", write("console/src/api/__fixtures__/f.json"), ["console/src/api/__fixtures__/f.json"],
+     "full"),
+    ("console/src/api source", write("console/src/api/agentRuntime.ts"), ["console/src/api/agentRuntime.ts"], "full"),
+    ("go", write("api/internal/x/x.go", "package x\n// c\n"), ["api/internal/x/x.go"], "full"),
+    ("markdown a Go test reads", write("api/cmd/probe/CANARY.md"), ["api/cmd/probe/CANARY.md"], "full"),
+    ("markdown under config", write("config/patrol-skills/README.md"), ["config/patrol-skills/README.md"], "full"),
+    ("console beside go", both(write("console/src/pages/A.tsx"), write("api/internal/x/x.go", "package x\n// d\n")),
+     ["console/src/pages/A.tsx", "api/internal/x/x.go"], "full"),
+    ("mcp", write("mcp/x.ts"), ["mcp/x.ts"], "full"),
+    ("a symlink under console", symlink("console/src/link.ts", "../../api/go.mod"), ["console/src/link.ts"], "full"),
+    ("a path with a space", write("console/src/a b.tsx"), ["console/src/a b.tsx"], "full"),
+    ("a file named console", write("console.md.txt"), ["console.md.txt"], "full"),
+]
+
+
+@pytest.mark.parametrize("name, change, paths, scope", CASES, ids=[c[0] for c in CASES])
+def test_changes_decides_from_the_paths(tmp_path, platform, name, change, paths, scope):
+    origin, work = platform
+    sha = branch(work, "lane", change)
+    got, why, out = run_changes(tmp_path, origin, sha)
+    assert got == scope, out
+    # The Python mirror of the rule agrees, for the ratchet below to use.
+    assert all(console_scope(p) for p in paths) == (scope == "console") or name in (
+        "a symlink under console", "a path with a space", "console file made executable")
+    if scope == "console":
+        assert why.startswith(f"{len(paths)} file(s), each console/**"), why
+    # busybox's timeout bounds each Gitea read.
+    assert set((tmp_path / "timeout-calls").read_text().split()) == {"120"}
+
+
+def test_a_change_beside_main_moving_on_is_judged_from_the_merge_base(tmp_path, platform):
+    origin, work = platform
+    sha = branch(work, "lane", write("console/src/pages/A.tsx"))
+    # main moves on with Go after the lane forked: the lane's own change is console only.
+    (work / "api/internal/x/x.go").write_text("package x\n// later\n")
+    git(work, "commit", "-q", "-am", "go on main")
+    git(work, "push", "-q", "origin", "main")
+    got, why, out = run_changes(tmp_path, origin, sha)
+    assert (got, why.split(",")[0]) == ("console", "1 file(s)"), out
+
+
+def test_more_than_two_thousand_files_run_everything(tmp_path, platform):
+    origin, work = platform
+
+    def many(w: Path) -> None:
+        d = w / "console/src/gen"
+        d.mkdir(parents=True)
+        for i in range(2001):
+            (d / f"f{i}.ts").write_text(f"export const f{i} = {i}\n")
+    sha = branch(work, "lane", many)
+    got, why, out = run_changes(tmp_path, origin, sha)
+    assert (got, why) == ("full", "more than 2000 files changed"), out
+
+
+@pytest.mark.parametrize("how, says", [
+    ("main itself", "the commit is on main: nothing to compare it with"),
+    ("an older main commit", "the commit is on main: nothing to compare it with"),
+    ("not a sha", "revision is not a commit SHA"),
+    ("short sha", "revision is not a commit SHA"),
+    ("unknown sha", "is not in Gitea"),
+    ("not gitea", "the repository is not in the in-cluster Gitea"),
+    ("no credential", "no Gitea reader credential"),
+    ("unreachable", "cannot clone the repository from Gitea"),
+])
+def test_what_it_cannot_tell_runs_everything(tmp_path, platform, how, says):
+    origin, work = platform
+    old = git(work, "rev-parse", "main")
+    (work / "console/src/pages/A.tsx").write_text("export const A = 2\n")
+    git(work, "commit", "-q", "-am", "console on main")
+    git(work, "push", "-q", "origin", "main")
+    rev, url, credential, where = git(work, "rev-parse", "main"), GITEA_URL, True, origin
+    if how == "an older main commit":
+        rev = old
+    elif how == "not a sha":
+        rev = "main"
+    elif how == "short sha":
+        rev = rev[:12]
+    elif how == "unknown sha":
+        rev = "0123456789abcdef0123456789abcdef01234567"
+    elif how == "not gitea":
+        url = "http://gitea.example.invalid/bifrost/bifrost-platform.git"
+    elif how == "no credential":
+        credential = False
+    elif how == "unreachable":
+        where = tmp_path / "missing.git"
+    got, why, out = run_changes(tmp_path, where, rev, url=url, credential=credential)
+    assert got == "full", out
+    assert says in why, why
+
+
+# --- test-api in console scope ----------------------------------------------
+
+
+@pytest.mark.skipif(shutil.which("go") is None, reason="go is not installed")
+def test_console_scope_runs_only_the_listed_packages(tmp_path):
+    api = tmp_path / "bifrost-platform/api"
+    api.mkdir(parents=True)
+    (api / "go.mod").write_text("module example.invalid/scope\n\ngo 1.21\n")
+    listed = {"internal/agentrt/rules": "rules", "internal/agentrt/rules/s5check": "s5check", "internal/cluster": "cluster"}
+    for rel, pkg in listed.items():
+        (api / rel).mkdir(parents=True)
+        (api / rel / "a_test.go").write_text(
+            f'package {pkg}\nimport ("os"; "testing")\n'
+            f'func TestRan(t *testing.T) {{ os.WriteFile(os.Getenv("RAN_DIR")+"/{pkg}", nil, 0o600) }}\n')
+    # Any other package fails, so a run that reaches it is red.
+    (api / "internal/other").mkdir(parents=True)
+    (api / "internal/other/a_test.go").write_text('package other\nimport "testing"\nfunc TestRed(t *testing.T) { t.Fatal("red") }\n')
+    ran = tmp_path / "ran"
+    ran.mkdir()
+    env = {**os.environ, "GOPROXY": "off", "GOSUMDB": "off", "GOTOOLCHAIN": "local", "GOFLAGS": "",
+           "GOCACHE": str(tmp_path / "gocache"), "GOMODCACHE": str(tmp_path / "gomod"), "RAN_DIR": str(ran)}
+    script = api_script().replace("$(workspaces.source.path)", str(tmp_path))
+    r = subprocess.run(["bash"], input=script, cwd=api, env={**env, "API_SCOPE": "console"},
+                       capture_output=True, text=True, timeout=300)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "==> console scope: go test ./internal/agentrt/rules/... ./internal/cluster" in r.stdout
+    assert "==> go vet" not in r.stdout
+    assert sorted(p.name for p in ran.iterdir()) == ["cluster", "rules", "s5check"]
+    # Positive control: every other scope runs every package, and the red one stops it.
+    for scope in ("full", "", "Console", "console "):
+        r = subprocess.run(["bash"], input=script, cwd=api, env={**env, "API_SCOPE": scope},
+                           capture_output=True, text=True, timeout=300)
+        assert r.returncode != 0, scope
+        assert "==> go vet ./..." in r.stdout and "console scope" not in r.stdout, scope
+
+
+# --- the console-scope list against the platform's Go code -------------------
+
+# A Go literal that climbs out of its directory ("..", "../x"), with the plain
+# literals Join takes after it; resolved from the file's directory, which is
+# where go test runs a package and where runtime.Caller roots its paths.
+CLIMB = re.compile(r'"(\.\.(?:/[^"\\]*)?)"((?:\s*,\s*"[^"\\]*")*)')
+LITERAL = re.compile(r'"([^"\\]*)"')
+# Reads outside api/ that no change in console scope can reach, by file, with why.
+KNOWN = {
+    "api/internal/devsession/catalog_repo_test.go": "Join(\"..\", \"..\", \"..\") then config/sessions-catalog.yaml",
+    "api/internal/codehealth/scanner.go": "the workspace lookup of a running platform-api; its tests use temporary trees",
+}
+
+
+def outside_reads(files: list[str], text_of) -> list[tuple[str, str]]:
+    """(Go file, what it reaches) for each read outside api/ that a console-scope change could reach."""
+    tracked = set(files)
+    found = []
+    for name in files:
+        if not name.startswith("api/") or not name.endswith(".go"):
+            continue
+        for line in text_of(name).splitlines():
+            for m in CLIMB.finditer(line):
+                target = posixpath.normpath(posixpath.join(posixpath.dirname(name), m.group(1),
+                                                           *LITERAL.findall(m.group(2))))
+                if target == "api" or target.startswith(("api/", "../")):
+                    continue  # inside api, or a sibling repository (infra, the legacy clone)
+                if target.startswith(("console/src/api/", "config/")) or target in ("console/src/api", "config"):
+                    continue  # changes there are always full
+                if target in tracked and not console_scope(target):
+                    continue  # one file that a console-scope change never touches
+                found.append((name, target))
+    return found
+
+
+def covered(go_file: str, packages: list[str]) -> bool:
+    directory = posixpath.dirname(go_file)
+    for p in packages:
+        p = posixpath.normpath(posixpath.join("api", p))
+        if p.endswith("/..."):
+            base = p[: -len("/...")]
+            if directory == base or directory.startswith(base + "/"):
+                return True
+        elif directory == p:
+            return True
+    return False
+
+
+def scope_problems(files: list[str], text_of, packages: list[str]) -> list[str]:
+    problems = []
+    reads = outside_reads(files, text_of)
+    for go_file, target in reads:
+        if not covered(go_file, packages) and go_file not in KNOWN:
+            problems.append(f"{go_file} reads {target or '.'} outside api/ but is not in CONSOLE_SCOPE_PACKAGES")
+    for go_file in KNOWN:
+        if not any(f == go_file for f, _ in reads):
+            problems.append(f"KNOWN names {go_file}, which no longer reads outside api/")
+    for p in packages:
+        base = posixpath.normpath(posixpath.join("api", p.removesuffix("/...")))
+        if not any(f.startswith(base + "/") and f.endswith(".go") for f in files):
+            problems.append(f"CONSOLE_SCOPE_PACKAGES names {p}, which has no Go file")
+    return problems
+
+
+def tree(files: dict[str, str]):
+    return sorted(files), files.__getitem__
+
+
+BASE_TREE = {
+    "api/internal/agentrt/rules/a_test.go": 'root := filepath.Join(filepath.Dir(file), "../../../..")\n',
+    "api/internal/cluster/a_test.go": 'root := filepath.Clean(filepath.Join(filepath.Dir(source), "../../.."))\n',
+    "api/internal/devsession/catalog_repo_test.go": 'root := filepath.Clean(filepath.Join("..", "..", ".."))\n',
+    "api/internal/codehealth/scanner.go": 'filepath.Join(wd, "../../..")\n',
+    "api/internal/store/f_test.go": 'const f = "../../../console/src/api/__fixtures__/x.json"\n',
+    "api/internal/delivery/c_test.go": 'dir := "../../../../bifrost-trade-infra/k8s/cicd/tekton"\n',
+    "api/cmd/agentd/install_test.go": 'filepath.Abs("../../../agent/deploy/install-agentd.sh")\n',
+    "api/internal/patrol/s_test.go": 'dir := filepath.Join("..", "..", "..", "config", "patrol-skills")\n',
+    "api/internal/agentd/p_test.go": 'bad := "../elsewhere.py"\n',
+    "agent/deploy/install-agentd.sh": "",
+    "console/src/pages/A.tsx": "",
+}
+PACKAGES = ["./internal/agentrt/rules/...", "./internal/cluster"]
+
+
+def test_the_list_holds_on_a_tree_like_the_platforms():
+    assert scope_problems(*tree(BASE_TREE), PACKAGES) == []
+
+
+@pytest.mark.parametrize("rel, line", [
+    ("api/internal/web/a_test.go", 'os.ReadFile("../../../console/src/lib/x.json")'),
+    ("api/internal/web/a_test.go", 'root := filepath.Join("..", "..", "..", "console")'),
+    ("api/internal/web/a_test.go", 'filepath.WalkDir("../../..", f)'),
+    ("api/internal/web/a_test.go", 'os.ReadFile("../../../docs/notes.md")'),
+    ("api/internal/agentrt/other/a_test.go", 'root := "../../../.."'),
+])
+def test_a_new_reader_outside_the_list_is_named(rel, line):
+    files = {**BASE_TREE, rel: line + "\n"}
+    problems = scope_problems(*tree(files), PACKAGES)
+    assert len(problems) == 1 and problems[0].startswith(rel), problems
+
+
+def test_a_stale_known_entry_and_a_missing_package_are_named():
+    files = {k: v for k, v in BASE_TREE.items() if k != "api/internal/codehealth/scanner.go"}
+    files["api/internal/codehealth/scanner.go"] = "package codehealth\n"
+    assert scope_problems(*tree(files), PACKAGES) == [
+        "KNOWN names api/internal/codehealth/scanner.go, which no longer reads outside api/"]
+    assert scope_problems(*tree(BASE_TREE), PACKAGES + ["./internal/gone"]) == [
+        "CONSOLE_SCOPE_PACKAGES names ./internal/gone, which has no Go file"]
+
+
+def platform_checkout() -> Path | None:
+    """The platform checkout beside this infra one (push-main.sh links it there), or
+    BIFROST_PLATFORM_ROOT."""
+    for candidate in (os.environ.get("BIFROST_PLATFORM_ROOT"), ROOT.parent / "bifrost-platform"):
+        if candidate and (Path(candidate) / "api/go.mod").is_file():
+            return Path(candidate)
+    return None
+
+
+def test_the_list_holds_on_the_platform_checkout():
+    root = platform_checkout()
+    if root is None:
+        pytest.skip("no bifrost-platform checkout beside this one; set BIFROST_PLATFORM_ROOT")
+    files = git(root, "ls-tree", "-r", "--name-only", "HEAD").splitlines()
+    # The committed tree, not the working tree (another session's edits are not the platform's).
+    # git grep keeps each Go file to its lines that climb; the others cannot reach outside api/.
+    out = subprocess.run([REAL_GIT, "-C", str(root), "grep", "-I", "-E", r'"\.\.(/[^"]*)?"', "HEAD", "--", "api/*.go"],
+                         capture_output=True, text=True, env={**os.environ, **GIT_ENV})
+    assert out.returncode in (0, 1), out.stderr
+    texts = {f: "" for f in files}
+    for line in out.stdout.splitlines():
+        _, name, text = line.split(":", 2)
+        texts[name] += text + "\n"
+    assert scope_problems(files, texts.__getitem__, scope_packages()) == []
