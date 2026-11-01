@@ -46,7 +46,13 @@ with open(os.path.join(root, "calls"), "a") as f:
 state_path = os.path.join(root, "state.json")
 st = json.load(open(state_path)) if os.path.exists(state_path) else {"reads": 0, "patched": None, "after": 0}
 def save():
-    json.dump(st, open(state_path, "w"))
+    # Whole or not at all (R5:5.7-3): the script under test may stop this process
+    # mid-call at its deadline, and a test reads the state after it; under load,
+    # with tests side by side, a truncated file was read as JSON (pin-sync, 11-01).
+    tmp = state_path + ".%d" % os.getpid()
+    with open(tmp, "w") as f:
+        json.dump(st, f)
+    os.replace(tmp, state_path)
 if mode == "forbidden":
     print("Error from server (Forbidden): applications.argoproj.io is forbidden", file=sys.stderr); sys.exit(1)
 if mode == "not-found":

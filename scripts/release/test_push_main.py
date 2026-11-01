@@ -150,6 +150,7 @@ class _Fixture(unittest.TestCase):
 
     def _env(self, **more: str) -> dict[str, str]:
         return {**os.environ, "PUSH_MAIN_WINDOW": str(self.window), "PUSH_MAIN_SHARED_ROOT": str(self.shared_root),
+                "PUSH_MAIN_TEST_TIMES": str(Path(self._tmp.name) / "test-times.json"),
                 "PUSH_MAIN_KUBECTL": str(self.kubectl), "FAKE_CI_DIR": self._tmp.name, "PUSH_MAIN_CI_POLL": "0",
                 "PUSH_MAIN_CI_WAIT": "5", **more}
 
@@ -612,7 +613,7 @@ class PushMain(_Fixture):
         self._add(work, "scripts/agentrt/test_planted.py", "def test_planted_failure():\n    assert 1 == 2\n")
         r = self._push(cwd=work)
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
-        self.assertIn("tests of bifrost-trade-infra: python3 -m pytest -q scripts/release scripts/agentrt", r.stdout)
+        self.assertIn("tests of bifrost-trade-infra: scripts/release scripts/agentrt, one process per test file", r.stdout)
         self.assertIn("test_planted_failure", r.stdout)
         self.assertIn("the tests of bifrost-trade-infra failed on", r.stderr)
         self.assertEqual(_git(origin, "rev-parse", "main"), before)
@@ -642,6 +643,176 @@ class PushMain(_Fixture):
         self.assertNotIn("test_wip", r.stdout)
         self.assertEqual(_git(origin, "rev-parse", "main"), head)
 
+    # R5:5.7-3: one process per test file, side by side; each exit code its own.
+    def test_infra_test_files_run_side_by_side(self) -> None:
+        # Each file waits for the other to have started: only a parallel run passes.
+        origin, work = self._infra()
+        barrier = Path(self._tmp.name) / "barrier"
+        barrier.mkdir()
+        wait = ("import pathlib, time\n\n\ndef test_meets_the_other():\n"
+                f"    here = pathlib.Path({str(barrier)!r})\n"
+                "    (here / '{me}').touch()\n"
+                "    deadline = time.monotonic() + 20\n"
+                "    while not (here / '{other}').exists():\n"
+                "        assert time.monotonic() < deadline, 'the other file never started'\n"
+                "        time.sleep(0.05)\n")
+        self._add(work, "scripts/agentrt/test_a.py", wait.format(me="a", other="b"))
+        head = self._add(work, "scripts/agent-host/test_b.py", wait.format(me="b", other="a"))
+        r = self._push(cwd=work, env=self._env(PUSH_MAIN_TEST_JOBS="4"))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("push-main: 3 of 3 test runs passed (3 files)", r.stdout)
+        self.assertIn("4 at a time", r.stdout)
+        self.assertEqual(_git(origin, "rev-parse", "main"), head)
+
+    def test_each_infra_exit_code_is_read_on_its_own(self) -> None:
+        origin, work = self._infra()
+        before = _git(origin, "rev-parse", "main")
+        # A file without a test passes (pytest's 5); one red file among green ones refuses.
+        self._add(work, "scripts/agentrt/test_empty.py", "X = 1\n")
+        self._add(work, "scripts/agent-host/test_green.py", "def test_green():\n    assert True\n")
+        self._add(work, "scripts/agent-host/tests/test_nested_red.py", "def test_nested_red():\n    assert 1 == 2\n")
+        self._add(work, "scripts/release/node_modules/test_ignored.py", "def test_ignored():\n    assert False\n")
+        r = self._push(cwd=work)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("push-main: FAILED scripts/agent-host/tests/test_nested_red.py (exit 1", r.stdout)
+        self.assertIn("test_nested_red", r.stdout)
+        self.assertIn("push-main: 3 of 4 test runs passed (4 files)", r.stdout)
+        self.assertNotIn("test_ignored", r.stdout)
+        self.assertIn("the tests of bifrost-trade-infra failed on", r.stderr)
+        self.assertEqual(_git(origin, "rev-parse", "main"), before)
+        _git(work, "rm", "-q", "scripts/agent-host/tests/test_nested_red.py")
+        head = _commit(work, "the red one goes")
+        r = self._push(cwd=work)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("push-main: 3 of 3 test runs passed (3 files)", r.stdout)
+        self.assertEqual(_git(origin, "rev-parse", "main"), head)
+
+    def test_a_large_test_file_runs_in_parts_each_test_once(self) -> None:
+        origin, work = self._infra()
+        ran = Path(self._tmp.name) / "ran.log"
+        body = "import pathlib\n\n" + "".join(
+            f"\ndef test_{i}():\n    with pathlib.Path({str(ran)!r}).open('a') as f:\n        f.write('{i}\\n')\n"
+            for i in range(7))
+        body += "\n\ndef test_red():\n    assert 'red' == 'green'\n"
+        before = _git(origin, "rev-parse", "main")
+        self._add(work, "scripts/agentrt/test_large.py", body)
+        r = self._push(cwd=work, env=self._env(PUSH_MAIN_PART_BYTES="300"))
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        parts = -(-len(body.encode()) // 300)
+        self.assertGreater(parts, 2)
+        # Every test ran exactly once across the parts; only the part with the red one failed.
+        self.assertEqual(sorted(ran.read_text().split()), [str(i) for i in range(7)])
+        self.assertEqual(r.stdout.count("push-main: FAILED scripts/agentrt/test_large.py [part "), 1, r.stdout)
+        self.assertIn("test_red", r.stdout)
+        self.assertIn(f"push-main: {parts} of {parts + 1} test runs passed (2 files)", r.stdout)
+        self.assertEqual(_git(origin, "rev-parse", "main"), before)
+
+    def test_the_slowest_last_time_starts_first(self) -> None:
+        # One at a time: the order is the start order. The first run measures; the second
+        # starts the file that took longest, though it is the smallest.
+        origin, work = self._infra()
+        order = Path(self._tmp.name) / "order"
+        for name, nap in (("slow", 1.5), ("quick", 0)):
+            self._add(work, f"scripts/agentrt/test_{name}.py",
+                      f"import pathlib, time\n\n\ndef test_{name}():\n"
+                      f"    time.sleep({nap})\n    with pathlib.Path({str(order)!r}).open('a') as f:\n"
+                      f"        f.write('{name}\\n')\n" + ("# padding\n" * (40 if name == "quick" else 0)))
+        env = self._env(PUSH_MAIN_TEST_JOBS="1")
+        r = self._push(cwd=work, env=env)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(order.read_text().split(), ["quick", "slow"])
+        times = json.loads(Path(env["PUSH_MAIN_TEST_TIMES"]).read_text())
+        self.assertGreater(times["scripts/agentrt/test_slow.py"], times["scripts/agentrt/test_quick.py"])
+        order.unlink()
+        self._add(work, "README.md", "again\n")
+        self._add(work, "scripts/release/helper.py", "X = 3\n")
+        r = self._push(cwd=work, env=env)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(order.read_text().split(), ["slow", "quick"])
+        # A durations file that cannot be read counts as empty.
+        Path(env["PUSH_MAIN_TEST_TIMES"]).write_text("not json")
+        self._add(work, "scripts/release/helper.py", "X = 4\n")
+        r = self._push(cwd=work, env=env)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_a_test_file_past_the_deadline_is_stopped_and_refuses(self) -> None:
+        origin, work = self._infra()
+        before = _git(origin, "rev-parse", "main")
+        pid = Path(self._tmp.name) / "hang.pid"
+        # The test and a process it started: both are stopped.
+        self._add(work, "scripts/agentrt/test_hang.py",
+                  "import os, pathlib, subprocess\n\n\ndef test_hangs():\n"
+                  "    child = subprocess.Popen(['sleep', '300'])\n"
+                  f"    pathlib.Path({str(pid)!r}).write_text(f'{{os.getpid()}} {{child.pid}}')\n    child.wait()\n")
+        # 12 s: room for the test to start and write its pids on a loaded machine.
+        r = self._push(cwd=work, env=self._env(PUSH_MAIN_TEST_DEADLINE="12"))
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("push-main: FAILED scripts/agentrt/test_hang.py (did not finish within the deadline", r.stdout)
+        self.assertEqual(_git(origin, "rev-parse", "main"), before)
+        for n in pid.read_text().split():
+            with self.assertRaises(ProcessLookupError):
+                os.kill(int(n), 0)
+
+    # R5:5.7-3: a push that changes agent-config/scripts/landing runs its tests too.
+    def _landing(self, work: Path, test_rc: int) -> None:
+        self._add(work, "agent-config/scripts/landing/handin.sh", "#!/bin/sh\necho handin\n")
+        self._add(work, "agent-config/scripts/landing/test_handin.sh",
+                  f"#!/usr/bin/env bash\necho 'handin regression ran'\nexit {test_rc}\n")
+        _git(work, "push", "--quiet", "origin", "main")
+
+    def test_a_change_to_the_landing_scripts_runs_their_tests(self) -> None:
+        origin, work = self._infra()
+        self._landing(work, 3)
+        before = _git(origin, "rev-parse", "main")
+        self._add(work, "agent-config/scripts/landing/handin.sh", "#!/bin/sh\necho handin v2\n")
+        r = self._push(cwd=work)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("agent-config/scripts/landing/test_handin.sh agent-config/scripts/landing, one process per test file",
+                      r.stdout)
+        self.assertIn("push-main: FAILED agent-config/scripts/landing/test_handin.sh (exit 3", r.stdout)
+        self.assertIn("handin regression ran", r.stdout)
+        self.assertEqual(_git(origin, "rev-parse", "main"), before)
+
+    def test_landing_tests_run_only_when_the_push_changes_landing(self) -> None:
+        origin, work = self._infra()
+        self._landing(work, 3)
+        # The red landing test is not this push's: it changes another directory.
+        head = self._add(work, "scripts/release/helper.py", "X = 2\n")
+        r = self._push(cwd=work)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn("handin regression ran", r.stdout)
+        self.assertNotIn("agent-config/scripts/landing", r.stdout)
+        self.assertEqual(_git(origin, "rev-parse", "main"), head)
+        # Nor does a note beside the scripts: only documentation changed.
+        self._add(work, "scripts/agentrt/test_no_exam_keys.py", "def test_guard():\n    assert True\n")
+        _git(work, "push", "--quiet", "origin", "main")
+        head = self._add(work, "agent-config/scripts/landing/NOTES.md", "a note\n")
+        r = self._push(cwd=work)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("only documentation changed: agent-config/scripts/landing/NOTES.md", r.stdout)
+        self.assertNotIn("handin regression ran", r.stdout)
+        self.assertEqual(_git(origin, "rev-parse", "main"), head)
+
+    def test_a_shell_test_exit_five_is_a_failure(self) -> None:
+        # pytest's 5 means "no test"; a shell test's 5 is a red test like any other.
+        origin, work = self._infra()
+        self._landing(work, 5)
+        before = _git(origin, "rev-parse", "main")
+        self._add(work, "agent-config/scripts/landing/handin.sh", "#!/bin/sh\necho handin v4\n")
+        r = self._push(cwd=work)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("push-main: FAILED agent-config/scripts/landing/test_handin.sh (exit 5", r.stdout)
+        self.assertEqual(_git(origin, "rev-parse", "main"), before)
+
+    def test_a_green_landing_test_lets_the_push_through(self) -> None:
+        origin, work = self._infra()
+        self._landing(work, 0)
+        head = self._add(work, "agent-config/scripts/landing/handin.sh", "#!/bin/sh\necho handin v3\n")
+        r = self._push(cwd=work)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("push-main: 2 of 2 test runs passed (2 files)", r.stdout)
+        self.assertEqual(_git(origin, "rev-parse", "main"), head)
+
     # TD-413 docs: a push that changes only Markdown runs none of the tests
     # but the document guards (the exam-key scan), and says so without a
     # reason; one file that is not Markdown beside them runs every test.
@@ -664,7 +835,7 @@ class PushMain(_Fixture):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("only documentation changed: README.md, notes/plan.md\n", r.stdout)
         self.assertIn("of the tests of bifrost-trade-infra only the document guards run", r.stdout)
-        self.assertIn("tests of bifrost-trade-infra: python3 -m pytest -q scripts/agentrt/test_no_exam_keys.py", r.stdout)
+        self.assertIn("tests of bifrost-trade-infra: scripts/agentrt/test_no_exam_keys.py, one process per test file", r.stdout)
         self.assertNotIn("test_red_on_main", r.stdout)
         self.assertEqual(_git(origin, "rev-parse", "main"), head)
         # A document an exam key went into is refused all the same.
@@ -683,7 +854,7 @@ class PushMain(_Fixture):
         r = self._push(cwd=work)
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertNotIn("only documentation changed", r.stdout)
-        self.assertIn("tests of bifrost-trade-infra: python3 -m pytest -q scripts/release scripts/agentrt", r.stdout)
+        self.assertIn("tests of bifrost-trade-infra: scripts/release scripts/agentrt, one process per test file", r.stdout)
         self.assertIn("test_red_on_main", r.stdout)
         self.assertEqual(_git(origin, "rev-parse", "main"), before)
 

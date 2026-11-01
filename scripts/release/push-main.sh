@@ -27,10 +27,14 @@
 #    lines, say) is refused here instead of turning main red.
 # 6. The repo's fast tests run on that same clean worktree (TD-413), and a
 #    failure refuses the push: infra's pytest of scripts/release,
-#    scripts/agentrt and scripts/agent-host; platform's go vet ./... and
-#    go test of the packages origin/main..<commit> touches. Their exit code
-#    is read as it is, never through a pipe (twice a pusher's pipe hid a red
-#    test, LESSONS 186). --skip-tests <reason> skips them and prints why.
+#    scripts/agentrt and scripts/agent-host, one process per test file (a
+#    large one in parts), run side by side (push_main_tests.py, R5:5.7-3), with
+#    agent-config/scripts/landing's tests (test_handin.sh) when
+#    origin/main..<commit> changes that directory; platform's go vet ./... and
+#    go test of the packages origin/main..<commit> touches. Their exit codes
+#    are read as they are, each its own, never through a pipe (twice a
+#    pusher's pipe hid a red test, LESSONS 186). --skip-tests <reason> skips
+#    them and prints why.
 #    A push that changes only Markdown (.md) runs none of them but the
 #    document guards (infra's exam-key scan): it says so and needs no reason.
 #    The worktree has the workspace's repositories beside it, as the tests
@@ -343,6 +347,13 @@ run_tests() {
   case "$repo" in
     bifrost-trade-infra)
       local paths=() wanted=(scripts/release scripts/agentrt scripts/agent-host) guards=true
+      # R5:5.7-3: the landing scripts' own tests, when the push changes them.
+      if $landing_touched; then
+        for p in "$tree"/agent-config/scripts/landing/test_*.sh; do
+          [[ -f "$p" ]] && wanted+=("${p#"$tree"/}")
+        done
+        wanted+=(agent-config/scripts/landing)
+      fi
       if $docs_only; then
         # Every document guard must be there to stand for the rest; one that
         # is not runs every test instead (review td413docs-1 B2).
@@ -364,8 +375,9 @@ run_tests() {
         echo "push-main: none of the tests of $repo (${wanted[*]}) is there; no tests run"
         return 0
       fi
-      echo "push-main: tests of $repo: python3 -m pytest -q ${paths[*]}"
-      (cd "$tree" && python3 -m pytest -q -p no:cacheprovider "${paths[@]}") || rc=$?
+      [[ -f "$HERE/push_main_tests.py" ]] || die "push_main_tests.py is not beside push-main.sh ($HERE); nothing pushed"
+      echo "push-main: tests of $repo: ${paths[*]}, one process per test file (a large one in parts; pytest -q, a .sh with bash), side by side"
+      (cd "$tree" && python3 "$HERE/push_main_tests.py" "${paths[@]}") || rc=$?
       ;;
     bifrost-platform)
       if [[ ! -f "$tree/api/go.mod" ]]; then
@@ -420,34 +432,41 @@ if [[ "$rc" -ne 0 ]]; then
   die "cannot read the changes origin/main..$commit makes in $top; nothing pushed"
 fi
 # The verdict ("docs" or "code") on the first line; the documents as a
-# line on the second: the first five, shown with escapes, and how many more.
+# line on the second: the first five, shown with escapes, and how many more;
+# on the third, "landing" when a change is under agent-config/scripts/landing/.
 verdict="$(python3 - "$raw" <<'PY'
 import sys
 data = open(sys.argv[1], "rb").read().split(b"\0")
-paths, docs, i = [], True, 0
+paths, docs, i, landing = [], True, 0, False
 while i < len(data) - 1:
     meta, path = data[i].decode("ascii", "replace"), data[i + 1].decode("utf-8", "surrogateescape")
     i += 2
     fields = meta.lstrip(":").split()
     if len(fields) < 5:
-        docs = False
+        # A record it cannot read: every test, the landing ones too.
+        docs, landing = False, True
         break
     old, new, status = fields[0], fields[1], fields[4]
     plain = {old, new} <= {"000000", "100644"} and (status in ("A", "D") or (status == "M" and old == new))
     if not (plain and path.endswith(".md")):
         docs = False
+    if path.startswith("agent-config/scripts/landing/"):
+        landing = True
     paths.append("".join(c if c.isprintable() else c.encode("unicode_escape", "backslashreplace").decode() for c in path))
 docs = docs and bool(paths)
 shown = ", ".join(paths[:5]) + (f", and {len(paths) - 5} more" if len(paths) > 5 else "")
 print("docs" if docs else "code")
 print(shown)
+print("landing" if landing else "-")
 PY
 )" || rc=$?
 rm -f "$raw"
 [[ "$rc" -eq 0 ]] || die "cannot read the changes origin/main..$commit makes; nothing pushed"
 docs_only=false
-[[ "${verdict%%$'\n'*}" == "docs" ]] && docs_only=true
-docs_said="${verdict#*$'\n'}"
+[[ "$(sed -n 1p <<<"$verdict")" == "docs" ]] && docs_only=true
+docs_said="$(sed -n 2p <<<"$verdict")"
+landing_touched=false
+[[ "$(sed -n 3p <<<"$verdict")" == "landing" ]] && landing_touched=true
 
 # ci — <commit> has a Succeeded ci-* run of its repo (W-31 3.4 ②), or the push stops.
 ci() {

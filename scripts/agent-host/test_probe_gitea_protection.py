@@ -290,6 +290,32 @@ urllib.request.OpenerDirector.open = protocol_open
 '''
 
 
+# R5:5.7-3: the probe waits 2 s between branch-cleanup readbacks, up to ten times
+# (P0-01), and several cases run that wait out (cleanup refused, a protocol error on
+# the branch path): a minute of real seconds that test nothing. The probe's Python
+# starts with this sitecustomize, which keeps every sleep and its order but caps each
+# at 10 ms; the probe itself is unchanged. Python imports one sitecustomize, the first
+# on its path, so this one goes first and then runs the one a case put there (the file
+# transport's, or a case's own shim), as that case's run would have.
+FAST_SLEEP = """
+import time as _fast_sleep_time
+_fast_sleep_real = _fast_sleep_time.sleep
+_fast_sleep_time.sleep = lambda seconds: _fast_sleep_real(min(seconds, 0.01))
+"""
+
+
+def fast_sleep(env: dict, root: Path) -> None:
+    directory = root / 'fast-sleep'
+    directory.mkdir(exist_ok=True)
+    entries = [e for e in env.get('PYTHONPATH', '').split(os.pathsep) if e]
+    chained = next((Path(e) / 'sitecustomize.py' for e in entries if (Path(e) / 'sitecustomize.py').is_file()), None)
+    text = FAST_SLEEP
+    if chained is not None:
+        text += f"exec(compile(open({str(chained)!r}).read(), {str(chained)!r}, 'exec'))\n"
+    (directory / 'sitecustomize.py').write_text(text)
+    env['PYTHONPATH'] = os.pathsep.join([str(directory), *entries])
+
+
 class Probe(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
@@ -319,6 +345,7 @@ class Probe(unittest.TestCase):
                "PROBE_TOKEN_FILE": str(self.token_file), "PROBE_MERGEABLE_WAIT": "2"}
         env.update(extra or {})
         env.update(api.env)
+        fast_sleep(env, self.root)
         return subprocess.run(["bash", *bash, str(PROBE)], env=env, capture_output=True, text=True, timeout=120)
 
     def test_memory_token_input_leaves_no_copy_or_trace(self):

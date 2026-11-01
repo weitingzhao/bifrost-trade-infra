@@ -481,9 +481,15 @@ def health():
     srv.shutdown()
 
 
-def run_prod(tmp_path, d, url, digest=DIGEST):
+def run_prod(tmp_path, d, url, digest=DIGEST, pause=None):
     script = tmp_path / "check.py"
-    script.write_text(prod_script())
+    source = prod_script()
+    if pause is not None:
+        # R5:5.7-3: the check reads the health page three times, 5 s apart; a case that
+        # reaches no server waits those seconds out. Only the pause changes.
+        source, n = re.subn(r"time\.sleep\(5\)", f"time.sleep({pause})", source)
+        assert n == 1, "the check's time.sleep(5) moved; update run_prod"
+    script.write_text(source)
     env = {**os.environ, "API_DIGEST": digest, "MIGRATIONS_DIR": str(d), "HEALTH_URL": url}
     return subprocess.run([sys.executable, str(script)], env=env, capture_output=True, text=True, timeout=60)
 
@@ -558,7 +564,7 @@ def test_prod_refuses_a_bad_digest_and_an_empty_tree(tmp_path, health):
 
 def test_prod_refuses_when_health_is_unreachable(tmp_path):
     d = migrations(tmp_path)
-    out = run_prod(tmp_path, d, "http://127.0.0.1:9/health")
+    out = run_prod(tmp_path, d, "http://127.0.0.1:9/health", pause=0)
     assert out.returncode == 1 and "could not be read" in out.stdout
 
 

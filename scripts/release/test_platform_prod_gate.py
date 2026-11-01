@@ -2,6 +2,7 @@
 
 import copy
 import json
+import re
 import os
 from pathlib import Path
 import subprocess
@@ -356,6 +357,14 @@ def test_stg_refuses(tmp_path, case):
     refuse(execute(tmp_path, doc, task), "STG")
 
 
+def fast_budget(source):
+    """The gate with a one-second BUDGET (R5:5.7-3): the timeout case waits the budget out,
+    20 real seconds, against a kubectl that never answers. Only the number changes."""
+    fast, n = re.subn(r"^BUDGET = 20$", "BUDGET = 1", source, flags=re.M)
+    assert n == 1, "the gate's BUDGET = 20 line moved; update fast_budget"
+    return fast
+
+
 @pytest.mark.parametrize(
     "mode",
     [
@@ -370,7 +379,7 @@ def test_stg_refuses(tmp_path, case):
     ],
 )
 def test_query_fail_closed(tmp_path, mode):
-    result = execute(tmp_path, mode=mode)
+    result = execute(tmp_path, mode=mode, source=fast_budget(script()) if mode == "timeout" else None)
     refuse(result)
     if "forbidden" in mode:
         assert "identity cannot read" in result.stdout
