@@ -31,6 +31,7 @@ from test_platform_prod_gate import PIPELINE, ROOT
         ("ci-running", "test_ci_refuses[running]"),
         # R5:5.7-1: a console-scope run is not a full one.
         ("ci-console", "test_ci_refuses[console-only]"),
+        ("ci-malformed", "test_ci_refuses[two-scopes]"),
         ("ci-require-full", "test_ci_refuses[console-only]"),
         ("stg-prefix", "test_stg_refuses[wrong-sha]"),
         ("no-result", "test_stg_refuses[no-result]"),
@@ -63,7 +64,9 @@ def test_planted_violation(tmp_path, mutation, named_test):
                 'if classify(runs, "bifrost-platform", sha, require_full=True) != "succeeded":',
                 "if False:",
             ),
-            "ci-console": ('return not scopes or scopes == ["full"]', "return True"),
+            "ci-console": ('if scopes in (["full"], ["console"]):\n        return scopes[0]',
+                           'if scopes in (["full"], ["console"]):\n        return "full"'),
+            "ci-malformed": ('    return "malformed"\n\n\ndef classify', '    return "full"\n\n\ndef classify'),
             "ci-require-full": (
                 'classify(runs, "bifrost-platform", sha, require_full=True)',
                 'classify(runs, "bifrost-platform", sha)',

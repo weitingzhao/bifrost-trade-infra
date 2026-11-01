@@ -63,9 +63,14 @@ def test_a_full_run_decides_over_a_console_one() -> None:
         ([_platform("False", "console")], "failed", "failed"),
         # a run from before api-scope ran every test
         ([_platform("True")], "succeeded", "succeeded"),
-        # two api-scope results, or a value that is not full, are not a full run
-        ([_platform("True", ["full", "full"])], "succeeded", "console"),
-        ([_platform("True", "")], "succeeded", "console"),
+        # a malformed api-scope (two, empty, another value) counts for nothing, as B5 reads it
+        ([_platform("True", ["full", "full"])], "malformed", "malformed"),
+        ([_platform("True", "")], "malformed", "malformed"),
+        ([_platform("True", "partial")], "malformed", "malformed"),
+        ([_platform("False", ["console", "full"])], "malformed", "malformed"),
+        ([_platform("True", ["full", "full"]), _platform("False")], "failed", "failed"),
+        ([_platform("True", "partial"), _platform("True", "console")], "succeeded", "console"),
+        ([_platform("False", ""), _platform("True", "full")], "succeeded", "succeeded"),
         ([_platform("Unknown", "console")], "missing", "missing"),
     ]
     for runs, push, release in cases:
@@ -74,6 +79,8 @@ def test_a_full_run_decides_over_a_console_one() -> None:
     code, text = gate([_platform("True", "console")], [("bifrost-platform", SHA)], "", require_full=True)
     assert code == 2 and "a release needs a full run" in text, text
     assert gate([_platform("True", "console")], [("bifrost-platform", SHA)], "")[0] == 0
+    code, text = gate([_platform("True", ["full", "full"])], [("bifrost-platform", SHA)], "")
+    assert code == 2 and "malformed api-scope" in text, text
     # the other pipelines have no api-scope: unchanged
     py = [_run("bifrost-ci-python", {"repo": "bifrost-trade-core", "revision": SHA})]
     assert classify(py, "bifrost-trade-core", SHA, require_full=True) == "succeeded"

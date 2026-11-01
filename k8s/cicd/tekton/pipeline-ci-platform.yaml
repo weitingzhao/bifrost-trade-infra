@@ -384,10 +384,11 @@ spec:
               # Before it narrows, the run checks that this still holds for this checkout
               # (scope-check below); a reader it does not know turns the run to full.
               CONSOLE_SCOPE_PACKAGES="./internal/agentrt/rules/... ./internal/cluster"
-              # Read outside api/ but nothing a console-scope change touches:
-              # devsession/catalog_repo_test.go joins ../../.. with config/sessions-catalog.yaml;
-              # codehealth/scanner.go looks up the workspace of a running platform-api.
-              CONSOLE_SCOPE_KNOWN="api/internal/devsession/catalog_repo_test.go api/internal/codehealth/scanner.go"
+              # Reads outside api/ that touch nothing a console-scope change can, one file and the one
+              # target it may reach (file=target); any other target of the same file counts as new:
+              # devsession/catalog_repo_test.go joins ../../.. (".") with config/sessions-catalog.yaml;
+              # codehealth/scanner.go walks up to ".", the workspace of a running platform-api.
+              CONSOLE_SCOPE_KNOWN="api/internal/devsession/catalog_repo_test.go=. api/internal/codehealth/scanner.go=."
               if [ "${API_SCOPE:-full}" = "console" ]; then
                 scope_check="$(mktemp -d)"
                 cat > "${scope_check}/main.go" <<'GO'
@@ -399,10 +400,11 @@ spec:
               // runs a package and runtime.Caller roots a path). A read that reaches outside api/
               // where a console-scope change could be (anything but a sibling repository,
               // console/src/api, config/, or one file that is neither console/** nor Markdown) must
-              // be from an allowed package or a known file. Prints each other one, and an allowed
-              // package with no Go file (go test would fail on it), and exits 1.
+              // be from an allowed package, or be a known file's known target (file=target, the
+              // target as resolved here). Prints each other one, and an allowed package with no Go
+              // file (go test would fail on it), and exits 1.
               //
-              //   go run . <repository root> <allowed package>... -- <known file>...
+              //   go run . <repository root> <allowed package>... -- <file=target>...
 
               import (
                   "fmt"
@@ -430,14 +432,19 @@ spec:
                       os.Exit(2)
                   }
                   root := os.Args[1]
-                  var allowed, known []string
+                  var allowed []string
+                  known := map[string]bool{}
                   seen := false
                   for _, a := range os.Args[2:] {
                       switch {
                       case a == "--":
                           seen = true
                       case seen:
-                          known = append(known, a)
+                          if !strings.Contains(a, "=") {
+                              fmt.Println("a known read is file=target:", a)
+                              os.Exit(2)
+                          }
+                          known[a] = true
                       default:
                           allowed = append(allowed, a)
                       }
@@ -485,11 +492,7 @@ spec:
                               if info, err := os.Lstat(filepath.Join(root, filepath.FromSlash(target))); err == nil && info.Mode().IsRegular() && !consoleScope(target) {
                                   continue
                               }
-                              isKnown := false
-                              for _, k := range known {
-                                  isKnown = isKnown || k == rel
-                              }
-                              if covered(path.Dir(rel)) || isKnown {
+                              if covered(path.Dir(rel)) || known[rel+"="+target] {
                                   continue
                               }
                               fmt.Printf("%s reads %s outside api/\n", rel, target)

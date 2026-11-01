@@ -13,7 +13,8 @@ the Go tests a console change can reach; one SHA can have such a run green and
 a full run red. A full run decides: any full run Succeeded is succeeded, else
 any full run Failed is failed. A run without the api-scope result is full: the
 platform pipeline before R5:5.7-1 always ran every test, and the other
-pipelines have no such result. Only when no full run has finished do the
+pipelines have no such result. A malformed api-scope (two, empty, another
+value) counts for nothing, as B5 reads it. Only when no full run has finished do the
 console runs count: as succeeded for a push to main (push-main.sh: a lane's
 commit gets only console runs until it is on main), as console (wait for a full
 run, exit 2) with --require-full, which a release asks for (release.sh, the
@@ -71,20 +72,28 @@ def _succeeded(run: dict) -> Optional[str]:
     return None
 
 
-def _full(run: dict) -> bool:
-    """True when the run ran every test (R5:5.7-1): no api-scope result (an older
-    platform run, or another pipeline), or exactly one, full. Anything else is not."""
+def _scope(run: dict) -> str:
+    """full, console, or malformed: how much of the Go tests the run ran (R5:5.7-1).
+    No api-scope result is full (an older platform run, or another pipeline); exactly
+    one, full or console, is that; anything else (two, empty, another value) is
+    malformed, as B5 reads it: neither a success nor a full run."""
     scopes = [str(r.get("value", "")) for r in ((run.get("status") or {}).get("results") or [])
               if isinstance(r, dict) and r.get("name") == "api-scope"]
-    return not scopes or scopes == ["full"]
+    if not scopes:
+        return "full"
+    if scopes in (["full"], ["console"]):
+        return scopes[0]
+    return "malformed"
 
 
 def classify(runs: Iterable[dict], repo: str, sha: str, require_full: bool = False) -> str:
-    """Return succeeded, failed, missing, or (require_full) console for repo@sha.
+    """Return succeeded, failed, missing, malformed, or (require_full) console for repo@sha.
 
     A full run decides; console runs count only when no full run has finished,
-    and with require_full not as a success (console: a full run is still owed)."""
-    seen = {(True, "True"): False, (True, "False"): False, (False, "True"): False, (False, "False"): False}
+    and with require_full not as a success (console: a full run is still owed).
+    A run with a malformed api-scope counts for nothing; when nothing else
+    finished, the answer is malformed."""
+    seen = {(scope, state): False for scope in ("full", "console", "malformed") for state in ("True", "False")}
     for run in runs:
         if _pipeline_name(run) not in CI_PIPELINES:
             continue
@@ -93,17 +102,19 @@ def classify(runs: Iterable[dict], repo: str, sha: str, require_full: bool = Fal
             continue
         state = _succeeded(run)
         if state == "True":
-            seen[(_full(run), "True")] = True
+            seen[(_scope(run), "True")] = True
         elif state == "False":
-            seen[(_full(run), "False")] = True
-    if seen[(True, "True")]:
+            seen[(_scope(run), "False")] = True
+    if seen[("full", "True")]:
         return "succeeded"
-    if seen[(True, "False")]:
+    if seen[("full", "False")]:
         return "failed"
-    if seen[(False, "True")]:
+    if seen[("console", "True")]:
         return "console" if require_full else "succeeded"
-    if seen[(False, "False")]:
+    if seen[("console", "False")]:
         return "failed"
+    if seen[("malformed", "True")] or seen[("malformed", "False")]:
+        return "malformed"
     return "missing"
 
 
@@ -120,6 +131,9 @@ def gate(runs: Iterable[dict], pairs: list[tuple[str, str]], allow_red: str,
         if state == "console":
             lines.append("  only console-scope runs (api-scope=console) succeeded; a release needs a full run "
                          "(the push to main runs one)")
+        if state == "malformed":
+            lines.append("  the only finished runs have a malformed api-scope result (two, empty or unknown); "
+                         "they count for nothing: run CI again")
         if allow_red:
             lines.append(f"  allow-red: {allow_red}")
             continue

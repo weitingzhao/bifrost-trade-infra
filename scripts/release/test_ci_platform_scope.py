@@ -324,7 +324,8 @@ def scope_check_source() -> str:
     return script[script.index("<<'GO'\n") + len("<<'GO'\n"):script.index("\nGO\n")]
 
 
-def known_files() -> list[str]:
+def known_reads() -> list[str]:
+    """CONSOLE_SCOPE_KNOWN: file=target, each a read outside api/ that is allowed."""
     (line,) = [l for l in api_script().splitlines() if l.strip().startswith("CONSOLE_SCOPE_KNOWN=")]
     return line.split("=", 1)[1].strip().strip('"').split()
 
@@ -425,13 +426,14 @@ BASE_TREE = {
 
 @pytest.mark.skipif(shutil.which("go") is None, reason="go is not installed")
 def test_the_self_check_reads_a_tree_like_the_platforms(tmp_path):
-    packages, known = scope_packages(), known_files()
+    packages, known = scope_packages(), known_reads()
     r = scope_check(tmp_path, BASE_TREE, packages, known)
     assert r.returncode == 0, r.stdout + r.stderr
-    # Each known file is still needed (it reaches outside api/), and nothing else is named.
+    # Each known read is still there, exactly as registered, and nothing else is named.
     r = scope_check(tmp_path, BASE_TREE, packages, [])
     assert r.returncode == 1
-    assert sorted(l.split()[0] for l in r.stdout.splitlines() if " reads " in l) == sorted(known)
+    assert sorted(r.stdout.splitlines()) == sorted(
+        f"{k.rsplit('=', 1)[0]} reads {k.rsplit('=', 1)[1]} outside api/" for k in known)
     r = scope_check(tmp_path, BASE_TREE, packages + ["./internal/gone"], known)
     assert r.returncode == 1 and "allowed package ./internal/gone has no Go file" in r.stdout
 
@@ -445,9 +447,23 @@ def test_the_self_check_reads_a_tree_like_the_platforms(tmp_path):
     ("api/internal/agentrt/other/a_test.go", 'root := "../../../.."', "."),
 ])
 def test_a_new_reader_outside_the_list_is_named(tmp_path, rel, line, target):
-    r = scope_check(tmp_path, {**BASE_TREE, rel: line + "\n"}, scope_packages(), known_files())
+    r = scope_check(tmp_path, {**BASE_TREE, rel: line + "\n"}, scope_packages(), known_reads())
     assert r.returncode == 1, r.stdout + r.stderr
     assert r.stdout.splitlines() == [f"{rel} reads {target} outside api/"], r.stdout
+
+
+@pytest.mark.skipif(shutil.which("go") is None, reason="go is not installed")
+def test_a_known_file_is_excused_for_its_one_target_only(tmp_path):
+    # Review: CONSOLE_SCOPE_KNOWN once excused a whole file. A new read in a known file
+    # (here devsession's catalog test reading console/src/lib) is named like any other.
+    rel = "api/internal/devsession/catalog_repo_test.go"
+    files = {**BASE_TREE, rel: BASE_TREE[rel] + 'src := "../../../console/src/lib/x.ts"\n'}
+    r = scope_check(tmp_path, files, scope_packages(), known_reads())
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert r.stdout.splitlines() == [f"{rel} reads console/src/lib/x.ts outside api/"], r.stdout
+    # A pair without a target is refused outright (the run goes full).
+    r = scope_check(tmp_path, BASE_TREE, scope_packages(), [rel])
+    assert r.returncode != 0 and "a known read is file=target" in r.stdout
 
 
 def platform_checkout() -> Path | None:
@@ -470,6 +486,6 @@ def test_auxiliary_the_self_check_passes_on_the_platform_checkout(tmp_path):
     check.mkdir()
     (check / "main.go").write_text(scope_check_source())
     (check / "go.mod").write_text("module scopecheck\n\ngo 1.21\n")
-    r = subprocess.run(["go", "run", ".", str(root), *scope_packages(), "--", *known_files()], cwd=check,
+    r = subprocess.run(["go", "run", ".", str(root), *scope_packages(), "--", *known_reads()], cwd=check,
                        env=go_env(tmp_path), capture_output=True, text=True, timeout=300)
     assert r.returncode == 0, r.stdout + r.stderr

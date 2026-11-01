@@ -282,6 +282,8 @@ def test_stg_digests_refuse(tmp_path, case, says):
         "console-only",
         "console-green-full-red",
         "two-scopes",
+        "empty-scope",
+        "unknown-scope",
     ],
 )
 def test_ci_refuses(tmp_path, case):
@@ -308,6 +310,8 @@ def test_ci_refuses(tmp_path, case):
         ci["status"]["results"] = [{"name": "api-scope", "value": "console"}]
     if case == "two-scopes":
         ci["status"]["results"].append({"name": "api-scope", "value": "full"})
+    if case in ("empty-scope", "unknown-scope"):
+        ci["status"]["results"] = [{"name": "api-scope", "value": "" if case == "empty-scope" else "partial"}]
     if case == "console-green-full-red":
         doc["items"].insert(0, run("bifrost-ci-platform", ok="False", name="full-red"))
     if case != "python-pipeline":
