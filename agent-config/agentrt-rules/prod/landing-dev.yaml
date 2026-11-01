@@ -1,8 +1,8 @@
 rule_id: landing:dev
-rule_version: 4
+rule_version: 5
 direction: loosen
-effective_at: 2026-10-31T00:00:00Z
-expires_at: 2026-11-30T00:00:00Z
+effective_at: 2026-11-01T00:00:00Z
+expires_at: 2026-12-31T00:00:00Z
 tenant: dev
 repos:
   - repo: bifrost-platform
@@ -15,7 +15,7 @@ repos:
     stg_release: none
     limits: {max_files: 5, max_changed_lines: 1500, max_in_flight: 1}
 limits:
-  max_files: 10
-  max_changed_lines: 300
-  max_landings_per_day: 12
+  max_files: 15
+  max_changed_lines: 800
+  max_landings_per_day: 24
   max_in_flight_per_repo: 1
