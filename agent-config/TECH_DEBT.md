@@ -3643,6 +3643,24 @@
 - **防线**：PG 测试——两张并行单，先落一张，另一张干净重放后不需新单即可落地；patch-id 变化（冲突解决）时必须新单。
 - **验收**：两件并行改动 Owner 各批一次即全部落地。
 
+### TD-473
+
+**P1 · research-control · dagster-daemon 自己当 PID 1、不回收孤儿进程：连续运行约 20 天就攒满 pids 上限，整个 Dagster 停摆；恢复时 38 个漏掉的 schedule 会同时补跑**
+
+- **状态**：在做（2026-11-01）。修复在 research `badd5d6`（ci-python 绿，分支 `agent/td-473/a1`）；上线走 #255 `owner_run_command`（D 级，你在 Console 批后本机 `owner-run.sh`：推 research main → 活跃 run 为 0 → 服务端 dry-run → server-side apply 接管字段）。`apply_manifest` 这次走不通：C 级只收 main 头上的提交，而且这几个对象一直是手工 client-side apply（managedFields：ConfigMap 09-09、Deployment 10-07），流水线的 server-side diff 撞冲突（`plan-badd5d69-1793575648`：`conflict with "kubectl-client-side-apply" using v1: .data.dagster.yaml`）。#255 用 `bifrost-applier` 接管后，research-release skill 写的「改 dagster.yaml 用 apply_manifest」才成立。
+- **证据**：
+  - 2026-11-01 23:05 UTC 实测 `research/dagster-daemon-78b6d9cf69-w6rwq`（10-10 启动，0 次重启）：27,650 个进程里 27,646 个是 `python3.11` 僵尸，父进程全是 PID 1（`dagster-daemon run`）；`pids.max` 27,724，`pids.events` `max 17`。僵尸每天 1,370 个、启动间隔中位 63.0 s，与日志每小时 57 次 `dagster.code_server - No heartbeat received in 20 seconds, shutting down` 一致：Dagster 1.13.26 `_daemon/controller.py:51` `RELOAD_WORKSPACE_INTERVAL = 60`，每次 reload 换一个 code server，旧的留下一个孤儿过继给 PID 1。webserver、research-api 0 个僵尸。
+  - 10-30 09:45 UTC 起 daemon 日志连串 `pthread_create failed: Resource temporarily unavailable`，最后一行 10:00:00 UTC。`ops_dagster.runs` 最后一个 run 09:30；`ops_jobs.job_ingest` 最后一次 enqueue 08:10（ratios_market），之后 61 小时插件零作业：10-30 的 option_snapshot / option_open_interest / 分窗口链全是 0 行。
+  - 清单 `bifrost-research/k8s/orchestration/dagster.yaml`（73694cc）：daemon `command: ["dagster-daemon", "run", ...]` 直接当 PID 1，没有 init，没有 `shareProcessNamespace`；instance 配置没有 `run_coordinator`（默认立即启动）。
+  - 补跑：Dagster 1.13 对无分区 schedule 只补最近一个漏掉的 tick（`_scheduler/scheduler.py:637-639`），但 38 个 schedule 都漏了（`BifrostDagsterScheduleMissedTick` 同时 38 条）→ 恢复那一刻 38 个 run 同时在这个 1 CPU / 4Gi 容器里起。21 天内 run 并发峰值 3（`ops_dagster.runs`），`research_trading_day` 单跑约 2.2 GB（cadvisor `max_over_time`）。所以单纯 rollout restart 大概率 OOM。
+  - 告警：`BifrostDagsterDaemonHeartbeatStale` 在 10-30 09:50（SENSOR）/ 10:05（SCHEDULER）UTC 就是 critical，连续 61 小时没人处理，送达通道见 TD-209。
+- **影响**：每次 daemon 连续运行约 20 天（27,724 / 1,370）就停摆一次；停摆期间采集、Research 批次、Flex、自愈和失败告警 sensor 全停。时点数据永久丢失：10-30 的三次盘中链快照、stock_snapshot、movers。
+- **止血（已做）**：2026-11-01 23:13 UTC `market_data_heal` 补发 10-30 的 eod-pipeline / universe-daily / stock-eod / fundamentals-market（806 个作业，23:14 全部 done）。10-30 EOD 快照 242,728 行 / 762 个标的（10-27～10-29 为 24.9 万～26.3 万行 / 748～757 个），doctor 从 critical 变 degraded（分窗口链 740/740，整链 98%，只剩 CBRS 89%）。23:41 UTC 再补 reference、calendar、option-refresh、option-depth 四条日常处方（354 个作业，展开约 1.3 万个 option_daily，0 失败）：三条 stale 转 ok，`BifrostPluginDegraded` 回 ok。`depth_holes:option_daily` 跑完自己的处方仍是 warn（FCBC、CCNE 没被规划，CUE、CWBC 只规划了 10 月到期），与本条无关，另查。
+- **修法**（research `badd5d6`）：daemon 与 webserver 的 Pod 加 `shareProcessNamespace: true`，pause 容器当 PID 1、回收孤儿；instance 加 `QueuedRunCoordinator`（`module: dagster._core.run_coordinator`——1.13 已没有 `dagster.core`，集群镜像实测），`max_concurrent_runs: 2`。apply 后 daemon 按 Recreate 重建，补跑的 run 进队列两个一批跑完。附带变化：从 UI 发起的 run 也进队列、由 daemon 执行（原来跑在 webserver 容器）。
+- **防线**：`tests/orchestration/test_daemon_manifest.py` 的 `test_dagster_pods_have_a_reaping_pid_1`、`test_runs_queue_behind_a_concurrency_cap`（两条在旧清单上都失败，已核对）。提议未做：research-api `/metrics` 出 daemon Pod 的 `pids.current / pids.max`，到 50% 告警，比心跳告警早约 10 天。
+- **验收**：apply 后 ① 一小时后 daemon 容器僵尸数仍为 0：`KUBECONFIG=~/.kube/bifrost-k3s.yaml kubectl -n research exec deploy/dagster-daemon -- python -c "import os;print(sum(open('/proc/%s/stat'%d).read().rsplit(')',1)[1].split()[0]=='Z' for d in os.listdir('/proc') if d.isdigit()))"`；② `ops_dagster.daemon_heartbeats` 里 SCHEDULER、SENSOR、QUEUED_RUN_COORDINATOR 都在 5 分钟内；③ 补跑期间 `ops_dagster.runs` 同时 STARTED 的不超过 2，daemon `restartCount` 为 0。
+- 审批：apply_manifest C 级（你在 Console 批）· 代价 S · 风险 low · repos: bifrost-research
+
 ### TD-472
 
 **P2 · S5 · 准入策略文件里的 S5 段在 Kubernetes 1.35 上 CEL 编译不过，从未装上；main 与线上不一致**
