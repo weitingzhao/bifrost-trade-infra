@@ -10,7 +10,13 @@ PIPELINE = ROOT / "k8s/cicd/tekton/pipeline-ci-platform.yaml"
 
 
 def pipeline():
-    return yaml.safe_load(PIPELINE.read_text())["spec"]
+    """The pipeline spec; test-api is its own Task (R5:5.7-1), read in as the taskSpec it was."""
+    spec = yaml.safe_load(PIPELINE.read_text())["spec"]
+    api = yaml.safe_load((PIPELINE.parent / "task-ci-platform-test-api.yaml").read_text())
+    for t in spec["tasks"]:
+        if t.get("taskRef", {}).get("name") == api["metadata"]["name"]:
+            t["taskSpec"] = api["spec"]
+    return spec
 
 
 def test_actual_clone_results_are_auditable():

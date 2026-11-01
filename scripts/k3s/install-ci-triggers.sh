@@ -62,9 +62,13 @@ echo "==> Trigger RBAC (ServiceAccount tekton-trigger)"
 kubectl apply -f "${ROOT}/k8s/cicd/tekton/rbac-trigger.yaml"
 
 # ── 3. CI gate tasks + pipelines ──────────────────────────────────────────────
-# Order matters: pipelines reference bifrost-code-health by taskRef.
+# Order matters: pipelines reference bifrost-code-health, and bifrost-ci-platform its own Tasks, by taskRef.
 echo "==> Code-health ratchet Task"
 kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-code-health.yaml"
+
+echo "==> bifrost-ci-platform Tasks (changes, test-api; R5:5.7-1)"
+kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-ci-platform-changes.yaml"
+kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-ci-platform-test-api.yaml"
 
 echo "==> CI pipelines"
 for p in pipeline-ci-frontend pipeline-ci-platform pipeline-ci-python; do

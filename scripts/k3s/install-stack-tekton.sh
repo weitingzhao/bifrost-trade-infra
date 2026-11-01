@@ -87,6 +87,8 @@ else
   kubectl apply -f "${ROOT}/k8s/cicd/tekton/rbac-trigger.yaml"
   kubectl apply -f "${ROOT}/k8s/cicd/tekton/pipeline-ci-python.yaml"
   kubectl apply -f "${ROOT}/k8s/cicd/tekton/pipeline-ci-frontend.yaml"
+  kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-ci-platform-changes.yaml"
+  kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-ci-platform-test-api.yaml"
   kubectl apply -f "${ROOT}/k8s/cicd/tekton/pipeline-ci-platform.yaml"
   kubectl apply -f "${ROOT}/k8s/cicd/tekton/trigger-trade-ci.yaml"
 fi

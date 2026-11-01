@@ -36,17 +36,28 @@ GIT_ENV = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.invalid", "GIT
            "GIT_COMMITTER_EMAIL": "t@example.invalid", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
 
 
-def tasks() -> dict:
+def pipeline_tasks() -> dict:
+    """The pipeline's tasks; its own Tasks (bifrost-ci-platform-*, one file each) read in as taskSpec."""
     doc = yaml.safe_load(PIPELINE.read_text())
-    return {t["name"]: t for t in doc["spec"]["tasks"]}
+    own = {}
+    for path in (PIPELINE.parent / "task-ci-platform-changes.yaml", PIPELINE.parent / "task-ci-platform-test-api.yaml"):
+        task = yaml.safe_load(path.read_text())
+        own[task["metadata"]["name"]] = task["spec"]
+    result = {}
+    for t in doc["spec"]["tasks"]:
+        name = t.get("taskRef", {}).get("name", "")
+        if name in own:
+            t = {k: v for k, v in t.items() if k != "taskRef"} | {"taskSpec": own[name]}
+        result[t["name"]] = t
+    return result
 
 
 def changes_script() -> str:
-    return tasks()["changes"]["taskSpec"]["steps"][0]["script"]
+    return pipeline_tasks()["changes"]["taskSpec"]["steps"][0]["script"]
 
 
 def api_script() -> str:
-    return tasks()["test-api"]["taskSpec"]["steps"][0]["script"]
+    return pipeline_tasks()["test-api"]["taskSpec"]["steps"][0]["script"]
 
 
 def scope_packages() -> list[str]:
@@ -84,11 +95,11 @@ def test_the_run_says_its_scope_in_a_result():
     names = [r["name"] for r in results]
     assert len(names) == len(set(names))
     assert {"name": "api-scope", "value": "$(tasks.changes.results.api-scope)"} in results
-    assert [r["name"] for r in tasks()["changes"]["taskSpec"]["results"]][0] == "api-scope"
+    assert [r["name"] for r in pipeline_tasks()["changes"]["taskSpec"]["results"]][0] == "api-scope"
 
 
 def test_test_api_takes_its_scope_from_changes():
-    t = tasks()
+    t = pipeline_tasks()
     api = t["test-api"]
     assert api["params"] == [{"name": "scope", "value": "$(tasks.changes.results.api-scope)"}]
     assert api["taskSpec"]["params"] == [{"name": "scope", "type": "string", "default": "full"}]
