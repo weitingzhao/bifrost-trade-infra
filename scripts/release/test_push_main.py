@@ -753,6 +753,39 @@ class PushMain(_Fixture):
             with self.assertRaises(ProcessLookupError):
                 os.kill(int(n), 0)
 
+    def test_stopping_a_group_left_with_zombies_does_not_crash_the_runner(self) -> None:
+        # macOS answers EPERM to a KILL for a group whose members are all zombies; the runner
+        # crashed there and printed nothing (11-01, under load). Both signals now tolerate it.
+        import signal as signals
+        import push_main_tests
+        child = subprocess.Popen(["sleep", "30"], start_new_session=True)
+        sent = []
+        real_killpg = os.killpg
+
+        def refuse(pgid, sig):
+            sent.append(sig)
+            if sig == signals.SIGKILL:
+                raise PermissionError(1, "Operation not permitted")
+            real_killpg(pgid, sig)
+        with mock.patch.object(push_main_tests.os, "killpg", side_effect=refuse):
+            push_main_tests._stop(child)
+        self.assertEqual(sent, [signals.SIGTERM, signals.SIGKILL])
+        self.assertIsNotNone(child.returncode)
+
+    def test_a_test_that_cannot_start_is_a_failure_not_a_crash(self) -> None:
+        import io
+        import push_main_tests
+        tree = Path(self._tmp.name) / "tree"
+        (tree / "t").mkdir(parents=True)
+        (tree / "t" / "test_a.py").write_text("def test_a():\n    pass\n")
+        out = io.StringIO()
+        with mock.patch.object(push_main_tests.subprocess, "Popen", side_effect=BlockingIOError(35, "no process slot")), \
+                mock.patch.dict(os.environ, {"PUSH_MAIN_TEST_TIMES": str(Path(self._tmp.name) / "times.json")}):
+            code = push_main_tests.run(tree, ["t"], 2, 30, out=out)
+        self.assertEqual(code, 1)
+        self.assertIn("push-main: FAILED t/test_a.py (exit -1", out.getvalue())
+        self.assertIn("could not start python3", out.getvalue())
+
     # R5:5.7-3: a push that changes agent-config/scripts/landing runs its tests too.
     def _landing(self, work: Path, test_rc: int) -> None:
         self._add(work, "agent-config/scripts/landing/handin.sh", "#!/bin/sh\necho handin\n")

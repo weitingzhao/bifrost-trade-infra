@@ -124,21 +124,25 @@ def runs_of(root: Path, path: str) -> list[tuple[str, list[str], int]]:
             for i in range(parts)]
 
 
+def _signal_group(process: subprocess.Popen, sig: int) -> None:
+    """Signal the test process's group. A group already gone is ESRCH; one left with
+    only zombies is EPERM on macOS (seen 11-01: the KILL after the TERM crashed the
+    runner, which then printed nothing): both mean nothing is left to stop."""
+    try:
+        os.killpg(process.pid, sig)
+    except (ProcessLookupError, PermissionError):
+        pass
+
+
 def _stop(process: subprocess.Popen) -> None:
     """Stop a test process and everything it started (its own session): a TERM, up to
     5 s for it to end, then a KILL for whatever of the group is left."""
-    try:
-        os.killpg(process.pid, signal.SIGTERM)
-    except ProcessLookupError:
-        pass
+    _signal_group(process, signal.SIGTERM)
     try:
         process.wait(timeout=5)
     except subprocess.TimeoutExpired:
         pass
-    try:
-        os.killpg(process.pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
+    _signal_group(process, signal.SIGKILL)
     process.wait()
 
 
@@ -165,8 +169,15 @@ def run(root: Path, paths: list[str], jobs: int, deadline: float, out=sys.stdout
             while queue and len(running) < jobs:
                 label, cmd, _size = queue.pop(0)
                 log = open(log_of[label], "wb")
-                process = subprocess.Popen(cmd, cwd=root, stdin=subprocess.DEVNULL, stdout=log,
-                                           stderr=subprocess.STDOUT, start_new_session=True)
+                try:
+                    process = subprocess.Popen(cmd, cwd=root, stdin=subprocess.DEVNULL, stdout=log,
+                                               stderr=subprocess.STDOUT, start_new_session=True)
+                except OSError as e:
+                    # Not started (no process slot, say): a failure, said, not a crash.
+                    log.write(f"push-main: could not start {cmd[0]}: {e}\n".encode())
+                    log.close()
+                    results[label] = (-1, 0.0)
+                    continue
                 running[label] = (process, time.monotonic(), log)
             for label, (process, since, log) in list(running.items()):
                 if process.poll() is None:
