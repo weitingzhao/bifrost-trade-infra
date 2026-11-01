@@ -91,7 +91,9 @@ def test_release_and_the_prod_gate_require_a_full_run(tmp_path) -> None:
     assert subprocess.run(args + ["--require-full"], capture_output=True).returncode == 2
     release = open(os.path.join(here, "release.sh")).read()
     assert release.count('ci_gate.py" --runs') == 1 and "--require-full --allow-red" in release
-    push_main = open(os.path.join(here, "push-main.sh")).read()
-    assert "--require-full" not in push_main
+    # push-main counts a console run when no full one has finished (a lane's commit has no other).
+    push_main = [line for line in open(os.path.join(here, "push-main.sh")).read().splitlines()
+                 if "ci_gate.py" in line and not line.lstrip().startswith("#")]
+    assert push_main and not any("--require-full" in line for line in push_main)
     prod = open(os.path.join(here, "platform_prod_gate.py")).read()
     assert 'classify(runs, "bifrost-platform", sha, require_full=True)' in prod

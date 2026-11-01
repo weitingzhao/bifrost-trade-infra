@@ -838,9 +838,11 @@ def test_protected_files_unchanged():
     # into env in these files; rollout/digest semantics stay unchanged. Repin the
     # reviewed definitions so subsequent unrelated edits still fail.
     # Work 561 round 2 also isolates git global config and clears credential.helper.
+    # R5:5.7-1 (review F1): the embedded source gate's CI check takes only a full run
+    # (ci_gate.py classify, require_full); rollout/digest semantics stay unchanged.
     hashes = {
         "task-deliver-platform.yaml": "3c039ec342b7224ec593ee9d76566037b750878b522ecb75bc4c1e75188972aa",
-        "pipeline-deliver-platform-prod.yaml": "7654a44a98c955cd50a12cfefe14f06919108466a57c29e81a9b43a6dec6c36f",
+        "pipeline-deliver-platform-prod.yaml": "a6a9ac18a02794f736e41a0330f859c88ffcdee6d230a77729370e4f5dbad6ed",
     }
     for filename, expected in hashes.items():
         assert (
