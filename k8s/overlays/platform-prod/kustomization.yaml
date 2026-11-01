@@ -43,6 +43,7 @@ patches:
   - path: platform-api-patrol.patch.yaml
   - path: replicas-ha.patch.yaml
   - path: platform-api-recreate.patch.yaml
+  - path: platform-api-memory.patch.yaml
   - path: nodeport-prod.patch.yaml
   - path: platform-api-agent-bridge-env.patch.yaml
   - path: platform-api-operator-plane.patch.yaml

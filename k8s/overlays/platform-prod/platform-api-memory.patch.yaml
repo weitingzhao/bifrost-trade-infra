@@ -1,0 +1,20 @@
+# platform-api memory limit on PROD (2026-10-31 incident): 512Mi was crossed when the Console
+# opened the Work page — about 40 parallel reads, several of which fold whole landing streams
+# (landing/missions per goal, plan-view tasks' delivery). Three OOM kills between 23:28 and
+# 23:44 CDT after the 23:12 release; the previous pod also had one in 7 days. 1536Mi gives
+# headroom while the per-request stream folding is fixed (tech debt, review 630 note 4).
+# The node has ~23 GiB allocatable at 13% use. platform-workers keeps the base limits.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-api
+spec:
+  template:
+    spec:
+      containers:
+        - name: platform-api
+          resources:
+            requests:
+              memory: 256Mi
+            limits:
+              memory: 1536Mi
