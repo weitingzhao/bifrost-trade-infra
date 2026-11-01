@@ -297,10 +297,21 @@ urllib.request.OpenerDirector.open = protocol_open
 # at 10 ms; the probe itself is unchanged. Python imports one sitecustomize, the first
 # on its path, so this one goes first and then runs the one a case put there (the file
 # transport's, or a case's own shim), as that case's run would have.
+# Its text never changes and never names that shim: the path comes through the
+# environment. A text that named it was rewritten, at the same size, for every case of
+# a test; within one second Python reused the previous case's cached bytecode, which ran
+# a shim already deleted, and site turned that into a warning, so the probe ran with no
+# fixture at all (push-main 11-01). A shim that cannot run now ends the probe (exit 97).
 FAST_SLEEP = """
-import time as _fast_sleep_time
+import os as _fast_sleep_os, time as _fast_sleep_time
 _fast_sleep_real = _fast_sleep_time.sleep
 _fast_sleep_time.sleep = lambda seconds: _fast_sleep_real(min(seconds, 0.01))
+_fast_sleep_chain = _fast_sleep_os.environ.get('PROBE_TEST_FAST_SLEEP_CHAIN')
+if _fast_sleep_chain:
+    try:
+        exec(compile(open(_fast_sleep_chain).read(), _fast_sleep_chain, 'exec'))
+    except BaseException:
+        _fast_sleep_os._exit(97)
 """
 
 
@@ -309,10 +320,10 @@ def fast_sleep(env: dict, root: Path) -> None:
     directory.mkdir(exist_ok=True)
     entries = [e for e in env.get('PYTHONPATH', '').split(os.pathsep) if e]
     chained = next((Path(e) / 'sitecustomize.py' for e in entries if (Path(e) / 'sitecustomize.py').is_file()), None)
-    text = FAST_SLEEP
+    env.pop('PROBE_TEST_FAST_SLEEP_CHAIN', None)
     if chained is not None:
-        text += f"exec(compile(open({str(chained)!r}).read(), {str(chained)!r}, 'exec'))\n"
-    (directory / 'sitecustomize.py').write_text(text)
+        env['PROBE_TEST_FAST_SLEEP_CHAIN'] = str(chained)
+    (directory / 'sitecustomize.py').write_text(FAST_SLEEP)
     env['PYTHONPATH'] = os.pathsep.join([str(directory), *entries])
 
 
