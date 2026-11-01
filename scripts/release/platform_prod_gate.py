@@ -267,8 +267,9 @@ def main():
             )
             condition = "CI"
             runs = pipeline_runs("bifrost-ci-platform")
-            if classify(runs, "bifrost-platform", sha) != "succeeded":
-                raise ValueError("no exact-SHA Succeeded CI")
+            # R5:5.7-1: a full run (no api-scope=console) decides what ships.
+            if classify(runs, "bifrost-platform", sha, require_full=True) != "succeeded":
+                raise ValueError("no exact-SHA Succeeded full CI")
             condition = "STG"
             stg = latest_stg(pipeline_runs("bifrost-deliver-platform"))
             task = stg_child(stg, "clone-platform", "clone")

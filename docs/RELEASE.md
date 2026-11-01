@@ -139,14 +139,14 @@ kubectl apply --dry-run=server -f k8s/cicd/tekton/pipeline-deliver-platform-prod
 git show 27e4467:k8s/cicd/tekton/pipeline-deliver-platform-prod.yaml | kubectl apply -f -
 ```
 
-试跑应看到（`kubectl -n cicd get pipelinerun -l bifrost.io/purpose=check-source-trial`，日志在它唯一的 TaskRun 里）：第一条 Succeeded，结果 `commit` 是那个提交；第二条 Failed，日志一行 `REFUSED: CI cannot be shown for <sha>: no exact-SHA Succeeded CI`。第一条如果起不来（镜像里没有 python3 或 git）或报 `identity cannot read…`，不要应用。
+试跑应看到（`kubectl -n cicd get pipelinerun -l bifrost.io/purpose=check-source-trial`，日志在它唯一的 TaskRun 里）：第一条 Succeeded，结果 `commit` 是那个提交；第二条 Failed，日志一行 `REFUSED: CI cannot be shown for <sha>: no exact-SHA Succeeded full CI`。第一条如果起不来（镜像里没有 python3 或 git）或报 `identity cannot read…`，不要应用。
 
 拒绝行各自怎么办：
 
 | 拒绝行里有 | 意思 | 怎么办 |
 |---|---|---|
 | `identity cannot read PipelineRuns/TaskRuns in cicd` | 检查没跑在 tekton-deliver 下 | platform 那一半还没到 PROD，或这条 run 是手建的、没给 check-source 指身份 |
-| `no exact-SHA Succeeded CI` | 这个提交没有成功的 `bifrost-ci-platform` | 等 CI；CI 没起，先查这个提交在不在 Gitea 上（它是主仓库，推上去钩子就起 CI），再起一次 |
+| `no exact-SHA Succeeded full CI` | 这个提交没有成功的全量 `bifrost-ci-platform`：没有 run、全量 run 是红的，或者只有 `api-scope=console` 的 run 成功（R5:5.7-1：只改 console 的分支与落地只跑一部分 Go 测试；没有 `api-scope` 结果的旧 run 算全量） | 等 CI；推上 main 的那一轮是全量的。CI 没起，先查这个提交在不在 Gitea 上（它是主仓库，推上去钩子就起 CI），再起一次 |
 | `no STG delivery` | 集群里一条 `bifrost-deliver-platform` 的 run 都没有（run 只留 7 天） | 发一次 STG |
 | `STG clone commit differs or is ambiguous` | STG 最新一次成功发布的不是这个提交 | 先把这个提交发到 STG |
 | `STG run X is False`、`is Unknown`、`is running/no Succeeded condition` | 最新一次 STG 发布失败或还在跑 | 等它结束；失败就重发 STG |

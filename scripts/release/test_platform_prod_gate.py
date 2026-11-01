@@ -279,6 +279,9 @@ def test_stg_digests_refuse(tmp_path, case, says):
         "wrong-repo",
         "wrong-pipeline",
         "python-pipeline",
+        "console-only",
+        "console-green-full-red",
+        "two-scopes",
     ],
 )
 def test_ci_refuses(tmp_path, case):
@@ -300,8 +303,15 @@ def test_ci_refuses(tmp_path, case):
         ci["metadata"]["labels"]["bifrost.io/repo"] = "bifrost-ui"
     if case == "wrong-pipeline":
         ci["metadata"]["labels"]["tekton.dev/pipeline"] = "bifrost-smoke"
+    # R5:5.7-1: only a full run ships; a console-scope green does not, beside a full red neither.
+    if case in ("console-only", "console-green-full-red", "two-scopes"):
+        ci["status"]["results"] = [{"name": "api-scope", "value": "console"}]
+    if case == "two-scopes":
+        ci["status"]["results"].append({"name": "api-scope", "value": "full"})
+    if case == "console-green-full-red":
+        doc["items"].insert(0, run("bifrost-ci-platform", ok="False", name="full-red"))
     if case != "python-pipeline":
-        assert classify(doc["items"], "bifrost-platform", SHA) != "succeeded"
+        assert classify(doc["items"], "bifrost-platform", SHA, require_full=True) != "succeeded"
     refuse(execute(tmp_path, doc, task), "CI")
     assert not (tmp_path / "commit").exists()
 
@@ -309,6 +319,20 @@ def test_ci_refuses(tmp_path, case):
 def test_two_ci_one_succeeded(tmp_path):
     doc, task = answers()
     doc["items"].insert(0, run("bifrost-ci-platform", ok="False", name="failed"))
+    assert execute(tmp_path, doc, task).returncode == 0
+
+
+@pytest.mark.parametrize("results", [
+    [{"name": "api-scope", "value": "full"}],
+    [{"name": "platform-commit", "value": SHA}],
+])
+def test_a_full_run_ships_beside_a_red_console_one(tmp_path, results):
+    # R5:5.7-1: a full run (api-scope=full, or none: a run from before it) decides.
+    doc, task = answers()
+    doc["items"][0]["status"]["results"] = results
+    console = run("bifrost-ci-platform", ok="False", name="console-red")
+    console["status"]["results"] = [{"name": "api-scope", "value": "console"}]
+    doc["items"].insert(0, console)
     assert execute(tmp_path, doc, task).returncode == 0
 
 

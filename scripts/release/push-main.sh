@@ -18,7 +18,10 @@
 #    not finished yet is waited for, up to PUSH_MAIN_CI_WAIT seconds (900); a
 #    failed one refuses; none at all refuses with that hint. The runs are read
 #    with kubectl from cicd (ci_gate.py, as release.sh does); a read that fails
-#    refuses. --allow-red <reason> pushes anyway and prints the reason, as
+#    refuses. A full run decides; a bifrost-ci-platform run with api-scope=console
+#    (R5:5.7-1) counts only when no full run has finished, as a lane's commit gets
+#    only those until it is on main (release.sh asks for a full run: --require-full).
+#    --allow-red <reason> pushes anyway and prints the reason, as
 #    release.sh --allow-red does. A push that changes only Markdown is not
 #    checked, as it runs no tests.
 # 5. For a repo whose CI runs the code-health ratchet, scan.sh runs on a

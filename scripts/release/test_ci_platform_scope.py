@@ -76,6 +76,16 @@ def test_no_task_is_skipped_so_the_reason_stays_succeeded():
         assert "when" not in task, task["name"]
 
 
+def test_the_run_says_its_scope_in_a_result():
+    # A release gate reads it (ci_gate.py --require-full); B5 wants every pipeline result
+    # exactly once and non-empty: changes writes full before anything else.
+    results = yaml.safe_load(PIPELINE.read_text())["spec"]["results"]
+    names = [r["name"] for r in results]
+    assert len(names) == len(set(names))
+    assert {"name": "api-scope", "value": "$(tasks.changes.results.api-scope)"} in results
+    assert [r["name"] for r in tasks()["changes"]["taskSpec"]["results"]][0] == "api-scope"
+
+
 def test_test_api_takes_its_scope_from_changes():
     t = tasks()
     api = t["test-api"]

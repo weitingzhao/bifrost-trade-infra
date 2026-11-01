@@ -31,6 +31,12 @@ spec:
       value: $(tasks.clone-ui.results.commit)
     - name: infra-commit
       value: $(tasks.clone-infra.results.commit)
+    # R5:5.7-1: how much of the Go tests this run ran (task changes): full, or console
+    # (only those a console change can reach). Never empty: changes writes full first.
+    # A release takes only a full run as a commit's CI (scripts/release/ci_gate.py
+    # --require-full); a run without this result is from before it and ran in full.
+    - name: api-scope
+      value: $(tasks.changes.results.api-scope)
   params:
     - name: revision
       type: string

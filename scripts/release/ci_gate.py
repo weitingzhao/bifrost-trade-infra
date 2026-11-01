@@ -7,6 +7,17 @@ Exit 2: no terminal run yet (the caller may wait and retry).
 A run matches when its repo (spec.params repo, else the bifrost.io/repo label)
 and spec.params revision equal the pair, and the
 PipelineRun belongs to bifrost-ci-python, bifrost-ci-frontend, or bifrost-ci-platform.
+
+R5:5.7-1: a bifrost-ci-platform run whose api-scope result is console ran only
+the Go tests a console change can reach; one SHA can have such a run green and
+a full run red. A full run decides: any full run Succeeded is succeeded, else
+any full run Failed is failed. A run without the api-scope result is full: the
+platform pipeline before R5:5.7-1 always ran every test, and the other
+pipelines have no such result. Only when no full run has finished do the
+console runs count: as succeeded for a push to main (push-main.sh: a lane's
+commit gets only console runs until it is on main), as console (wait for a full
+run, exit 2) with --require-full, which a release asks for (release.sh, the
+platform PROD source gate).
 """
 
 from __future__ import annotations
@@ -60,9 +71,20 @@ def _succeeded(run: dict) -> Optional[str]:
     return None
 
 
-def classify(runs: Iterable[dict], repo: str, sha: str) -> str:
-    """Return succeeded, failed, or missing for repo@sha."""
-    saw_failure = False
+def _full(run: dict) -> bool:
+    """True when the run ran every test (R5:5.7-1): no api-scope result (an older
+    platform run, or another pipeline), or exactly one, full. Anything else is not."""
+    scopes = [str(r.get("value", "")) for r in ((run.get("status") or {}).get("results") or [])
+              if isinstance(r, dict) and r.get("name") == "api-scope"]
+    return not scopes or scopes == ["full"]
+
+
+def classify(runs: Iterable[dict], repo: str, sha: str, require_full: bool = False) -> str:
+    """Return succeeded, failed, missing, or (require_full) console for repo@sha.
+
+    A full run decides; console runs count only when no full run has finished,
+    and with require_full not as a success (console: a full run is still owed)."""
+    seen = {(True, "True"): False, (True, "False"): False, (False, "True"): False, (False, "False"): False}
     for run in runs:
         if _pipeline_name(run) not in CI_PIPELINES:
             continue
@@ -71,21 +93,33 @@ def classify(runs: Iterable[dict], repo: str, sha: str) -> str:
             continue
         state = _succeeded(run)
         if state == "True":
-            return "succeeded"
-        if state == "False":
-            saw_failure = True
-    return "failed" if saw_failure else "missing"
+            seen[(_full(run), "True")] = True
+        elif state == "False":
+            seen[(_full(run), "False")] = True
+    if seen[(True, "True")]:
+        return "succeeded"
+    if seen[(True, "False")]:
+        return "failed"
+    if seen[(False, "True")]:
+        return "console" if require_full else "succeeded"
+    if seen[(False, "False")]:
+        return "failed"
+    return "missing"
 
 
-def gate(runs: Iterable[dict], pairs: list[tuple[str, str]], allow_red: str) -> tuple[int, str]:
+def gate(runs: Iterable[dict], pairs: list[tuple[str, str]], allow_red: str,
+         require_full: bool = False) -> tuple[int, str]:
     """pairs is (repo, sha). allow_red empty means a red or missing run refuses."""
     lines = []
     worst = 0
     for repo, sha in pairs:
-        state = classify(runs, repo, sha)
+        state = classify(runs, repo, sha, require_full)
         lines.append(f"{repo} {sha} ci={state}")
         if state == "succeeded":
             continue
+        if state == "console":
+            lines.append("  only console-scope runs (api-scope=console) succeeded; a release needs a full run "
+                         "(the push to main runs one)")
         if allow_red:
             lines.append(f"  allow-red: {allow_red}")
             continue
@@ -115,6 +149,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Refuse a release whose SHA has no Succeeded CI run")
     parser.add_argument("--runs", action="append", default=[], help="kubectl get pipelineruns -o json")
     parser.add_argument("--allow-red", default="", help="Owner reason that permits a red or missing run")
+    parser.add_argument("--require-full", action="store_true",
+                        help="a release: a run with api-scope=console does not count as a success (R5:5.7-1)")
     parser.add_argument("pairs", nargs="*", help="repo=sha")
     args = parser.parse_args(argv)
     pairs: list[tuple[str, str]] = []
@@ -127,7 +163,7 @@ def main(argv: list[str] | None = None) -> int:
     if not pairs:
         print("no repo=sha pairs", file=sys.stderr)
         return 2
-    code, text = gate(_load_runs(args.runs), pairs, args.allow_red.strip())
+    code, text = gate(_load_runs(args.runs), pairs, args.allow_red.strip(), args.require_full)
     print(text)
     return code
 
