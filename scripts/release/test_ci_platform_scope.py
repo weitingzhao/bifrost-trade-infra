@@ -8,16 +8,17 @@ skipped and the run's reason stays Succeeded.
 
 These cases run the pipeline's own scripts: changes with dash and git against
 local repositories (Gitea's address is rewritten to them by a git wrapper),
-test-api's step with bash and go against a small module. The last ones check
-the console-scope package list against the platform's Go code when its
-checkout is beside this one (as push-main.sh lays it out).
+test-api's step with bash and go against a small module, and the Go
+self-check test-api runs before it narrows (a reader outside api/ that the
+list does not cover turns the run full) against small trees. The run's
+api-scope result is what a release gate reads (ci_gate.py --require-full).
+One auxiliary case runs the self-check on the platform checkout beside this
+one, when there is one; the gate is the self-check in the run itself.
 """
 
 from __future__ import annotations
 
 import os
-import posixpath
-import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -317,8 +318,27 @@ def test_what_it_cannot_tell_runs_everything(tmp_path, platform, how, says):
 # --- test-api in console scope ----------------------------------------------
 
 
-@pytest.mark.skipif(shutil.which("go") is None, reason="go is not installed")
-def test_console_scope_runs_only_the_listed_packages(tmp_path):
+def scope_check_source() -> str:
+    """The Go self-check test-api runs before it narrows (between <<'GO' and GO)."""
+    script = api_script()
+    return script[script.index("<<'GO'\n") + len("<<'GO'\n"):script.index("\nGO\n")]
+
+
+def known_files() -> list[str]:
+    (line,) = [l for l in api_script().splitlines() if l.strip().startswith("CONSOLE_SCOPE_KNOWN=")]
+    return line.split("=", 1)[1].strip().strip('"').split()
+
+
+GO_ENV = {"GOPROXY": "off", "GOSUMDB": "off", "GOTOOLCHAIN": "local", "GOFLAGS": ""}
+
+
+def go_env(tmp_path: Path) -> dict:
+    return {**os.environ, **GO_ENV, "GOCACHE": str(tmp_path / "gocache"), "GOMODCACHE": str(tmp_path / "gomod")}
+
+
+def module(tmp_path: Path, extra: dict[str, str] | None = None) -> Path:
+    """A small platform: rules, rules/s5check and cluster pass and mark that they ran; any
+    other package fails, so a run that reaches it is red."""
     api = tmp_path / "bifrost-platform/api"
     api.mkdir(parents=True)
     (api / "go.mod").write_text("module example.invalid/scope\n\ngo 1.21\n")
@@ -328,96 +348,66 @@ def test_console_scope_runs_only_the_listed_packages(tmp_path):
         (api / rel / "a_test.go").write_text(
             f'package {pkg}\nimport ("os"; "testing")\n'
             f'func TestRan(t *testing.T) {{ os.WriteFile(os.Getenv("RAN_DIR")+"/{pkg}", nil, 0o600) }}\n')
-    # Any other package fails, so a run that reaches it is red.
     (api / "internal/other").mkdir(parents=True)
     (api / "internal/other/a_test.go").write_text('package other\nimport "testing"\nfunc TestRed(t *testing.T) { t.Fatal("red") }\n')
+    for rel, text in (extra or {}).items():
+        (tmp_path / "bifrost-platform" / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / "bifrost-platform" / rel).write_text(text)
+    return api
+
+
+def run_api(tmp_path: Path, api: Path, scope: str):
     ran = tmp_path / "ran"
-    ran.mkdir()
-    env = {**os.environ, "GOPROXY": "off", "GOSUMDB": "off", "GOTOOLCHAIN": "local", "GOFLAGS": "",
-           "GOCACHE": str(tmp_path / "gocache"), "GOMODCACHE": str(tmp_path / "gomod"), "RAN_DIR": str(ran)}
+    ran.mkdir(exist_ok=True)
     script = api_script().replace("$(workspaces.source.path)", str(tmp_path))
-    r = subprocess.run(["bash"], input=script, cwd=api, env={**env, "API_SCOPE": "console"},
-                       capture_output=True, text=True, timeout=300)
+    return subprocess.run(["bash"], input=script, cwd=api, env={**go_env(tmp_path), "RAN_DIR": str(ran), "API_SCOPE": scope},
+                          capture_output=True, text=True, timeout=300), ran
+
+
+@pytest.mark.skipif(shutil.which("go") is None, reason="go is not installed")
+def test_console_scope_runs_only_the_listed_packages(tmp_path):
+    api = module(tmp_path)
+    r, ran = run_api(tmp_path, api, "console")
     assert r.returncode == 0, r.stdout + r.stderr
     assert "==> console scope: go test ./internal/agentrt/rules/... ./internal/cluster" in r.stdout
     assert "==> go vet" not in r.stdout
     assert sorted(p.name for p in ran.iterdir()) == ["cluster", "rules", "s5check"]
     # Positive control: every other scope runs every package, and the red one stops it.
     for scope in ("full", "", "Console", "console "):
-        r = subprocess.run(["bash"], input=script, cwd=api, env={**env, "API_SCOPE": scope},
-                           capture_output=True, text=True, timeout=300)
+        r, _ = run_api(tmp_path, api, scope)
         assert r.returncode != 0, scope
         assert "==> go vet ./..." in r.stdout and "console scope" not in r.stdout, scope
 
 
-# --- the console-scope list against the platform's Go code -------------------
-
-# A Go literal that climbs out of its directory ("..", "../x"), with the plain
-# literals Join takes after it; resolved from the file's directory, which is
-# where go test runs a package and where runtime.Caller roots its paths.
-CLIMB = re.compile(r'"(\.\.(?:/[^"\\]*)?)"((?:\s*,\s*"[^"\\]*")*)')
-LITERAL = re.compile(r'"([^"\\]*)"')
-# Reads outside api/ that no change in console scope can reach, by file, with why.
-KNOWN = {
-    "api/internal/devsession/catalog_repo_test.go": "Join(\"..\", \"..\", \"..\") then config/sessions-catalog.yaml",
-    "api/internal/codehealth/scanner.go": "the workspace lookup of a running platform-api; its tests use temporary trees",
-}
-
-
-def outside_reads(files: list[str], text_of) -> list[tuple[str, str]]:
-    """(Go file, what it reaches) for each read outside api/ that a console-scope change could reach."""
-    tracked = set(files)
-    found = []
-    for name in files:
-        if not name.startswith("api/") or not name.endswith(".go"):
-            continue
-        for line in text_of(name).splitlines():
-            for m in CLIMB.finditer(line):
-                target = posixpath.normpath(posixpath.join(posixpath.dirname(name), m.group(1),
-                                                           *LITERAL.findall(m.group(2))))
-                if target == "api" or target.startswith(("api/", "../")):
-                    continue  # inside api, or a sibling repository (infra, the legacy clone)
-                if target.startswith(("console/src/api/", "config/")) or target in ("console/src/api", "config"):
-                    continue  # changes there are always full
-                if target in tracked and not console_scope(target):
-                    continue  # one file that a console-scope change never touches
-                found.append((name, target))
-    return found
+@pytest.mark.skipif(shutil.which("go") is None, reason="go is not installed")
+def test_a_go_test_reading_console_outside_the_list_turns_the_run_full(tmp_path):
+    # The platform adds a test that reads console/src/lib: a console change can now break
+    # it, and its package is not in the list. The run checks before it narrows: full.
+    api = module(tmp_path, {
+        "api/internal/web/web_test.go": 'package web\nimport ("os"; "testing")\n'
+                                        'func TestReads(t *testing.T) { os.ReadFile("../../../console/src/lib/x.json") }\n'})
+    r, ran = run_api(tmp_path, api, "console")
+    assert r.returncode != 0, r.stdout + r.stderr
+    assert "==> console scope refused, every Go test runs" in r.stdout, r.stdout
+    assert "api/internal/web/web_test.go reads console/src/lib/x.json outside api/" in r.stdout
+    assert "==> go vet ./..." in r.stdout and "==> console scope: go test" not in r.stdout
+    assert "red" in r.stdout
 
 
-def covered(go_file: str, packages: list[str]) -> bool:
-    directory = posixpath.dirname(go_file)
-    for p in packages:
-        p = posixpath.normpath(posixpath.join("api", p))
-        if p.endswith("/..."):
-            base = p[: -len("/...")]
-            if directory == base or directory.startswith(base + "/"):
-                return True
-        elif directory == p:
-            return True
-    return False
+def scope_check(tmp_path: Path, files: dict[str, str], packages: list[str], known: list[str]):
+    root = tmp_path / "platform"
+    for rel, text in files.items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(text)
+    check = tmp_path / "scope-check"
+    check.mkdir(exist_ok=True)
+    (check / "main.go").write_text(scope_check_source())
+    (check / "go.mod").write_text("module scopecheck\n\ngo 1.21\n")
+    return subprocess.run(["go", "run", ".", str(root), *packages, "--", *known], cwd=check, env=go_env(tmp_path),
+                          capture_output=True, text=True, timeout=300)
 
 
-def scope_problems(files: list[str], text_of, packages: list[str]) -> list[str]:
-    problems = []
-    reads = outside_reads(files, text_of)
-    for go_file, target in reads:
-        if not covered(go_file, packages) and go_file not in KNOWN:
-            problems.append(f"{go_file} reads {target or '.'} outside api/ but is not in CONSOLE_SCOPE_PACKAGES")
-    for go_file in KNOWN:
-        if not any(f == go_file for f, _ in reads):
-            problems.append(f"KNOWN names {go_file}, which no longer reads outside api/")
-    for p in packages:
-        base = posixpath.normpath(posixpath.join("api", p.removesuffix("/...")))
-        if not any(f.startswith(base + "/") and f.endswith(".go") for f in files):
-            problems.append(f"CONSOLE_SCOPE_PACKAGES names {p}, which has no Go file")
-    return problems
-
-
-def tree(files: dict[str, str]):
-    return sorted(files), files.__getitem__
-
-
+# A tree with the platform's readers outside api/ (3e7b8e48), one line each.
 BASE_TREE = {
     "api/internal/agentrt/rules/a_test.go": 'root := filepath.Join(filepath.Dir(file), "../../../..")\n',
     "api/internal/cluster/a_test.go": 'root := filepath.Clean(filepath.Join(filepath.Dir(source), "../../.."))\n',
@@ -431,33 +421,33 @@ BASE_TREE = {
     "agent/deploy/install-agentd.sh": "",
     "console/src/pages/A.tsx": "",
 }
-PACKAGES = ["./internal/agentrt/rules/...", "./internal/cluster"]
 
 
-def test_the_list_holds_on_a_tree_like_the_platforms():
-    assert scope_problems(*tree(BASE_TREE), PACKAGES) == []
+@pytest.mark.skipif(shutil.which("go") is None, reason="go is not installed")
+def test_the_self_check_reads_a_tree_like_the_platforms(tmp_path):
+    packages, known = scope_packages(), known_files()
+    r = scope_check(tmp_path, BASE_TREE, packages, known)
+    assert r.returncode == 0, r.stdout + r.stderr
+    # Each known file is still needed (it reaches outside api/), and nothing else is named.
+    r = scope_check(tmp_path, BASE_TREE, packages, [])
+    assert r.returncode == 1
+    assert sorted(l.split()[0] for l in r.stdout.splitlines() if " reads " in l) == sorted(known)
+    r = scope_check(tmp_path, BASE_TREE, packages + ["./internal/gone"], known)
+    assert r.returncode == 1 and "allowed package ./internal/gone has no Go file" in r.stdout
 
 
-@pytest.mark.parametrize("rel, line", [
-    ("api/internal/web/a_test.go", 'os.ReadFile("../../../console/src/lib/x.json")'),
-    ("api/internal/web/a_test.go", 'root := filepath.Join("..", "..", "..", "console")'),
-    ("api/internal/web/a_test.go", 'filepath.WalkDir("../../..", f)'),
-    ("api/internal/web/a_test.go", 'os.ReadFile("../../../docs/notes.md")'),
-    ("api/internal/agentrt/other/a_test.go", 'root := "../../../.."'),
+@pytest.mark.skipif(shutil.which("go") is None, reason="go is not installed")
+@pytest.mark.parametrize("rel, line, target", [
+    ("api/internal/web/a_test.go", 'os.ReadFile("../../../console/src/lib/x.json")', "console/src/lib/x.json"),
+    ("api/internal/web/a_test.go", 'root := filepath.Join("..", "..", "..", "console")', "console"),
+    ("api/internal/web/a_test.go", 'filepath.WalkDir("../../..", f)', "."),
+    ("api/internal/web/a_test.go", 'os.ReadFile("../../../docs/notes.md")', "docs/notes.md"),
+    ("api/internal/agentrt/other/a_test.go", 'root := "../../../.."', "."),
 ])
-def test_a_new_reader_outside_the_list_is_named(rel, line):
-    files = {**BASE_TREE, rel: line + "\n"}
-    problems = scope_problems(*tree(files), PACKAGES)
-    assert len(problems) == 1 and problems[0].startswith(rel), problems
-
-
-def test_a_stale_known_entry_and_a_missing_package_are_named():
-    files = {k: v for k, v in BASE_TREE.items() if k != "api/internal/codehealth/scanner.go"}
-    files["api/internal/codehealth/scanner.go"] = "package codehealth\n"
-    assert scope_problems(*tree(files), PACKAGES) == [
-        "KNOWN names api/internal/codehealth/scanner.go, which no longer reads outside api/"]
-    assert scope_problems(*tree(BASE_TREE), PACKAGES + ["./internal/gone"]) == [
-        "CONSOLE_SCOPE_PACKAGES names ./internal/gone, which has no Go file"]
+def test_a_new_reader_outside_the_list_is_named(tmp_path, rel, line, target):
+    r = scope_check(tmp_path, {**BASE_TREE, rel: line + "\n"}, scope_packages(), known_files())
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert r.stdout.splitlines() == [f"{rel} reads {target} outside api/"], r.stdout
 
 
 def platform_checkout() -> Path | None:
@@ -469,18 +459,17 @@ def platform_checkout() -> Path | None:
     return None
 
 
-def test_the_list_holds_on_the_platform_checkout():
+@pytest.mark.skipif(shutil.which("go") is None, reason="go is not installed")
+def test_auxiliary_the_self_check_passes_on_the_platform_checkout(tmp_path):
+    """Auxiliary, not the gate: test-api runs the self-check on the commit it tests. This
+    only warns early, on whatever checkout is beside this one (it may be behind main)."""
     root = platform_checkout()
     if root is None:
         pytest.skip("no bifrost-platform checkout beside this one; set BIFROST_PLATFORM_ROOT")
-    files = git(root, "ls-tree", "-r", "--name-only", "HEAD").splitlines()
-    # The committed tree, not the working tree (another session's edits are not the platform's).
-    # git grep keeps each Go file to its lines that climb; the others cannot reach outside api/.
-    out = subprocess.run([REAL_GIT, "-C", str(root), "grep", "-I", "-E", r'"\.\.(/[^"]*)?"', "HEAD", "--", "api/*.go"],
-                         capture_output=True, text=True, env={**os.environ, **GIT_ENV})
-    assert out.returncode in (0, 1), out.stderr
-    texts = {f: "" for f in files}
-    for line in out.stdout.splitlines():
-        _, name, text = line.split(":", 2)
-        texts[name] += text + "\n"
-    assert scope_problems(files, texts.__getitem__, scope_packages()) == []
+    check = tmp_path / "scope-check"
+    check.mkdir()
+    (check / "main.go").write_text(scope_check_source())
+    (check / "go.mod").write_text("module scopecheck\n\ngo 1.21\n")
+    r = subprocess.run(["go", "run", ".", str(root), *scope_packages(), "--", *known_files()], cwd=check,
+                       env=go_env(tmp_path), capture_output=True, text=True, timeout=300)
+    assert r.returncode == 0, r.stdout + r.stderr

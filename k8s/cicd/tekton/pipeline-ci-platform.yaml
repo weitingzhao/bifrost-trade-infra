@@ -381,15 +381,143 @@ spec:
               # differently: the landing hard-floor scans of console/src and the catalog
               # (agentrt/rules) and the whole-repository scan (cluster). The fixtures the
               # other tests read are under console/src/api and config/, which are always full.
-              # scripts/release/test_ci_platform_scope.py checks this list against the
-              # platform's Go tests.
+              # Before it narrows, the run checks that this still holds for this checkout
+              # (scope-check below); a reader it does not know turns the run to full.
               CONSOLE_SCOPE_PACKAGES="./internal/agentrt/rules/... ./internal/cluster"
+              # Read outside api/ but nothing a console-scope change touches:
+              # devsession/catalog_repo_test.go joins ../../.. with config/sessions-catalog.yaml;
+              # codehealth/scanner.go looks up the workspace of a running platform-api.
+              CONSOLE_SCOPE_KNOWN="api/internal/devsession/catalog_repo_test.go api/internal/codehealth/scanner.go"
               if [ "${API_SCOPE:-full}" = "console" ]; then
-                echo "==> console scope: go test ${CONSOLE_SCOPE_PACKAGES}; no go vet (the Go code is main's)"
+                scope_check="$(mktemp -d)"
+                cat > "${scope_check}/main.go" <<'GO'
+              package main
+
+              // R5:5.7-1 self-check of the console scope, run before it narrows the Go tests: every
+              // literal in api/**/*.go that climbs out of its directory ("..", "../x", and the
+              // literals Join takes after it), resolved from that file's directory (where go test
+              // runs a package and runtime.Caller roots a path). A read that reaches outside api/
+              // where a console-scope change could be (anything but a sibling repository,
+              // console/src/api, config/, or one file that is neither console/** nor Markdown) must
+              // be from an allowed package or a known file. Prints each other one, and an allowed
+              // package with no Go file (go test would fail on it), and exits 1.
+              //
+              //   go run . <repository root> <allowed package>... -- <known file>...
+
+              import (
+                  "fmt"
+                  "io/fs"
+                  "os"
+                  "path"
+                  "path/filepath"
+                  "regexp"
+                  "strings"
+              )
+
+              var climb = regexp.MustCompile(`"(\.\.(?:/[^"\\]*)?)"((?:\s*,\s*"[^"\\]*")*)`)
+              var literal = regexp.MustCompile(`"([^"\\]*)"`)
+
+              func consoleScope(p string) bool {
+                  return (strings.HasPrefix(p, "console/") && !strings.HasPrefix(p, "console/src/api/")) ||
+                      (strings.HasSuffix(p, ".md") && !strings.HasPrefix(p, "api/") && !strings.HasPrefix(p, "config/"))
+              }
+
+              func under(p, dir string) bool { return p == dir || strings.HasPrefix(p, dir+"/") }
+
+              func main() {
+                  if len(os.Args) < 2 {
+                      fmt.Println("usage: <repository root> <allowed package>... -- <known file>...")
+                      os.Exit(2)
+                  }
+                  root := os.Args[1]
+                  var allowed, known []string
+                  seen := false
+                  for _, a := range os.Args[2:] {
+                      switch {
+                      case a == "--":
+                          seen = true
+                      case seen:
+                          known = append(known, a)
+                      default:
+                          allowed = append(allowed, a)
+                      }
+                  }
+                  covered := func(dir string) bool {
+                      for _, a := range allowed {
+                          base := path.Join("api", strings.TrimSuffix(a, "/..."))
+                          if dir == base || (strings.HasSuffix(a, "/...") && under(dir, base)) {
+                              return true
+                          }
+                      }
+                      return false
+                  }
+                  bad := 0
+                  for _, a := range allowed {
+                      dir := filepath.Join(root, "api", filepath.FromSlash(strings.TrimSuffix(a, "/...")))
+                      if found, _ := filepath.Glob(filepath.Join(dir, "*.go")); len(found) == 0 {
+                          fmt.Printf("allowed package %s has no Go file\n", a)
+                          bad++
+                      }
+                  }
+                  err := filepath.WalkDir(filepath.Join(root, "api"), func(p string, d fs.DirEntry, err error) error {
+                      if err != nil || d.IsDir() || !strings.HasSuffix(p, ".go") {
+                          return err
+                      }
+                      rel, err := filepath.Rel(root, p)
+                      if err != nil {
+                          return err
+                      }
+                      rel = filepath.ToSlash(rel)
+                      data, err := os.ReadFile(p)
+                      if err != nil {
+                          return err
+                      }
+                      for _, line := range strings.Split(string(data), "\n") {
+                          for _, m := range climb.FindAllStringSubmatch(line, -1) {
+                              parts := []string{path.Dir(rel), m[1]}
+                              for _, l := range literal.FindAllStringSubmatch(m[2], -1) {
+                                  parts = append(parts, l[1])
+                              }
+                              target := path.Join(parts...)
+                              if under(target, "api") || strings.HasPrefix(target, "../") || under(target, "console/src/api") || under(target, "config") {
+                                  continue
+                              }
+                              if info, err := os.Lstat(filepath.Join(root, filepath.FromSlash(target))); err == nil && info.Mode().IsRegular() && !consoleScope(target) {
+                                  continue
+                              }
+                              isKnown := false
+                              for _, k := range known {
+                                  isKnown = isKnown || k == rel
+                              }
+                              if covered(path.Dir(rel)) || isKnown {
+                                  continue
+                              }
+                              fmt.Printf("%s reads %s outside api/\n", rel, target)
+                              bad++
+                          }
+                      }
+                      return nil
+                  })
+                  if err != nil {
+                      fmt.Println("cannot read the Go files:", err)
+                      os.Exit(2)
+                  }
+                  if bad > 0 {
+                      os.Exit(1)
+                  }
+              }
+              GO
+                printf 'module scopecheck\n\ngo 1.21\n' > "${scope_check}/go.mod"
                 # shellcheck disable=SC2086
-                go test ${CONSOLE_SCOPE_PACKAGES} -count=1 -timeout=900s
-                echo "==> Go API tests passed (console scope)"
-                exit 0
+                if found="$(cd "${scope_check}" && GOFLAGS= go run . "${ws}/bifrost-platform" ${CONSOLE_SCOPE_PACKAGES} -- ${CONSOLE_SCOPE_KNOWN} 2>&1)"; then
+                  echo "==> console scope: go test ${CONSOLE_SCOPE_PACKAGES}; no go vet (the Go code is main's)"
+                  # shellcheck disable=SC2086
+                  go test ${CONSOLE_SCOPE_PACKAGES} -count=1 -timeout=900s
+                  echo "==> Go API tests passed (console scope)"
+                  exit 0
+                fi
+                echo "==> console scope refused, every Go test runs: Go code reads outside api/ beyond ${CONSOLE_SCOPE_PACKAGES}:"
+                echo "${found}"
               fi
 
               echo "==> go vet ./..."
