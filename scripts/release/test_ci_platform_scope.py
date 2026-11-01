@@ -37,19 +37,12 @@ GIT_ENV = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.invalid", "GIT
 
 
 def pipeline_tasks() -> dict:
-    """The pipeline's tasks; its own Tasks (bifrost-ci-platform-*, one file each) read in as taskSpec."""
-    doc = yaml.safe_load(PIPELINE.read_text())
-    own = {}
-    for path in (PIPELINE.parent / "task-ci-platform-changes.yaml", PIPELINE.parent / "task-ci-platform-test-api.yaml"):
-        task = yaml.safe_load(path.read_text())
-        own[task["metadata"]["name"]] = task["spec"]
-    result = {}
-    for t in doc["spec"]["tasks"]:
-        name = t.get("taskRef", {}).get("name", "")
-        if name in own:
-            t = {k: v for k, v in t.items() if k != "taskRef"} | {"taskSpec": own[name]}
-        result[t["name"]] = t
-    return result
+    """The pipeline's tasks; its own Tasks (task-ci-platform-*.yaml) read in as the taskSpec they were."""
+    own = {d["metadata"]["name"]: d["spec"] for d in (yaml.safe_load((PIPELINE.parent / f"task-ci-platform-{n}.yaml").read_text())
+                                                      for n in ("changes", "test-api"))}
+    tasks = yaml.safe_load(PIPELINE.read_text())["spec"]["tasks"]
+    return {t["name"]: (t | {"taskSpec": own[t["taskRef"]["name"]]} if t.get("taskRef", {}).get("name") in own else t)
+            for t in tasks}
 
 
 def changes_script() -> str:
@@ -198,10 +191,10 @@ def run_changes(tmp_path: Path, origin: Path, revision: str, url: str = GITEA_UR
 
 
 def write(rel: str, text: str = "changed\n"):
-    def change(work: Path) -> None:
+    def write_file(work: Path) -> None:
         (work / rel).parent.mkdir(parents=True, exist_ok=True)
         (work / rel).write_text(text)
-    return change
+    return write_file
 
 
 def remove(rel: str):
@@ -209,17 +202,17 @@ def remove(rel: str):
 
 
 def both(*changes):
-    def change(work: Path) -> None:
+    def apply_each(work: Path) -> None:
         for c in changes:
             c(work)
-    return change
+    return apply_each
 
 
 def symlink(rel: str, target: str):
-    def change(work: Path) -> None:
+    def make_link(work: Path) -> None:
         (work / rel).parent.mkdir(parents=True, exist_ok=True)
         os.symlink(target, work / rel)
-    return change
+    return make_link
 
 
 def executable(rel: str):
