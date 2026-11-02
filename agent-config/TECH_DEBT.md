@@ -3414,16 +3414,23 @@
 
 ### TD-444
 
-**P2 · NAS 存储 · 单块 SSD 先放热数据、备份留机械盘；第二块 SSD 到后做镜像，再把每日备份放 SSD、每周转机械盘**
+**P2 · NAS 存储 · 两块 SSD 镜像放常写数据和每日备份，机械盘每周汇总一次；第二块 SSD 11-03 到货后直接按此做**
 
-- **状态**：未开始（2026-11-02 统筹线程 12:0x CST：Owner 定分两期做，排在 R5:5.8 之后。Time Machine 已于当天停用，本机改为 restic 每周白名单备份到 NAS `TimeMachine` 共享（加密、只留最新一份、约 3.7 GB），NAS 用量 1.42 TB → 0.41 TB，原推荐 A 的前提已不在。TD-489（同日重复登记）并入此条。）此前：未开始（2026-10-26 设计已出，等 Owner 选 A / B / C）。
+- **状态**：未开始（2026-11-02 统筹线程 12:0x CST：Owner 定按最终方案一次做：第二块 SSD 11-03 到货、当天装上后，不再分期。Time Machine 已于当天停用，本机改为 restic 每周白名单备份到 NAS `TimeMachine` 共享（加密、只留最新一份、约 3.7 GB），NAS 用量 1.42 TB → 0.41 TB，原推荐 A 的前提已不在。TD-489（同日重复登记）并入此条。）此前：未开始（2026-10-26 设计已出，等 Owner 选 A / B / C）。
 - **证据**：`agent-config/work/multi-agent/CUT-w68-nas-tiering-2026-10-26.md` 第 2 节。10-24 16:30 至 10-26 21:50 CDT：52 次突发、每小时 0.97 次、每次约 15 分钟、中位收 3.5 GB；占 md1 全部写入 82%、盘忙时间 79%；突发间盘忙 4.7%。突发时 md1 写等待中位 1216 ms（空闲 107 ms），`NodeDiskIOSaturation` 每晚 pending。本机 Time Machine 目标是 NAS `TimeMachine` 共享，间隔 3600 秒，家目录每小时约 1.1 GB 改动（`~/.codex`、Chrome、Codex 应用数据等未排除）。
 - **证据（2026-11-02）**：`smartctl_device_bytes_written{host="nas",device="nvme0"}` 一生 12.8 MB、24 小时增量 0（SSD 闲置）；三块机械盘 `Start_Stop_Count` 24 小时增量 0；仍在常写机械盘的：Postgres WAL 归档到 NAS 上的 MinIO（`cnpg_pg_stat_archiver_archived_count` 现 0.8 段/分钟、24 小时最高 6 段/分钟）、04 上 Prometheus 的 NFS（Write 0.39/s、Commit 0.33/s）。NAS 卷 0.41 TB：MinIO 328 GB、Prometheus 约 12 GB、其余约 74 GB。
 - **影响**：Owner 每小时听到机械盘响一阵；Prometheus WAL、MinIO WAL 归档、registry 拉镜像每小时有约 15 分钟每次写要等一秒多；三块盘常年承受不必要的随机写。
-- **修法**（Owner 2026-11-02 定）：第一期（现有一块 SSD，`/volume2`）只放「丢了能接受或另有一份」的热数据：Prometheus 与 Alertmanager 的卷（新 StorageClass，如 `nfs-fast`）、registry（每晚回拷到 RAID5）、行情归档的每晚第二份；MinIO（WAL 与基础备份）和所有备份留 RAID5。第二期（Owner 再加一块同款 SSD 后）：SSD 池改 RAID1，每日备份先落 SSD、每周汇总一次到 RAID5，机械盘平时空闲。CUT 文档第 5 节的 A（Time Machine 换 SSD）作废。
+- **修法**（Owner 2026-11-02 定）：两块同款 SSD 组成 RAID1（`/volume2`），放常写的热数据：Prometheus 与 Alertmanager 的卷（新 StorageClass，如 `nfs-fast`）、registry；也放每日备份：MinIO（WAL 与每晚基础备份）、逻辑备份、Gitea / 集群状态 / Finance 备份、行情归档的每晚副本。RAID5 机械盘放行情归档主份、本机 restic 备份，并每周从 SSD 汇总一次所有备份作长期存档，机械盘平时空闲。当天先前定的「单盘先放热数据」的第一期取消。CUT 文档第 5 节的 A（Time Machine 换 SSD）作废。
+- **第二块 SSD 到货后（Owner 2026-11-02 下单，11-03 到货当天装）**，按顺序，一步做完核对再做下一步：
+  1. （统筹）装之前：`release.sh window` 没有窗口、cicd 里没有在跑的 PipelineRun；避开每晚 21:00–23:45 CST 的备份和 22:00 起的 backup-retry。NAS 一关机，registry、Prometheus、Alertmanager、MinIO（WAL 归档）、行情归档都会断，hard 挂载的 Pod 会卡住，NAS 回来后自己恢复。
+  2. （Owner）UGOS 里正常关机 → 装进第二个 M.2 槽（同款 Kingston SNV3S1000G，装散热片）→ 开机。
+  3. （统筹）开机后核对：NAS 能 ping 通；04 上的 Prometheus、registry、market-data-api 与 02 上的 Alertmanager 都 Ready；`up{job="smartctl",host="nas"}` 为 1 且出现 nvme1，`critical_warning` 和 `media_errors` 为 0；`minio_cluster_usage_total_bytes` 有数；CNPG 的 WAL 归档追上（`cnpg_pg_stat_archiver_failed_count` 不再增长）；本机 restic 的共享能重新挂上（`last-success` 下次照常更新）。
+  4. （Owner，UGOS）先看 `/volume2` 里那约 2.2 GB 是什么、要不要留；再把 pool2 改成两块 SSD 的 RAID1：UGOS 能「加盘改 RAID1」就原地改，不能就删掉 pool2、用两块 SSD 新建 RAID1 池。做完在 UGOS 里对两块 SSD 各跑一次磁盘检测。
+  5. （统筹）RAID1 建好后核对两块盘 SMART 正常、池状态健康，再按上面「修法」搬迁：先热数据（Prometheus、Alertmanager、registry），再把每日备份改成先落 SSD、并建每周汇总到 RAID5 的任务；每一类搬之前写好怎么停、怎么回退，集群清单改动走 C 级单。
+  6. （统筹）验收：机械盘一周里只有每周汇总那一阵在忙；SSD 两块健康；从 SSD 和 RAID5 各恢复一次数据库备份和行情归档做演练。
 - **防线**：做完后加一条告警「NAS 一天里盘忙超 30% 的 5 分钟窗口超过 20 个」（`count_over_time((rate(node_disk_io_time_seconds_total{host="nas",device="sda"}[5m]) > 0.3)[1d:5m]) > 20`，warning），让「有人又往 RAID5 上放了热写」当天能看到；归档副本由 CronJob 的最近成功时间告警兜住。
 - **验收**：首次全量完成后 24 小时，CUT 第 7 节五项：盘忙超 30% 的窗口 ≤ 5/天、md1 最差写等待 < 0.3 秒、nvme0n1 每小时有写、SSD 健康 1、`NodeDiskIOSaturation` 不再 pending。
-- 审批：第一期的 NAS 卷与共享由 Owner 在 UGOS 建，集群清单改动按 C 级单；第二期等 Owner 买第二块 SSD。
+- 审批：NAS 关机装盘、RAID1 与共享由 Owner 在 UGOS 做；集群清单改动按 C 级单；MinIO 搬家前先确认 WAL 归档不断档的切法。
 
 ### TD-445
 
