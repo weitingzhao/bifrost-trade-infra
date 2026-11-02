@@ -3616,6 +3616,30 @@
 - **防线**：PG 测试——两张并行单，先落一张，另一张干净重放后不需新单即可落地；patch-id 变化（冲突解决）时必须新单。
 - **验收**：两件并行改动 Owner 各批一次即全部落地。
 
+### TD-489
+
+**P3 · monitoring / data · The NAS's 1 TB NVMe SSD sits unused while every always-on write lands on its three spinning disks, which never stop**
+
+- **状态**：未开始（2026-11-02）。
+- **Claim**: The UGREEN NAS (192.168.10.20) holds three Seagate Exos ST12000NM0127 12 TB disks (sda, sdb, sdc) and one Kingston SNV3S1000G 1 TB NVMe (nvme0). Nothing uses the NVMe: it is neither a cache nor a volume any share sits on. `k3s-hot` and `k3s-cold` are two folders on the same `/volume1`. Every always-on writer therefore lands on the spinning disks, which have not stopped in the last 24 hours, and the Owner hears them all day (thread, 2026-11-02 09:4x CST). The always-on writers: Postgres WAL archiving to MinIO, which now runs on the NAS itself; Prometheus and Alertmanager on `nfs-hot` (TD-289 moved them there on 2026-10-10 so an eviction keeps the history); and, from the Mac, Time Machine every hour.
+- **Evidence** (read-only, 2026-11-02 15:4xZ):
+  - `smartctl_device{host="nas"}` (job `smartctl`, 192.168.10.20:9633, up) lists the four devices above.
+  - `smartctl_device_bytes_written{host="nas",device="nvme0"}` is 12.8 MB over the device's life, and `increase(...[24h])` is 0.
+  - `increase(smartctl_device_attribute{host="nas",attribute_name="Start_Stop_Count"}[24h])` is 0 on sda, sdb and sdc.
+  - The Service `data/minio` has no selector; its EndpointSlice points at 192.168.10.20. CNPG `bifrost-postgres` archives to `s3://bifrost-postgres-backup/` there. `rate(cnpg_pg_stat_archiver_archived_count[30m])` is 0.8 segments/min now, with a 24 h maximum of 6 segments/min (16 MB each).
+  - NFS: only ubt-k3s-04 (192.168.10.75) writes. `node_nfs_requests_total`: Write 0.39/s, Commit 0.33/s; 24 h maximum 1.1/s. The pods there with NAS volumes are Prometheus (`nfs-hot` 30Gi, `scripts/k3s/values-kube-prometheus.yaml:49-52`), registry (`nfs-cold` 200Gi) and market-data-api (`nfs-cold` 200Gi). Alertmanager (`nfs-hot` 1Gi) runs on ubt-k3s-02.
+  - Nightly jobs write between 03:00Z and 05:45Z: CNPG daily, `gitea-backup`, `logical-backup`, `finance-backup`, `cluster-state-backup`, `finance-prod-validation-backup`.
+  - The Mac's Time Machine targets the NAS share `TimeMachine` over SMB: 828 GiB used, about 9.4 M files scanned per run, `AutoBackupInterval` 3600. In the thread on 2026-11-02 09:5x CST the Owner asked for it to run once a day; that is a setting on the Mac, which the Owner changes there.
+- **Fix** (the Owner chooses; A is recommended):
+  - **A.** Make the NVMe its own NAS volume (for example `/volume2/k3s-fast`) with an NFS export and a StorageClass `nfs-fast` (nfsvers=3,hard, as `install-nfs-provisioner.sh` sets). Move only Prometheus and Alertmanager there, through helm values `storageSpec` and `alertmanagerSpec.storage`: move the TSDB, or accept losing its history. The volume has a single disk and no redundancy, so only data whose loss is acceptable goes there. Backups (MinIO and WAL, logical-backup, gitea-backup, cluster-state-backup) and the registry stay on the disk pool.
+  - **B.** Put Prometheus back on a node's local disk (local-path pinned to one node). The NAS keeps only backups. Prometheus is not supported on NFS anyway.
+  - **C.** Change nothing in the cluster; only the Time Machine interval changes.
+
+  Whether UGREEN lets a single NVMe be a volume, or only a read-only cache, is checked in the NAS storage manager (Owner). A read-only cache would not take writes.
+- **Ratchet**: `scripts/check_monitoring_persistence.py` asserts that the Prometheus and Alertmanager claims use the registered StorageClass (`nfs-fast` under A, `local-path` under B). A rule in `k8s/monitoring/bifrost-alerting-rules.yaml` raises an info alert when `increase(smartctl_device_bytes_written{host="nas",device="nvme0"}[24h]) == 0` after the move, so a fast volume left idle shows up.
+- **验收**: after the move, `kubectl -n monitoring get pvc` shows the new StorageClass on both claims; `increase(smartctl_device_bytes_written{host="nas",device="nvme0"}[24h]) > 0`; Prometheus kept or deliberately reset its history (stated in the sign-off line).
+- 审批 要批（NAS 卷与 StorageClass、helm upgrade）· 代价 S · 风险 low · repos: bifrost-trade-infra
+
 ### TD-488
 
 **P3 · cicd · Tekton 清理 CronJob 间歇失败、不留日志；失败的 Job 让 KubeJobFailed 响到 TTL，平台又删不掉**
