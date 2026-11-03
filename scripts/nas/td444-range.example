@@ -1,0 +1,25 @@
+# Template of the range file for td444-move.sh minio-continuity / minio-readback
+# (TD-444 step 5 runbook §4 group 6, "验收范围 minio.range"). The coordinator fills it from
+# the D card's output and the CNPG objects, keeps it in the private record (<rundir>),
+# and copies it to the NAS. Every key is required; the script refuses a file that lacks one.
+# The script checks only object presence and readability from L to U. Before and after,
+# the coordinator still checks, by hand and in the record:
+#   - condition R holds (sampled after the service resumed);
+#   - PRIMARY, TIMELINE_ID and STATS_RESET equal minio.pre (no failover, no counter reset);
+#   - U appeared in the bucket within 15 minutes of the switch;
+#   - no new .history object inside the range.
+# Any of these failing stops the normal acceptance (recovery event).
+L=<begin WAL of the pre-migration base backup, minio.pre status.beginWal>
+U=<pg_walfile_name(rp_end - 1) from the D card>
+U_FROM_RP=<the same u value, as returned next to the restore point>
+SEGMENT_SIZE=<SHOW wal_segment_size, in bytes (16777216 for 16MB)>
+TIMELINE=<8 hex digits: the first 8 characters of L and U>
+TIMELINE_ID=<status.timelineID of the Cluster, decimal>
+WAL_PREFIX=bifrost-postgres-backup/<cluster name>/wals
+SUFFIX=<the compression suffix seen in minio-wal-layout, e.g. .gz>
+RP_NAME=td444-<run id>
+RP_END=<rp_end LSN, e.g. 6/1000090>
+SWITCH_RETURN=<pg_switch_wal() return LSN, logged only>
+PRIMARY=<status.currentPrimary from minio.pre>
+STATS_RESET=<pg_stat_archiver.stats_reset from minio.pre>
+COLLECTED_AT=<UTC time the D card ran>

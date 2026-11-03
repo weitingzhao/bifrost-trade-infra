@@ -1,4 +1,6 @@
 # TD-444 step 5 runbook §5.1: weekly roll-up of the SSD backups onto RAID5.
+# Install rollup.sh and scripts/nas/backup-checks.sh side by side in /volume1/@bifrost/backup-rollup/
+# (root-only), with rollup.conf; there is no install script yet (runbook: precondition of §5.1).
 [Unit]
 Description=Bifrost weekly backup roll-up (SSD -> RAID5)
 After=local-fs.target

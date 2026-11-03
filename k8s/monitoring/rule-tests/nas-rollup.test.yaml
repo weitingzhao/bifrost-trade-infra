@@ -52,6 +52,33 @@ tests:
     values: 100x200
   - series: bifrost_nas_backup_rollup_source_enabled{host="nas",job="node-exporter",source="finance-backup-hot"}
     values: 1x200
+  - series: bifrost_nas_backup_rollup_source_expected{host="nas",job="node-exporter",source="finance-backup-hot"}
+    values: 1x200
+  alert_rule_test:
+  - eval_time: 2h
+    alertname: BifrostNasBackupRollupMissing
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+        source: finance-backup-hot
+      exp_annotations:
+        summary: Weekly roll-up has never published source finance-backup-hot
+        description: 'No last-success time for finance-backup-hot: either the roll-up never published a generation with it, or rollup.conf / the textfile lost it. RAID5 holds no verified weekly copy of this source (runbook §5.4). On the NAS: systemctl status bifrost-backup-rollup.service and /volume1/@bifrost/backup-rollup/state/run-*.log.'
+- name: 'S4: a Finance source that left rollup.conf together with its metrics keeps alerting'
+  interval: 1m
+  input_series:
+  - series: bifrost_nas_backup_rollup_last_success_timestamp_seconds{host="nas",job="node-exporter",source="minio"}
+    values: 100x200
+  - series: bifrost_nas_backup_rollup_last_success_timestamp_seconds{host="nas",job="node-exporter",source="registry-data"}
+    values: 100x200
+  - series: bifrost_nas_backup_rollup_last_success_timestamp_seconds{host="nas",job="node-exporter",source="logical-backup-hot"}
+    values: 100x200
+  - series: bifrost_nas_backup_rollup_last_success_timestamp_seconds{host="nas",job="node-exporter",source="gitea-backup"}
+    values: 100x200
+  - series: bifrost_nas_backup_rollup_last_success_timestamp_seconds{host="nas",job="node-exporter",source="cluster-state-backup"}
+    values: 100x200
+  - series: bifrost_nas_backup_rollup_source_expected{host="nas",job="node-exporter",source="finance-backup-hot"}
+    values: 1x200
   alert_rule_test:
   - eval_time: 2h
     alertname: BifrostNasBackupRollupMissing
@@ -183,4 +210,4 @@ tests:
         job: node-exporter
       exp_annotations:
         summary: NAS HDDs were busy in 288 five-minute windows today
-        description: 'More than 20 windows over 30% busy in a day: something writes hot data onto the RAID5 array again (TD-444 guard). The Sunday roll-up alone stays below this.'
+        description: 'More than 20 windows over 30% busy in a day: something writes hot data onto the RAID5 array again (TD-444 guard). On a Sunday, first rule out the weekly roll-up: its duration is not measured yet, and the threshold is to be checked against two real runs.'

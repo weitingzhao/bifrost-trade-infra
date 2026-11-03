@@ -16,7 +16,9 @@ Rules (§5.2):
   no symlink on the way) before anything is copied;
 - a file is copied to <name>.partial, fsynced, checked against the ledger sha256 and
   renamed; an existing target with other content is a failure, never overwritten;
-  the .json manifest is copied the same way and must name the same sha256;
+  the .json manifest is required (the producer writes it before the ledger line), is
+  copied the same way and must name the same file and sha256;
+- temporary names are created with O_EXCL | O_NOFOLLOW; a leftover link is refused;
 - files that are not in the ledger (a crash between rename and ledger line) are ignored;
 - only when every complete line verified, the target ledger is replaced by exactly
   those bytes (a prefix of the source ledger) and _replica.state records the boundary;
@@ -141,13 +143,37 @@ def parse_ledger(data: bytes) -> tuple[list[dict], int]:
     return records, boundary
 
 
+def open_partial(path: Path):
+    """Create path exclusively (O_EXCL | O_NOFOLLOW). A leftover regular file with one link
+    (an earlier crash) is removed first; a symlink, another file type or a second hard link
+    is refused, so a temporary name can never truncate some other file."""
+    try:
+        st = os.lstat(path)
+    except FileNotFoundError:
+        st = None
+    if st is not None:
+        if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1:
+            raise ReplicaError(f"{path}: leftover temporary file is a link or not a plain file; refusing")
+        os.unlink(path)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o644)
+    return os.fdopen(fd, "wb")
+
+
+def write_atomic(path: Path, data: bytes) -> None:
+    tmp = path.with_name(path.name + ".partial")
+    with open_partial(tmp) as f:
+        f.write(data)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
+    fsync_dir(path.parent)
+
+
 def copy_verified(src: Path, dst: Path, expect_sha: str | None) -> str:
     """Copy src to dst via dst.partial; return the sha256 of the bytes written."""
     tmp = dst.with_name(dst.name + ".partial")
-    if tmp.exists():
-        tmp.unlink()
     h = hashlib.sha256()
-    with src.open("rb") as fi, open(tmp, "xb") as fo:
+    with src.open("rb") as fi, open_partial(tmp) as fo:
         for block in iter(lambda: fi.read(CHUNK), b""):
             h.update(block)
             fo.write(block)
@@ -193,33 +219,31 @@ def replicate(src_root: Path, dst_root: Path) -> int:
         else:
             copy_verified(src, dst, rec["sha256"])
             copied += 1
+        # The producer writes the .json manifest before the ledger line
+        # (retention_archive.py:427-433): a ledger record without it is a missing part.
         jrel = rel.with_name(rel.name.removesuffix(".parquet") + ".json")
         jsrc = safe_path(src_root, jrel)
-        if jsrc.exists():
+        if not jsrc.is_file():
+            raise ReplicaError(f"{jrel}: the manifest of a ledger record is missing at the source")
+        try:
             manifest = json.loads(jsrc.read_bytes())
-            if manifest.get("sha256") != rec["sha256"] or manifest.get("file") != rec["file"]:
-                raise ReplicaError(f"{jrel}: manifest does not name the ledger's file / sha256")
-            jdst = safe_path(dst_root, jrel, create_dirs=True)
-            want = sha256_of(jsrc)
-            if jdst.exists():
-                if sha256_of(jdst) != want:
-                    raise ReplicaError(f"{jrel}: target exists with other content; not overwriting")
-            else:
-                copy_verified(jsrc, jdst, want)
+        except ValueError as e:
+            raise ReplicaError(f"{jrel}: manifest is not JSON ({e})")
+        if not isinstance(manifest, dict) or manifest.get("sha256") != rec["sha256"] or manifest.get("file") != rec["file"]:
+            raise ReplicaError(f"{jrel}: manifest does not name the ledger's file / sha256")
+        jdst = safe_path(dst_root, jrel, create_dirs=True)
+        want = sha256_of(jsrc)
+        if jdst.exists():
+            if sha256_of(jdst) != want:
+                raise ReplicaError(f"{jrel}: target exists with other content; not overwriting")
+        else:
+            copy_verified(jsrc, jdst, want)
 
-    tmp = ledger_dst.with_name(ledger_dst.name + ".partial")
-    with open(tmp, "wb") as f:
-        f.write(data[:boundary])
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(tmp, ledger_dst)
-    fsync_dir(ledger_dst.parent)
+    write_atomic(ledger_dst, data[:boundary])
     state = {"boundary": boundary, "records": len(records), "copied": copied, "already_present": skipped,
              "source_ledger_bytes": len(data),
              "published_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")}
-    st_tmp = dst_root / (STATE + ".partial")
-    st_tmp.write_text(json.dumps(state, indent=2) + "\n")
-    os.replace(st_tmp, dst_root / STATE)
+    write_atomic(dst_root / STATE, (json.dumps(state, indent=2) + "\n").encode())
     log(f"ok: copied {copied}, already present {skipped}, ledger published up to byte {boundary}")
     return 0
 

@@ -13,6 +13,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import market_archive_replica as rep  # noqa: E402
@@ -113,6 +114,100 @@ class Replica(unittest.TestCase):
         self.assertEqual(self.run_it(), 0)
         self.assertFalse((self.dst / "raw_market" / "option_snapshot" / "intraday" / "2026" /
                           "2026-07-05_2026-07-05__20261001T021500Z.parquet").exists())
+
+    # ---- implementation review M7: temporary files never follow a link or reuse another inode
+    def _sentinel(self) -> Path:
+        s = Path(self.tmp.name) / "sentinel"
+        s.write_bytes(b"keep me")
+        return s
+
+    def test_m7_ledger_partial_symlink_is_refused(self):
+        add(self.src)
+        sentinel = self._sentinel()
+        (self.dst / "raw_market").mkdir()
+        (self.dst / "raw_market" / "_ledger.jsonl.partial").symlink_to(sentinel)
+        self.assertEqual(self.run_it(), 1)
+        self.assertEqual(sentinel.read_bytes(), b"keep me")
+        self.assertFalse((self.dst / "raw_market" / "_ledger.jsonl").exists())
+
+    def test_m7_state_partial_symlink_is_refused(self):
+        add(self.src)
+        sentinel = self._sentinel()
+        (self.dst / "_replica.state.partial").symlink_to(sentinel)
+        self.assertEqual(self.run_it(), 1)
+        self.assertEqual(sentinel.read_bytes(), b"keep me")
+
+    def test_m7_ledger_partial_hardlink_is_refused(self):
+        add(self.src)
+        sentinel = self._sentinel()
+        (self.dst / "raw_market").mkdir()
+        os.link(sentinel, self.dst / "raw_market" / "_ledger.jsonl.partial")
+        self.assertEqual(self.run_it(), 1)
+        self.assertEqual(sentinel.read_bytes(), b"keep me")
+
+    def test_m7_file_partial_symlink_is_refused(self):
+        r = add(self.src)
+        sentinel = self._sentinel()
+        d = self.dst / "raw_market" / "option_snapshot" / "intraday" / "2026"
+        d.mkdir(parents=True)
+        (d / (r["file"] + ".partial")).symlink_to(sentinel)
+        self.assertEqual(self.run_it(), 1)
+        self.assertEqual(sentinel.read_bytes(), b"keep me")
+
+    def test_m7_existing_state_symlink_is_replaced_not_followed(self):
+        add(self.src)
+        sentinel = self._sentinel()
+        (self.dst / "_replica.state").symlink_to(sentinel)
+        self.assertEqual(self.run_it(), 0)
+        self.assertEqual(sentinel.read_bytes(), b"keep me")
+        self.assertFalse((self.dst / "_replica.state").is_symlink())
+
+    def test_m7_control_stale_regular_partial_is_replaced(self):
+        add(self.src)
+        (self.dst / "raw_market").mkdir()
+        (self.dst / "raw_market" / "_ledger.jsonl.partial").write_bytes(b"old crash leftover")
+        self.assertEqual(self.run_it(), 0)
+        self.assertEqual((self.dst / "raw_market" / "_ledger.jsonl").read_bytes(),
+                         (self.src / "raw_market" / "_ledger.jsonl").read_bytes())
+
+    # ---- implementation review M8: every ledger record needs its manifest
+    def test_m8_missing_source_manifest_fails(self):
+        r = add(self.src)
+        (self.src / "raw_market" / "option_snapshot" / "intraday" / "2026" / r["file"].replace(".parquet", ".json")).unlink()
+        self.assertEqual(self.run_it(), 1)
+        self.assertFalse((self.dst / "raw_market" / "_ledger.jsonl").exists())
+
+    def test_m8_manifest_with_other_sha_fails(self):
+        r = add(self.src)
+        j = self.src / "raw_market" / "option_snapshot" / "intraday" / "2026" / r["file"].replace(".parquet", ".json")
+        j.write_text(json.dumps({"sha256": "0" * 64, "file": r["file"]}))
+        self.assertEqual(self.run_it(), 1)
+
+    def test_m8_manifest_with_other_file_fails(self):
+        r = add(self.src)
+        j = self.src / "raw_market" / "option_snapshot" / "intraday" / "2026" / r["file"].replace(".parquet", ".json")
+        j.write_text(json.dumps({"sha256": r["sha256"], "file": "other.parquet"}))
+        self.assertEqual(self.run_it(), 1)
+
+    def test_m8_conflicting_target_manifest_fails(self):
+        r = add(self.src)
+        d = self.dst / "raw_market" / "option_snapshot" / "intraday" / "2026"
+        d.mkdir(parents=True)
+        (d / r["file"].replace(".parquet", ".json")).write_text('{"other": 1}')
+        self.assertEqual(self.run_it(), 1)
+        self.assertFalse((self.dst / "raw_market" / "_ledger.jsonl").exists())
+
+    # ---- review mutation: the read-back hash after writing must be checked
+    def test_readback_mismatch_after_write_fails(self):
+        add(self.src)
+        real = rep.sha256_of
+
+        def lying(path):
+            return "f" * 64 if str(path).endswith(".partial") else real(path)
+
+        with mock.patch.object(rep, "sha256_of", side_effect=lying):
+            self.assertEqual(self.run_it(), 1)
+        self.assertFalse((self.dst / "raw_market" / "_ledger.jsonl").exists())
 
     def test_target_ledger_must_be_a_prefix(self):
         add(self.src)

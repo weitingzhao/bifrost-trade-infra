@@ -1,36 +1,29 @@
 #!/usr/bin/env bash
 # TD-444 step 5: copy, verify and cut over the NAS data onto the SSD RAID1 (runbook §2, §3.3–§3.7, §4).
 #
-# Runs on the NAS as root, from the unpacked material package (runbook §3.2); the MinIO stages
-# live in td444-minio.sh next to it (sourced):
+# Runs on the NAS as root, from the unpacked material package (runbook §3.2). Writing commands
+# run only from the package's own copy (<pkg>/scripts/nas/td444-move.sh), after the package
+# matched SHA256SUMS. Helpers sourced next to it: td444-guard.sh (copy guard, abort traps),
+# td444-minio.sh (MinIO stages), backup-checks.sh (integrity checks shared with the roll-up).
 #   sudo bash <pkg>/scripts/nas/td444-move.sh --pkg <pkg> --sums <pkg>/../SHA256SUMS --map <private map> <command> ...
-# The map (private, never in git; template: td444-map.example) lists every copy as
+# The map (private; template td444-map.example) lists every copy as
 #   <group> <key> <kind> <source dir> <target dir> [<snapshot root>]
-# Paths must sit under the allowed roots below; the map is the allow-list.
 #
 # Read-only commands (write only their own log):
-#   check-pkg                      verify the package against SHA256SUMS
-#   exports                        compare the new NFS exports and share roots with k3s-hot (§2)
-#   identity-check <group>         compare the mount identity with the recorded one (§2)
-#   verify <group> [--from-snapshot]   full content verification + own manifests (§3.3); prints T_c
-#   status <group|minio-RUN>       print the phase file
-#   temps                          print the SSD temperatures (hwmon)
-#   minio-eligibility --run-id R   may this run fall back to A? (§4 group 6 eligibility table)
-#   minio-wal-layout --data DIR    list the WAL objects layout (§4 group 6 precondition)
-#   minio-base-check --run-id R --data DIR   M6.1: every object in minio.base still present
-#   minio-continuity --run-id R --range FILE --data DIR   M6.2: every segment L..U present
-# Writing commands (each needs --confirm <the group, or the word given in its help line>):
+#   check-pkg  map-check  exports  identity-check <group>  verify <group>  status <name>  temps
+#   minio-eligibility | minio-wal-layout | minio-base-check | minio-continuity   (see td444-minio.sh)
+# Writing commands (each needs --confirm <the group, or the word in its help line>):
 #   identity-record <group>        record the mount identity (state only)
 #   pre <group> [--from-snapshot]  copy, add only, never delete (§3.3)
 #   final <group>                  the only --delete pass: identity, path and delete-list checks,
 #                                  typed "yes", copy, full verification (§3.3)
-#   snap-clean                     delete the snapshots this script created   (--confirm snap-clean)
-#   minio-m0 .. minio-m4b, minio-m4a-stop, minio-rollback-a, minio-readback   (--confirm minio, --run-id R)
+#   verify <group> --from-snapshot --confirm <group>   (creates a snapshot)
+#   snap-clean                     delete the recorded read-only snapshots   (--confirm snap-clean)
+#   minio-m0 .. minio-m4b, minio-m4a-stop, minio-rollback-a, minio-readback   (--confirm minio)
 #
-# Every step appends attempt/done/fail lines to a phase file and logs to $STATE/logs/.
-# Long copies run under the temperature guard: pause at --temp-pause (72 °C), resume at or
-# below --temp-resume (65 °C), and pause when no SSD temperature could be read for
-# --temp-missing seconds (180). --bwlimit and --timeout pass through to every copy.
+# Every step appends attempt/done/fail lines to a phase file and logs to $STATE/logs/. Copies
+# run under the guard of td444-guard.sh: temperature pause 72 °C / resume 65 °C / pause when a
+# sensor gives no reading for 180 s, --bwlimit, --timeout, and INT/TERM/HUP/exit stop the copy.
 set -euo pipefail
 umask 077
 
@@ -39,40 +32,32 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 STATE=/volume1/@bifrost/td444
 MAP="" PKG="" SUMS="" CONFIRM="" RUN_ID="" RANGE="" DATA="" METHOD="mc"
 BWLIMIT="" TIMEOUT=0 FROM_SNAPSHOT=0 EXPECT_COMPOSE_SHA=""
-TEMP_PAUSE=72 TEMP_RESUME=65 TEMP_MISSING=180 TEMP_POLL=30 TEMP_NAME=nvme
+TEMP_PAUSE=72 TEMP_RESUME=65 TEMP_MISSING=180 TEMP_POLL=30 TEMP_NAME=nvme TEMP_SENSORS=2
 HWMON=${TD444_HWMON:-/sys/class/hwmon}   # tests point this at a fake tree
 COMPOSE_DIR=/volume1/docker/minio-backup CONTAINER=minio-backup BUCKET=bifrost-postgres-backup
 SRC_ROOTS=(/volume1/k3s-hot /volume1/k3s-cold /volume2/k3s-fast /volume2/minio-backup)
 DST_ROOTS=(/volume2/k3s-fast /volume2/minio-backup /volume1/k3s-cold/td444-recovery /volume1/minio-recovery-td444)
 EXPORT_REF=/volume1/k3s-hot
 EXPORT_NEW=(/volume2/k3s-fast /volume2/market-archive-backup)
+HELPERS=(td444-move.sh td444-guard.sh td444-minio.sh backup-checks.sh)
 
 log() { printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
 die() { log "FAIL: $*"; exit 1; }
-usage() { sed -n '2,33p' "$0"; exit 2; }
+usage() { sed -n '2,/^set -euo/p' "$0" | sed '$d'; exit 2; }
 
-# ---------------------------------------------------------------- arguments
 ARGS=()
 while (($#)); do
   case "$1" in
-    --map) MAP=$2; shift 2 ;;
-    --pkg) PKG=$2; shift 2 ;;
-    --sums) SUMS=$2; shift 2 ;;
-    --state) STATE=$2; shift 2 ;;
-    --confirm) CONFIRM=$2; shift 2 ;;
-    --run-id) RUN_ID=$2; shift 2 ;;
-    --range) RANGE=$2; shift 2 ;;
-    --data) DATA=$2; shift 2 ;;
-    --method) METHOD=$2; shift 2 ;;
-    --bwlimit) BWLIMIT=$2; shift 2 ;;
-    --timeout) TIMEOUT=$2; shift 2 ;;
-    --from-snapshot) FROM_SNAPSHOT=1; shift ;;
+    --map) MAP=$2; shift 2 ;;            --pkg) PKG=$2; shift 2 ;;
+    --sums) SUMS=$2; shift 2 ;;          --state) STATE=$2; shift 2 ;;
+    --confirm) CONFIRM=$2; shift 2 ;;    --run-id) RUN_ID=$2; shift 2 ;;
+    --range) RANGE=$2; shift 2 ;;        --data) DATA=$2; shift 2 ;;
+    --method) METHOD=$2; shift 2 ;;      --bwlimit) BWLIMIT=$2; shift 2 ;;
+    --timeout) TIMEOUT=$2; shift 2 ;;    --from-snapshot) FROM_SNAPSHOT=1; shift ;;
     --expect-compose-sha256) EXPECT_COMPOSE_SHA=$2; shift 2 ;;
-    --temp-pause) TEMP_PAUSE=$2; shift 2 ;;
-    --temp-resume) TEMP_RESUME=$2; shift 2 ;;
-    --temp-missing) TEMP_MISSING=$2; shift 2 ;;
-    --temp-poll) TEMP_POLL=$2; shift 2 ;;
-    --compose-dir) COMPOSE_DIR=$2; shift 2 ;;
+    --temp-pause) TEMP_PAUSE=$2; shift 2 ;;      --temp-resume) TEMP_RESUME=$2; shift 2 ;;
+    --temp-missing) TEMP_MISSING=$2; shift 2 ;;  --temp-poll) TEMP_POLL=$2; shift 2 ;;
+    --temp-sensors) TEMP_SENSORS=$2; shift 2 ;;  --compose-dir) COMPOSE_DIR=$2; shift 2 ;;
     -h|--help) usage ;;
     --*) die "unknown option $1" ;;
     *) ARGS+=("$1"); shift ;;
@@ -81,15 +66,14 @@ done
 ((${#ARGS[@]})) || usage
 CMD=${ARGS[0]}
 ARG1=${ARGS[1]:-}
-for v in "$TIMEOUT" "$TEMP_PAUSE" "$TEMP_RESUME" "$TEMP_MISSING" "$TEMP_POLL"; do
+for v in "$TIMEOUT" "$TEMP_PAUSE" "$TEMP_RESUME" "$TEMP_MISSING" "$TEMP_POLL" "$TEMP_SENSORS"; do
   [[ $v =~ ^[0-9]+$ ]] || die "--timeout and --temp-* take whole numbers"
 done
-((TEMP_RESUME < TEMP_PAUSE)) || die "--temp-resume must be below --temp-pause"
+((TEMP_RESUME < TEMP_PAUSE && TEMP_SENSORS >= 1)) || die "--temp-resume must be below --temp-pause; --temp-sensors >= 1"
 [[ -z $BWLIMIT || $BWLIMIT =~ ^[0-9]+[KMG]?$ ]] || die "--bwlimit must look like 200M"
 [[ -z $RUN_ID || $RUN_ID =~ ^[A-Za-z0-9-]{1,40}$ ]] || die "--run-id: letters, digits, dashes"
 ((EUID == 0)) || die "run as root (sudo)"
 
-# ---------------------------------------------------------------- logging and phases
 mkdir -p "$STATE/logs" "$STATE/identity"
 chmod 700 "$STATE"
 LOG="$STATE/logs/$(date -u +%Y%m%dT%H%M%SZ)-$CMD${ARG1:+-$ARG1}${RUN_ID:+-$RUN_ID}.log"
@@ -102,9 +86,7 @@ phase() { # phase <name> attempt|done|fail <stage> [note]
   log "phase $1: $2 $3${4:+ ($4)}"
 }
 has_phase() { [[ -f $(phase_file "$1") ]] && grep -Eq " $2 $3( |\$)" "$(phase_file "$1")"; }
-
 require_confirm() { [[ $CONFIRM == "$1" ]] || die "this command writes; repeat it with --confirm $1"; }
-
 ask_yes() {
   local answer
   [[ -r /dev/tty ]] || die "no terminal to confirm on; run with ssh -t"
@@ -113,24 +95,30 @@ ask_yes() {
   [[ $answer == yes ]] || die "not confirmed"
 }
 
-# ---------------------------------------------------------------- package
-check_pkg() {
-  [[ -n $PKG && -n $SUMS ]] || die "--pkg and --sums are required"
-  log "this script: $(sha256sum "$0" | cut -d' ' -f1), td444-minio.sh: $(sha256sum "$SCRIPT_DIR/td444-minio.sh" | cut -d' ' -f1)"
-  (cd "$PKG" && sha256sum -c --quiet "$SUMS") || die "package does not match $SUMS"
-  log "package matches $SUMS"
+# shellcheck source=td444-guard.sh
+. "$SCRIPT_DIR/td444-guard.sh"
+# shellcheck source=backup-checks.sh
+. "$SCRIPT_DIR/backup-checks.sh"
+
+check_pkg() { # the package matches its sums, and this run executes the package's own scripts
+  local f
+  [[ -n $PKG && -n $SUMS && -d $PKG && -r $SUMS ]] || die "--pkg and --sums are required"
+  (cd "$PKG" && sha256sum -c --quiet --strict "$SUMS") || die "package does not match $SUMS"
+  [[ $SCRIPT_DIR == "$(realpath -e "$PKG/scripts/nas")" && $(realpath -e "$0") == "$SCRIPT_DIR/td444-move.sh" ]] \
+    || die "run the package's own copy: $PKG/scripts/nas/td444-move.sh (this is $0)"
+  for f in "${HELPERS[@]}"; do
+    grep -Eq "^[0-9a-f]{64}  \./scripts/nas/$f\$" "$SUMS" || die "$f is not listed in $SUMS"
+  done
+  log "package matches $SUMS; running its td444-move.sh $(sha256sum "$0" | cut -d' ' -f1)"
 }
 
-# ---------------------------------------------------------------- map
+# ---------------------------------------------------------------- map (the allow-list)
 M_GROUP=() M_KEY=() M_KIND=() M_SRC=() M_DST=() M_SNAP=()
-under() { # under <path> <root>...
-  local p=$1 r; shift
-  for r in "$@"; do [[ $p == "$r"/* ]] && return 0; done
-  return 1
-}
+under() { local p=$1 r; shift; for r in "$@"; do [[ $p == "$r"/* ]] && return 0; done; return 1; }
+overlap() { [[ $1 == "$2" || $1 == "$2"/* || $2 == "$1"/* ]]; }
 load_map() {
   [[ -n $MAP && -r $MAP ]] || die "--map <file> is required"
-  local n=0 g k kind s d snap extra
+  local n=0 g k kind s d snap extra p i j
   while read -r g k kind s d snap extra; do
     n=$((n + 1))
     [[ -z ${g:-} || $g == \#* ]] && continue
@@ -142,11 +130,26 @@ load_map() {
     done
     under "$s" "${SRC_ROOTS[@]}" || die "map line $n: source $s is outside the allowed roots"
     under "$d" "${DST_ROOTS[@]}" || die "map line $n: target $d is outside the allowed roots"
-    [[ $s != "$d" && $d != "$s"/* && $s != "$d"/* ]] || die "map line $n: source and target overlap"
+    ! overlap "$s" "$d" || die "map line $n: source and target overlap"
     [[ -z ${snap:-} || $s == "$snap" || $s == "$snap"/* ]] || die "map line $n: snapshot root does not contain the source"
     M_GROUP+=("$g") M_KEY+=("$k") M_KIND+=("$kind") M_SRC+=("$s") M_DST+=("$d") M_SNAP+=("${snap:-}")
   done < "$MAP"
   ((${#M_KEY[@]})) || die "map is empty"
+  # whole-map rules: unique keys; no two targets equal or nested; a target never overlaps
+  # another line's source, except that a *-recovery line reads exactly a normal line's target
+  for i in "${!M_KEY[@]}"; do
+    for j in "${!M_KEY[@]}"; do
+      ((i < j)) || continue
+      [[ ${M_KEY[$i]} != "${M_KEY[$j]}" ]] || die "map: key ${M_KEY[$i]} is used twice"
+      ! overlap "${M_DST[$i]}" "${M_DST[$j]}" || die "map: targets of ${M_KEY[$i]} and ${M_KEY[$j]} overlap"
+    done
+    for j in "${!M_KEY[@]}"; do
+      ((i != j)) || continue
+      overlap "${M_DST[$i]}" "${M_SRC[$j]}" || continue
+      [[ ${M_GROUP[$j]} == *-recovery && ${M_GROUP[$i]} != *-recovery && ${M_SRC[$j]} == "${M_DST[$i]}" ]] \
+        || die "map: target of ${M_KEY[$i]} overlaps the source of ${M_KEY[$j]}"
+    done
+  done
 }
 entries() { # entries <group>: indexes; "all" = every group except *-recovery
   local i out=()
@@ -156,29 +159,34 @@ entries() { # entries <group>: indexes; "all" = every group except *-recovery
   ((${#out[@]})) || die "no map entries for group $1"
   printf '%s\n' "${out[@]}"
 }
-group_ok() { entries "$1" > /dev/null; }  # dies in the main shell when the group is empty
-check_real_paths() { # the source must exist with no symlink in it; the target's parent must
+group_ok() { entries "$1" > /dev/null; }
+dst_parent_ok() { # the target's parent exists, or is an allowed target root whose own parent exists
+  local parent r; parent=$(dirname "$1")
+  [[ -d $parent ]] && return 0
+  for r in "${DST_ROOTS[@]}"; do [[ $parent == "$r" && -d $(dirname "$r") ]] && return 0; done
+  return 1
+}
+check_real_paths() { # the source exists with no symlink in it; the target's parent is real
   local s=${M_SRC[$1]} d=${M_DST[$1]}
   [[ -d $s && $(realpath -e "$s") == "$s" ]] || die "${M_KEY[$1]}: source $s is missing or not a real path"
-  [[ -d $(dirname "$d") && $(realpath -m "$d") == "$d" ]] || die "${M_KEY[$1]}: target parent of $d is missing or a link"
+  dst_parent_ok "$d" && [[ $(realpath -m "$d") == "$d" ]] || die "${M_KEY[$1]}: target parent of $d is missing or a link"
+  if [[ -e $d && $(realpath -e "$d") != "$d" ]]; then die "${M_KEY[$1]}: target $d is a link"; fi
 }
-make_dst_root() { # create a recovery root (an allowed target root) when its parent exists
-  local parent r
-  parent=$(dirname "${M_DST[$1]}")
+make_dst_root() {
+  local parent r; parent=$(dirname "${M_DST[$1]}")
   for r in "${DST_ROOTS[@]}"; do
     if [[ $parent == "$r" && ! -d $r && -d $(dirname "$r") ]]; then mkdir -m 700 "$r"; log "created $r"; fi
   done
 }
-nested_subvolume() { find "$1" -mindepth 1 -xdev -type d -inum 256 -print -quit 2>/dev/null; }
+nested_subvolume() { find "$1" -mindepth 1 -xdev -type d -inum 256 -print -quit 2> /dev/null; }
 
 # ---------------------------------------------------------------- mount identity (§2)
 ident_of() { # SOURCE FSTYPE ro|rw UUID subvolid, of the path or its nearest existing parent
-  local p=$1 opts
+  local p=$1 src fstype opts uuid
   while [[ ! -e $p ]]; do p=$(dirname "$p"); done
-  local src fstype uuid
   read -r src fstype opts uuid < <(findmnt -no SOURCE,FSTYPE,OPTIONS,UUID -T "$p")
   [[ ,$opts, == *,rw,* ]] && opts=rw || opts=ro
-  printf '%s %s %s %s %s' "$src" "$fstype" "$opts" "${uuid:--}" "$(btrfs inspect-internal rootid "$p" 2>/dev/null || echo -)"
+  printf '%s %s %s %s %s' "$src" "$fstype" "$opts" "${uuid:--}" "$(btrfs inspect-internal rootid "$p" 2> /dev/null || echo -)"
 }
 apparent_bytes() { du -s -B1 --apparent-size "$1" | cut -f1; }
 avail_bytes() { local p=$1; while [[ ! -e $p ]]; do p=$(dirname "$p"); done; df -B1 --output=avail "$p" | tail -1 | tr -d ' '; }
@@ -195,11 +203,12 @@ identity_record() {
   cat "$rec"
   log "identity of $1 recorded in $rec"
 }
-identity_check() {
-  local i rec="$STATE/identity/$1.rec" now need have bad=0
+identity_check() { # every path of the group: same mount identity as recorded, 1.2x free space
+  local i rec="$STATE/identity/$1.rec" now need have bad=0 side
   group_ok "$1"
   [[ -f $rec ]] || die "no identity record for $1 (identity-record $1 first)"
   while read -r i; do
+    check_real_paths "$i"
     for side in src dst; do
       if [[ $side == src ]]; then now=$(ident_of "${M_SRC[$i]}"); else now=$(ident_of "${M_DST[$i]}"); fi
       if ! grep -Fxq "${M_KEY[$i]} $side $now" "$rec"; then log "${M_KEY[$i]} $side changed: now '$now'"; bad=1; fi
@@ -212,71 +221,27 @@ identity_check() {
   log "mount identity and free space of $1 match the record"
 }
 
-# ---------------------------------------------------------------- temperature guard and copies
-max_temp() { # highest SSD temperature in °C, or nothing when none can be read
-  local h t best=""
-  for h in "$HWMON"/hwmon*; do
-    [[ -r $h/name && $(cat "$h/name") == "$TEMP_NAME" && -r $h/temp1_input ]] || continue
-    t=$(cat "$h/temp1_input" 2>/dev/null) || continue
-    [[ $t =~ ^[0-9]+$ ]] || continue
-    t=$((t / 1000))
-    [[ -z $best || $t -gt $best ]] && best=$t
-  done
-  printf '%s' "$best"
-}
-guarded() { # run "$@" in its own process group under the temperature guard and --timeout
-  local pid rc=0 start=$SECONDS paused=0 missing_since="" last_poll=-1000000 t
-  setsid "$@" &
-  pid=$!
-  while kill -0 "$pid" 2>/dev/null; do
-    if ((TIMEOUT > 0 && SECONDS - start >= TIMEOUT)); then
-      log "timeout after ${TIMEOUT}s: stopping the copy" >&2
-      kill -CONT -- "-$pid" 2>/dev/null || true
-      kill -TERM -- "-$pid" 2>/dev/null || true
-      wait "$pid" 2>/dev/null || true
-      return 124
-    fi
-    if ((SECONDS - last_poll >= TEMP_POLL)); then
-      last_poll=$SECONDS
-      t=$(max_temp)
-      if [[ -z $t ]]; then
-        [[ -n $missing_since ]] || missing_since=$SECONDS
-        if ((paused == 0 && SECONDS - missing_since >= TEMP_MISSING)); then
-          kill -STOP -- "-$pid"; paused=1; log "no SSD temperature for ${TEMP_MISSING}s: copy paused" >&2
-        fi
-      else
-        missing_since=""
-        if ((paused == 0 && t >= TEMP_PAUSE)); then
-          kill -STOP -- "-$pid"; paused=1; log "SSD at ${t} °C (>= ${TEMP_PAUSE}): copy paused" >&2
-        elif ((paused == 1 && t <= TEMP_RESUME)); then
-          kill -CONT -- "-$pid"; paused=0; log "SSD at ${t} °C (<= ${TEMP_RESUME}): copy resumed" >&2
-        fi
-      fi
-    fi
-    sleep 1
-  done
-  wait "$pid" || rc=$?
-  return "$rc"
-}
 rsync_opts() { printf '%s\n' -aHAX --numeric-ids ${BWLIMIT:+--bwlimit="$BWLIMIT"}; }
-
-make_snapshot() { # make_snapshot <entry>: read-only snapshot of the snapshot root; prints the view of the source
-  local i=$1 root=${M_SNAP[$1]} mnt snapdir snap
+make_snapshot() { # read-only snapshot of the snapshot root, recorded with its UUID; prints the source view
+  local i=$1 root=${M_SNAP[$1]} mnt snapdir snap uuid
   [[ -n $root ]] || die "${M_KEY[$i]}: no snapshot root in the map"
-  btrfs subvolume show "$root" >/dev/null 2>&1 || die "${M_KEY[$i]}: $root is not a btrfs subvolume"
+  btrfs subvolume show "$root" > /dev/null 2>&1 || die "${M_KEY[$i]}: $root is not a btrfs subvolume"
+  if [[ ${M_SRC[$i]} != "$root" ]] && btrfs subvolume show "${M_SRC[$i]}" > /dev/null 2>&1; then
+    die "${M_KEY[$i]}: the source is itself a subvolume, not inside $root's snapshot"
+  fi
   [[ -z $(nested_subvolume "${M_SRC[$i]}") ]] || die "${M_KEY[$i]}: nested subvolume under ${M_SRC[$i]}; refusing"
   mnt=$(findmnt -no TARGET -T "$root")
   snapdir="$mnt/@bifrost/td444-snap"
   mkdir -p "$snapdir"
   snap="$snapdir/${M_KEY[$i]}-$(date -u +%Y%m%dT%H%M%SZ)"
-  btrfs subvolume snapshot -r "$root" "$snap" >/dev/null
-  printf '%s\n' "$snap" >> "$STATE/snapshots.list"
-  log "${M_KEY[$i]}: read-only snapshot $snap" >&2
+  btrfs subvolume snapshot -r "$root" "$snap" > /dev/null
+  uuid=$(btrfs subvolume show "$snap" | awk '$1 == "UUID:" { print $2; exit }')
+  [[ -n $uuid ]] || die "${M_KEY[$i]}: snapshot $snap has no UUID"
+  printf '%s %s\n' "$snap" "$uuid" >> "$STATE/snapshots.list"
+  log "${M_KEY[$i]}: read-only snapshot $snap ($uuid)" >&2
   printf '%s%s' "$snap" "${M_SRC[$i]#"$root"}"
 }
-
-# full content check: exit 0 and an empty itemize list, or failure (§3.3)
-content_verify() { # content_verify <key> <source view> <target>
+content_verify() { # exit 0 and an empty itemize list, or failure (§3.3)
   local out rc=0 t0=$SECONDS
   out="$STATE/logs/verify-$1-$(date -u +%Y%m%dT%H%M%SZ).list"
   # shellcheck disable=SC2046  # option words, none with spaces
@@ -289,74 +254,26 @@ content_verify() { # content_verify <key> <source view> <target>
   log "$1: content identical (rsync -c, empty list), T_c=$((SECONDS - t0))s"
   printf '%s %s\n' "$1" "$((SECONDS - t0))" >> "$STATE/tc.list"
 }
-
-manifest_check() { # the backup's own checksums (§3.3, §5.1)
-  local key=$1 kind=$2 d=$3 l run bad=0
-  case $kind in
-    logical|finance)
-      l=$(cat "$d/LATEST") || die "$key: no LATEST"
-      [[ $(cat "$d/daily/$l/STATUS") == OK ]] || die "$key: LATEST run $l is not STATUS=OK"
-      (cd "$d/daily/$l" && sha256sum -c --quiet SHA256SUMS) || die "$key: SHA256SUMS of $l failed"
-      log "$key: LATEST $l is OK and its SHA256SUMS verify" ;;
-    gitea)
-      l=$(cat "$d/LATEST") || die "$key: no LATEST"
-      [[ $(cat "$d/$l/STATUS") == OK ]] || die "$key: LATEST run $l is not STATUS=OK"
-      (cd "$d/$l" && grep -v '^#' SHA256SUMS | sha256sum -c --quiet -) || die "$key: SHA256SUMS of $l failed"
-      log "$key: LATEST $l is OK and its SHA256SUMS verify" ;;
-    cluster-state)
-      for run in "$d"/daily/????-??-??; do
-        [[ -d $run ]] || continue
-        [[ $(cat "$run/STATUS" 2>/dev/null) == OK ]] || { log "$key: $run has no STATUS=OK"; bad=1; continue; }
-        cs_manifest "$run" || bad=1
-      done
-      for run in "$d"/monthly/????-??; do
-        [[ -d $run ]] || continue
-        cs_monthly_files "$run" || bad=1
-        cs_manifest "$run" || bad=1
-      done
-      ((bad == 0)) || die "$key: cluster-state MANIFEST check failed"
-      log "$key: every daily and monthly MANIFEST verifies" ;;
-    registry)
-      while IFS= read -r -d '' f; do
-        local want got
-        want=$(basename "$(dirname "$f")")
-        got=$(sha256sum "$f" | cut -d' ' -f1)
-        [[ $want == "$got" ]] || { log "$key: blob $want hashes to $got"; bad=1; }
-      done < <(find "$d/docker/registry/v2/blobs/sha256" -mindepth 3 -maxdepth 3 -type f -name data -print0)
-      ((bad == 0)) || die "$key: registry blob self-check failed"
-      log "$key: every blob hashes to its directory name" ;;
-    monitoring|minio|plain) ;;
-  esac
-}
-cs_manifest() { # every "file" line: ciphertext bytes and sha256 match (backup.sh:270-282)
-  local run=$1 name bytes sum
-  [[ -f $run/MANIFEST ]] || { log "$run: no MANIFEST"; return 1; }
-  grep -q '^timestamp [0-9]' "$run/MANIFEST" || { log "$run: MANIFEST has no timestamp"; return 1; }
-  while read -r name bytes sum; do
-    [[ -f $run/$name ]] || { log "$run: $name missing"; return 1; }
-    [[ $(stat -c %s "$run/$name") == "$bytes" ]] || { log "$run: $name size differs"; return 1; }
-    [[ $(sha256sum "$run/$name" | cut -d' ' -f1) == "$sum" ]] || { log "$run: $name sha256 differs"; return 1; }
-  done < <(awk '$1 == "file" { b = ""; s = ""; for (i = 3; i < NF; i++) { if ($i == "ciphertext_bytes") b = $(i+1); if ($i == "ciphertext_sha256") s = $(i+1) } print $2, b, s }' "$run/MANIFEST")
-}
-cs_monthly_files() { # monthly: exactly four ciphertexts + MANIFEST, no STATUS (backup.sh:299-338)
-  local run=$1 names
-  names=$(cd "$run" && ls -1 | LC_ALL=C sort | tr '\n' ' ')
-  [[ $names =~ ^MANIFEST\ etcd-snapshot-[^\ ]+\.age\ platform-state\.yaml\.age\ secrets\.yaml\.age\ server-token\.age\ $ ]] \
-    || { log "$run: unexpected file set: $names"; return 1; }
-}
+manifest_check() { check_kind "$2" "$3" || die "$1: own manifest check ($2) failed on $3"; log "$1: own manifests ($2) verify"; }
 
 # ---------------------------------------------------------------- pre / final / verify
-cmd_pre() {
-  local g=$1 i view
-  require_confirm "$g"; check_pkg; group_ok "$g"
+cmd_pre() { # every check of the whole group passes before the first directory or copy
+  local g=$1 i view rc
+  require_confirm "$g"; check_pkg; no_active_copy; group_ok "$g"
+  identity_check "$g"
+  while read -r i; do
+    check_real_paths "$i"
+    if ((FROM_SNAPSHOT)); then [[ -n ${M_SNAP[$i]} ]] || die "${M_KEY[$i]}: --from-snapshot needs a snapshot root"; fi
+  done < <(entries "$g")
+  ABORT_PHASE=$g
   while read -r i; do
     make_dst_root "$i"
-    check_real_paths "$i"
     mkdir -p "${M_DST[$i]}"
     view=${M_SRC[$i]}
+    ABORT_STAGE="pre:${M_KEY[$i]}"
     phase "$g" attempt "pre:${M_KEY[$i]}"
     if ((FROM_SNAPSHOT)); then view=$(make_snapshot "$i"); fi
-    local rc=0
+    rc=0
     # shellcheck disable=SC2046
     guarded rsync $(rsync_opts) --log-file="$STATE/logs/rsync-pre-${M_KEY[$i]}.log" "$view/" "${M_DST[$i]}/" || rc=$?
     if ((rc != 0)); then phase "$g" fail "pre:${M_KEY[$i]}" "rsync $rc"; die "${M_KEY[$i]}: pre copy exited $rc"; fi
@@ -364,14 +281,14 @@ cmd_pre() {
     phase "$g" "done" "pre:${M_KEY[$i]}"
   done < <(entries "$g")
 }
-
 cmd_final() {
   local g=$1 i dl n rc
-  require_confirm "$g"; check_pkg; group_ok "$g"
+  require_confirm "$g"; check_pkg; no_active_copy; group_ok "$g"
   identity_check "$g"
+  while read -r i; do [[ -d ${M_DST[$i]} ]] || die "${M_KEY[$i]}: target ${M_DST[$i]} missing; run pre first"; done < <(entries "$g")
+  ABORT_PHASE=$g
   while read -r i; do
-    check_real_paths "$i"
-    [[ -d ${M_DST[$i]} ]] || die "${M_KEY[$i]}: target ${M_DST[$i]} missing; run pre first"
+    ABORT_STAGE="final:${M_KEY[$i]}"
     phase "$g" attempt "final:${M_KEY[$i]}"
     dl="$STATE/logs/delete-${M_KEY[$i]}-$(date -u +%Y%m%dT%H%M%SZ).list"
     rc=0
@@ -392,29 +309,31 @@ cmd_final() {
     phase "$g" "done" "final:${M_KEY[$i]}"
   done < <(entries "$g")
 }
-
 cmd_verify() {
   local g=$1 i view
   group_ok "$g"
+  if ((FROM_SNAPSHOT)); then [[ $CONFIRM == "$g" ]] || die "--from-snapshot creates a snapshot; add --confirm $g"; fi
   while read -r i; do
     check_real_paths "$i"
     view=${M_SRC[$i]}
-    if ((FROM_SNAPSHOT)); then
-      [[ $CONFIRM == "$g" ]] || die "--from-snapshot creates a snapshot; add --confirm $g"
-      view=$(make_snapshot "$i")
-    fi
+    if ((FROM_SNAPSHOT)); then view=$(make_snapshot "$i"); fi
     content_verify "${M_KEY[$i]}" "$view" "${M_DST[$i]}"
     manifest_check "${M_KEY[$i]}" "${M_KIND[$i]}" "${M_DST[$i]}"
   done < <(entries "$g")
 }
-
-cmd_snap_clean() {
-  require_confirm snap-clean
+cmd_snap_clean() { # only snapshots this script recorded: same path, same UUID, read-only
+  require_confirm snap-clean; no_active_copy
   [[ -f $STATE/snapshots.list ]] || { log "no snapshots recorded"; return 0; }
-  local s
-  while read -r s; do
-    [[ $s == */@bifrost/td444-snap/* ]] || die "refusing to delete $s"
-    if [[ -d $s ]]; then btrfs subvolume delete "$s"; fi
+  local s u now
+  while read -r s u; do
+    [[ -n $s ]] || continue
+    if [[ ! -e $s ]]; then log "already gone: $s"; continue; fi
+    [[ $s == */@bifrost/td444-snap/* && $(realpath -e "$s") == "$s" ]] || die "refusing $s: not a recorded snapshot path"
+    now=$(btrfs subvolume show "$s" 2> /dev/null | awk '$1 == "UUID:" { print $2; exit }')
+    [[ -n $u && $now == "$u" ]] || die "refusing $s: UUID '$now' is not the recorded '$u'"
+    [[ $(btrfs property get -ts "$s" ro 2> /dev/null) == ro=true ]] || die "refusing $s: not read-only"
+    btrfs subvolume delete "$s" > /dev/null || die "could not delete $s"
+    log "deleted snapshot $s"
   done < "$STATE/snapshots.list"
   mv "$STATE/snapshots.list" "$STATE/snapshots.list.done-$(date -u +%Y%m%dT%H%M%SZ)"
 }
@@ -432,43 +351,49 @@ norm_exports() { # "client option" lines of one exported path, sorted
     /^\// { path = $1; emit(substr($0, length($1) + 1)); next }
     { emit($0) }' | LC_ALL=C sort -u
 }
-dir_attrs() {
-  printf 'mode-owner %s\n' "$(stat -c '%a %u %g' "$1")"
-  getfacl -n -p --omit-header "$1" 2>/dev/null | sed 's/^/acl /' || return 1
-  getfattr -d -m - --absolute-names "$1" 2>/dev/null | grep -v '^# file' | sed 's/^/xattr /' || true
+dir_attrs() { # dir_attrs <dir> <out>: mode/owner, ACL, xattrs; fails when any of them cannot be read
+  local acl xat
+  { printf 'mode-owner %s\n' "$(stat -c '%a %u %g' "$1")"; } > "$2" || return 1
+  acl=$(getfacl -n -p --omit-header "$1") || { log "cannot read the ACL of $1"; return 1; }
+  xat=$(getfattr -d -m - --absolute-names "$1") || { log "cannot read the xattrs of $1"; return 1; }
+  printf '%s\n' "$acl" | sed 's/^/acl /' >> "$2"
+  printf '%s\n' "$xat" | grep -v '^# file' | sed '/^$/d; s/^/xattr /' >> "$2" || true
 }
 cmd_exports() {
-  command -v exportfs >/dev/null && command -v getfacl >/dev/null || die "exportfs and getfacl are needed (stop and check, §2)"
-  local ref p bad=0
+  command -v exportfs > /dev/null && command -v getfacl > /dev/null && command -v getfattr > /dev/null \
+    || die "exportfs, getfacl and getfattr are needed (stop and check, §2)"
+  local ref p bad=0 a b
   ref=$(norm_exports "$EXPORT_REF")
   [[ -n $ref ]] || die "$EXPORT_REF is not exported"
+  a=$(mktemp); b=$(mktemp)
+  dir_attrs "$EXPORT_REF" "$a" || die "share root $EXPORT_REF: attributes unreadable (§2: stop and check)"
   for p in "${EXPORT_NEW[@]}"; do
     if diff <(printf '%s\n' "$ref") <(norm_exports "$p") > /dev/null; then
       log "export $p: same clients and options as $EXPORT_REF"
     else
       log "export $p differs from $EXPORT_REF:"; diff <(printf '%s\n' "$ref") <(norm_exports "$p") || true; bad=1
     fi
-    if diff <(dir_attrs "$EXPORT_REF") <(dir_attrs "$p") > /dev/null; then
-      log "share root $p: mode, owner, ACL and xattrs match"
-    else
-      log "share root $p differs:"; diff <(dir_attrs "$EXPORT_REF") <(dir_attrs "$p") || true; bad=1
+    if ! dir_attrs "$p" "$b"; then log "share root $p: attributes unreadable"; bad=1
+    elif diff "$a" "$b" > /dev/null; then log "share root $p: mode, owner, ACL and xattrs match"
+    else log "share root $p differs:"; diff "$a" "$b" || true; bad=1
     fi
     namei -l "$p" || true
   done
-  ((bad == 0)) || die "exports or share roots differ (§2)"
+  rm -f "$a" "$b"
+  ((bad == 0)) || die "exports or share roots differ or cannot be read (§2)"
 }
 
-# ---------------------------------------------------------------- MinIO stages (§4 group 6)
 # shellcheck source=td444-minio.sh
 . "$SCRIPT_DIR/td444-minio.sh"
 
-# ---------------------------------------------------------------- dispatch
 case $CMD in
   check-pkg) check_pkg ;;
+  map-check) load_map; log "map ${MAP}: ${#M_KEY[@]} lines pass the per-line and whole-map rules" ;;
   exports) cmd_exports ;;
-  temps) log "highest SSD temperature: $(max_temp) °C"; for h in "$HWMON"/hwmon*; do [[ $(cat "$h/name" 2>/dev/null) == "$TEMP_NAME" ]] && printf '%s %s\n' "$h" "$(cat "$h/temp1_input")"; done; true ;;
+  temps) log "highest SSD temperature (all $TEMP_SENSORS sensors): $(max_temp) °C"
+         for h in "$HWMON"/hwmon*; do if [[ $(cat "$h/name" 2> /dev/null) == "$TEMP_NAME" ]]; then printf '%s %s\n' "$h" "$(cat "$h/temp1_input" 2> /dev/null || echo unreadable)"; fi; done ;;
   status) [[ -n $ARG1 ]] || usage; cat "$(phase_file "$ARG1")" ;;
-  identity-record) load_map; require_confirm "$ARG1"; identity_record "$ARG1" ;;
+  identity-record) load_map; require_confirm "$ARG1"; check_pkg; identity_record "$ARG1" ;;
   identity-check) load_map; identity_check "$ARG1" ;;
   pre) load_map; cmd_pre "$ARG1" ;;
   final) load_map; cmd_final "$ARG1" ;;

@@ -283,7 +283,9 @@ spec:
     # (scripts/nas/backup-rollup/rollup.sh) reports through the NAS node-exporter textfile
     # collector; the nightly market-archive replica is a CronJob (k8s/storage/nfs-fast/arc).
     # Every expected source is named in its own absent(), so losing one of five still fires;
-    # the two Finance sources count only once rollup.conf lists them (2b). Labels are folded
+    # the two Finance sources count once the roll-up has ever listed them (2b): rollup.sh keeps
+    # source_expected for every source ever configured until --retire-source, so a source that
+    # drops out of rollup.conf together with its metrics still alerts. Labels are folded
     # to {source} so one source never gives two alerts. These are warnings: they reach the
     # Owner's phone only once the ntfy route regex in values-kube-prometheus.yaml names them
     # (runbook §5.3, group 5). Unit tests: rule-tests/nas-rollup.test.yaml.
@@ -298,14 +300,14 @@ spec:
             or max by (source) (absent(bifrost_nas_backup_rollup_last_success_timestamp_seconds{host="nas",source="cluster-state-backup"}))
             or (
               max by (source) (absent(bifrost_nas_backup_rollup_last_success_timestamp_seconds{host="nas",source="finance-backup-hot"}))
-              and on (source) max by (source) (bifrost_nas_backup_rollup_source_enabled{host="nas",source="finance-backup-hot"} == 1)
+              and on (source) max by (source) (bifrost_nas_backup_rollup_source_expected{host="nas",source="finance-backup-hot"} == 1)
             )
             or (
               max by (source) (absent(bifrost_nas_backup_rollup_last_success_timestamp_seconds{host="nas",source="finance-prod-validation-backup-hot"}))
-              and on (source) max by (source) (bifrost_nas_backup_rollup_source_enabled{host="nas",source="finance-prod-validation-backup-hot"} == 1)
+              and on (source) max by (source) (bifrost_nas_backup_rollup_source_expected{host="nas",source="finance-prod-validation-backup-hot"} == 1)
             )
             or (
-              max by (source) (bifrost_nas_backup_rollup_source_enabled{host="nas"} == 1)
+              max by (source) (bifrost_nas_backup_rollup_source_expected{host="nas"} == 1)
               unless on (source) max by (source) (bifrost_nas_backup_rollup_last_success_timestamp_seconds{host="nas"})
             )
           for: 1h
@@ -389,4 +391,5 @@ spec:
             summary: "NAS HDDs were busy in {{ $value }} five-minute windows today"
             description: >-
               More than 20 windows over 30% busy in a day: something writes hot data onto the RAID5
-              array again (TD-444 guard). The Sunday roll-up alone stays below this.
+              array again (TD-444 guard). On a Sunday, first rule out the weekly roll-up: its
+              duration is not measured yet, and the threshold is to be checked against two real runs.

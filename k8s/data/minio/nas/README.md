@@ -19,6 +19,11 @@ Owner's.
 
 ## 1. Prepare (any time; nothing starts)
 
+> **Historical.** This section records the 2026-10 move from the in-cluster MinIO onto the NAS
+> (same directory, no copy). It is not the TD-444 step 5 procedure: for the move onto the SSD
+> RAID1, the A/B conditions and every command, see the last section and the step 5 runbook.
+
+
 ```bash
 # Owner, on the Mac: credentials from the cluster Secret straight into .env (mode 600)
 kubectl --kubeconfig ~/.kube/bifrost-k3s.yaml -n data get secret minio-backup \
@@ -36,6 +41,11 @@ Do not run `docker compose up` yet.
 
 ## 2. Cutover (outside 03:00–04:30 UTC, no Backup running)
 
+> **Historical.** This section records the 2026-10 move from the in-cluster MinIO onto the NAS
+> (same directory, no copy). It is not the TD-444 step 5 procedure: for the move onto the SSD
+> RAID1, the A/B conditions and every command, see the last section and the step 5 runbook.
+
+
 1. Cluster: `kubectl -n data scale deploy/minio --replicas=0` and wait until the pod
    is gone. WAL archiving fails and PostgreSQL retries; the segments wait in pg_wal.
 2. NAS (Owner): `cd /volume1/docker/minio-backup && sudo docker compose up -d`, then
@@ -47,6 +57,11 @@ Do not run `docker compose up` yet.
    on-demand Backup completes, the next 03:00 backup completes.
 
 ## Rollback
+
+> **Historical.** This section records the 2026-10 move from the in-cluster MinIO onto the NAS
+> (same directory, no copy). It is not the TD-444 step 5 procedure: for the move onto the SSD
+> RAID1, the A/B conditions and every command, see the last section and the step 5 runbook.
+
 
 `sudo docker compose down` on the NAS, put the Service selector back,
 `kubectl -n data scale deploy/minio --replicas=1`. Same directory, nothing to copy.
@@ -72,6 +87,11 @@ At no point may both MinIO servers run on this directory.
 
 ## After a week of good backups
 
+> **Historical.** This section records the 2026-10 move from the in-cluster MinIO onto the NAS
+> (same directory, no copy). It is not the TD-444 step 5 procedure: for the move onto the SSD
+> RAID1, the A/B conditions and every command, see the last section and the step 5 runbook.
+
+
 Move the directory to its own shared folder (a rename inside `/volume1` is instant
 on btrfs) and update the volume path; retire `data/minio`, its PVC and
 `k8s/data/backup-retry.yaml`.
@@ -87,6 +107,7 @@ next to it:
 | `compose.isolated.yaml` | M4a | same service and bind, `network_mode: none`, no ports: checked through `docker exec` only |
 | `compose.recovery.yaml` | B | override of the `/data` bind onto `/volume1/minio-recovery-td444/data`; used as `-f compose.yaml -f compose.recovery.yaml` |
 
+Every command runs from the material package as `sudo bash <pkg>/scripts/nas/td444-move.sh ...`.
 `compose.yaml.orig-td444` (written by `td444-move.sh minio-m0`, read-only) is the A
 fallback onto the frozen old directory. Which fallback a run may take is decided only by
 `td444-move.sh minio-eligibility`. The old directory stays until the restore drill and 7 days.
