@@ -1,0 +1,13 @@
+# Template of rollup.conf for rollup.sh (TD-444 step 5 runbook §5.1). Installed root-only
+# next to the script. Sources and paths are the design paths of the runbook (§2); the
+# snapshot root is the btrfs subvolume (shared folder) the source lives in.
+# Prune stays off until the source passed its restore drill (§5.1 per-source switch).
+# F1/F2 are added only after the Finance owner confirmed their format (runbook §0, 2b),
+# together with their absent() alerts.
+#
+# name                   kind           source dir                                      snapshot root         prune
+minio                    minio          /volume2/minio-backup/data                      /volume2/minio-backup off
+registry-data            registry       /volume2/k3s-fast/cicd-registry-data            /volume2/k3s-fast     off
+logical-backup-hot       logical        /volume2/k3s-fast/data-logical-backup-hot       /volume2/k3s-fast     off
+gitea-backup             gitea          /volume2/k3s-fast/cicd-gitea-backup             /volume2/k3s-fast     off
+cluster-state-backup     cluster-state  /volume2/k3s-fast/kube-system-cluster-state-backup  /volume2/k3s-fast off

@@ -1,0 +1,11 @@
+# TD-444 step 5 runbook §5.1: weekly roll-up of the SSD backups onto RAID5.
+[Unit]
+Description=Bifrost weekly backup roll-up (SSD -> RAID5)
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/volume1/@bifrost/backup-rollup/rollup.sh --conf /volume1/@bifrost/backup-rollup/rollup.conf
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=12h

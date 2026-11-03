@@ -75,3 +75,18 @@ At no point may both MinIO servers run on this directory.
 Move the directory to its own shared folder (a rename inside `/volume1` is instant
 on btrfs) and update the volume path; retire `data/minio`, its PVC and
 `k8s/data/backup-retry.yaml`.
+
+## TD-444 step 5: the data moves to the SSD RAID1
+
+The runbook's group 6 (§4) copies the data directory to `/volume2/minio-backup/data`
+with `scripts/nas/td444-move.sh` and switches `compose.yaml` to it. Two companions sit
+next to it:
+
+| File | Stage | What |
+|---|---|---|
+| `compose.isolated.yaml` | M4a | same service and bind, `network_mode: none`, no ports: checked through `docker exec` only |
+| `compose.recovery.yaml` | B | override of the `/data` bind onto `/volume1/minio-recovery-td444/data`; used as `-f compose.yaml -f compose.recovery.yaml` |
+
+`compose.yaml.orig-td444` (written by `td444-move.sh minio-m0`, read-only) is the A
+fallback onto the frozen old directory. Which fallback a run may take is decided only by
+`td444-move.sh minio-eligibility`. The old directory stays until the restore drill and 7 days.

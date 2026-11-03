@@ -6,9 +6,15 @@
 # (10-05). Here MinIO writes the NAS's own btrfs volume; the cluster reaches it
 # over S3 (HTTP) through the Service data/minio, so the Cluster spec is unchanged.
 #
-# The data directory is the one the cluster MinIO used (no copy). NEVER run this
-# while data/minio in the cluster is up: two MinIO servers on one directory corrupt
-# it. See README.md for the order of the cutover.
+# TD-444 step 5 (runbook §4 group 6, stage M4b): the data now lives on the SSD RAID1,
+# /volume2/minio-backup/data, copied there by scripts/nas/td444-move.sh (M2) from the
+# directory the cluster MinIO used. The old directory stays frozen as the A fallback.
+# Two companions sit next to this file (only ever one MinIO runs on a directory):
+#   compose.isolated.yaml  M4a: same service, network_mode none, no ports (structural isolation)
+#   compose.recovery.yaml  B:   override of the data bind onto the recovery directory
+#                               (docker compose -f compose.yaml -f compose.recovery.yaml ...)
+# NEVER run this while data/minio in the cluster is up. Start and edit it only from the
+# command line, never from the UGOS UI (the UI drops the compose network).
 #
 # Lives in /volume1/docker/minio-backup/ on the NAS with .env (credentials, not in
 # git) next to it. Run as root: sudo docker compose up -d
@@ -32,7 +38,7 @@ services:
       - "192.168.10.20:9000:9000"
       - "192.168.10.20:9001:9001"
     volumes:
-      - /volume1/k3s-hot/data-minio-data-pvc-871b4689-434d-4731-926f-1ea4d42bbece:/data
+      - /volume2/minio-backup/data:/data
     restart: unless-stopped
     # In the cluster it peaked at 690 MiB (1 GiB limit); the NAS has 7.4 GiB.
     mem_limit: 1536m

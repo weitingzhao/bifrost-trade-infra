@@ -1,0 +1,18 @@
+# TD-444 step 5 runbook §5.2: the namespaced part of the market-archive replica
+# (PVC market-archive-backup + CronJob + script ConfigMap). Build from the rendered tree:
+#   kubectl kustomize <rendered>/arc
+# Not in here: pv.yaml (cluster scope, its own D card; apply_manifest refuses cluster scope),
+# probe-<key>.yaml (§3.5 D card) and pvc-dryrun.yaml (§3.2 stand-in).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: plugin-market-data
+resources:
+  - pvc.yaml
+  - replica/cronjob.yaml
+configMapGenerator:
+  - name: market-archive-replica-script
+    files:
+      - replica/market_archive_replica.py
+generatorOptions:
+  labels:
+    app.kubernetes.io/name: market-archive-replica

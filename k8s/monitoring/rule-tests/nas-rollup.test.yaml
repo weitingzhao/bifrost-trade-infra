@@ -1,0 +1,186 @@
+# promtool unit tests for the bifrost-nas-rollup group of bifrost-host-rules.yaml
+# (TD-444 step 5 runbook §5.3: one source missing, a source that never succeeded, a stale
+# generation, a failed run, the textfile missing, the replica CronJob deleted or never
+# successful, HDDs busy). Run: make check-alert-rules.
+rule_files:
+- bifrost-host-rules.yaml
+evaluation_interval: 1m
+tests:
+- name: one of the five sources disappears and only that source alerts
+  interval: 1m
+  input_series:
+  - series: bifrost_nas_backup_rollup_last_success_timestamp_seconds{host="nas",job="node-exporter",source="minio"}
+    values: 100x30 _x170
+  - series: bifrost_nas_backup_rollup_last_success_timestamp_seconds{host="nas",job="node-exporter",source="registry-data"}
+    values: 100x200
+  - series: bifrost_nas_backup_rollup_last_success_timestamp_seconds{host="nas",job="node-exporter",source="logical-backup-hot"}
+    values: 100x200
+  - series: bifrost_nas_backup_rollup_last_success_timestamp_seconds{host="nas",job="node-exporter",source="gitea-backup"}
+    values: 100x200
+  - series: bifrost_nas_backup_rollup_last_success_timestamp_seconds{host="nas",job="node-exporter",source="cluster-state-backup"}
+    values: 100x200
+  - series: bifrost_nas_backup_rollup_source_enabled{host="nas",job="node-exporter",source="minio"}
+    values: 1x200
+  alert_rule_test:
+  - eval_time: 30m
+    alertname: BifrostNasBackupRollupMissing
+    exp_alerts: []
+  - eval_time: 3h
+    alertname: BifrostNasBackupRollupMissing
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+        source: minio
+      exp_annotations:
+        summary: Weekly roll-up has never published source minio
+        description: 'No last-success time for minio: either the roll-up never published a generation with it, or rollup.conf / the textfile lost it. RAID5 holds no verified weekly copy of this source (runbook §5.4). On the NAS: systemctl status bifrost-backup-rollup.service and /volume1/@bifrost/backup-rollup/state/run-*.log.'
+  - eval_time: 3h
+    alertname: BifrostNasBackupRollupStale
+    exp_alerts: []
+- name: a configured Finance source that never succeeded alerts; an unconfigured one does not
+  interval: 1m
+  input_series:
+  - series: bifrost_nas_backup_rollup_last_success_timestamp_seconds{host="nas",job="node-exporter",source="minio"}
+    values: 100x200
+  - series: bifrost_nas_backup_rollup_last_success_timestamp_seconds{host="nas",job="node-exporter",source="registry-data"}
+    values: 100x200
+  - series: bifrost_nas_backup_rollup_last_success_timestamp_seconds{host="nas",job="node-exporter",source="logical-backup-hot"}
+    values: 100x200
+  - series: bifrost_nas_backup_rollup_last_success_timestamp_seconds{host="nas",job="node-exporter",source="gitea-backup"}
+    values: 100x200
+  - series: bifrost_nas_backup_rollup_last_success_timestamp_seconds{host="nas",job="node-exporter",source="cluster-state-backup"}
+    values: 100x200
+  - series: bifrost_nas_backup_rollup_source_enabled{host="nas",job="node-exporter",source="finance-backup-hot"}
+    values: 1x200
+  alert_rule_test:
+  - eval_time: 2h
+    alertname: BifrostNasBackupRollupMissing
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+        source: finance-backup-hot
+      exp_annotations:
+        summary: Weekly roll-up has never published source finance-backup-hot
+        description: 'No last-success time for finance-backup-hot: either the roll-up never published a generation with it, or rollup.conf / the textfile lost it. RAID5 holds no verified weekly copy of this source (runbook §5.4). On the NAS: systemctl status bifrost-backup-rollup.service and /volume1/@bifrost/backup-rollup/state/run-*.log.'
+- name: a generation older than 8 days is stale
+  interval: 1m
+  input_series:
+  - series: bifrost_nas_backup_rollup_last_success_timestamp_seconds{host="nas",job="node-exporter",source="minio"}
+    values: 100x13000
+  - series: bifrost_nas_backup_rollup_last_success_timestamp_seconds{host="nas",job="node-exporter",source="gitea-backup"}
+    values: 100x13000
+  alert_rule_test:
+  - eval_time: 7d
+    alertname: BifrostNasBackupRollupStale
+    exp_alerts: []
+  - eval_time: 9d
+    alertname: BifrostNasBackupRollupStale
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+        source: gitea-backup
+      exp_annotations:
+        summary: Weekly roll-up of gitea-backup is 8d 23h 58m 20s old
+        description: 'The newest verified RAID5 generation of gitea-backup is older than 8 days (the timer runs Sunday 12:30 UTC). Re-run it by hand within 24 hours (runbook §5.4): sudo /volume1/@bifrost/backup-rollup/rollup.sh, after reading the last run log.'
+    - exp_labels:
+        severity: warning
+        source: minio
+      exp_annotations:
+        summary: Weekly roll-up of minio is 8d 23h 58m 20s old
+        description: 'The newest verified RAID5 generation of minio is older than 8 days (the timer runs Sunday 12:30 UTC). Re-run it by hand within 24 hours (runbook §5.4): sudo /volume1/@bifrost/backup-rollup/rollup.sh, after reading the last run log.'
+- name: a failed run alerts for the source it did not publish
+  interval: 1m
+  input_series:
+  - series: bifrost_nas_backup_rollup_last_run_ok{host="nas",job="node-exporter",source="minio"}
+    values: '0x60'
+  - series: bifrost_nas_backup_rollup_last_run_ok{host="nas",job="node-exporter",source="gitea-backup"}
+    values: 1x60
+  alert_rule_test:
+  - eval_time: 30m
+    alertname: BifrostNasBackupRollupFailed
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+        source: minio
+      exp_annotations:
+        summary: Last weekly roll-up did not publish minio
+        description: The last run failed or did not publish, so nothing moved and nothing published was deleted. The run log names the failing source and why (in_progress at the deadline, completion mark, copy or verification); one .partial and one snapshot are kept for diagnosis for at most 7 days.
+- name: the textfile is missing, then present and readable
+  interval: 1m
+  input_series:
+  - series: node_textfile_scrape_error{host="nas",job="node-exporter"}
+    values: '0x120'
+  - series: node_textfile_mtime_seconds{host="nas",job="node-exporter",file="/host/root/volume1/@bifrost/textfile/backup-rollup.prom"}
+    values: _x60 100x60
+  alert_rule_test:
+  - eval_time: 50m
+    alertname: BifrostNasTextfileBroken
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+        host: nas
+      exp_annotations:
+        summary: NAS textfile metrics are broken or backup-rollup.prom is missing
+        description: node-exporter on the NAS cannot read its textfile directory, or backup-rollup.prom is not there, so the roll-up alerts above see nothing. Check the node-exporter flag --collector.textfile.directory (scripts/host-exporters/nas/compose.yaml) and the file.
+  - eval_time: 2h
+    alertname: BifrostNasTextfileBroken
+    exp_alerts: []
+- name: the replica CronJob deleted alerts; a recent one does not
+  interval: 1m
+  input_series:
+  - series: kube_cronjob_info{namespace="plugin-market-data",cronjob="market-archive-replica"}
+    values: 1x10 _x110
+  - series: kube_cronjob_status_last_successful_time{namespace="plugin-market-data",cronjob="market-archive-replica"}
+    values: '0x120'
+  - series: kube_cronjob_created{namespace="plugin-market-data",cronjob="market-archive-replica"}
+    values: '0x120'
+  alert_rule_test:
+  - eval_time: 10m
+    alertname: BifrostMarketArchiveReplicaStale
+    exp_alerts: []
+  - eval_time: 2h
+    alertname: BifrostMarketArchiveReplicaStale
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+        namespace: plugin-market-data
+        cronjob: market-archive-replica
+      exp_annotations:
+        summary: Market-archive replica on the SSD is missing or stale
+        description: The CronJob plugin-market-data/market-archive-replica is gone, has not succeeded for 30 hours, or has existed 30 hours without a success (runbook §5.2). The archive itself is the only primary copy on RAID5; read the last job's log for the failing ledger line.
+- name: a replica that has existed 30 hours without a success alerts
+  interval: 1m
+  input_series:
+  - series: kube_cronjob_info{namespace="plugin-market-data",cronjob="market-archive-replica"}
+    values: 1x2000
+  - series: kube_cronjob_created{namespace="plugin-market-data",cronjob="market-archive-replica"}
+    values: '0x2000'
+  alert_rule_test:
+  - eval_time: 20h
+    alertname: BifrostMarketArchiveReplicaStale
+    exp_alerts: []
+  - eval_time: 32h
+    alertname: BifrostMarketArchiveReplicaStale
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+      exp_annotations:
+        summary: Market-archive replica on the SSD is missing or stale
+        description: The CronJob plugin-market-data/market-archive-replica is gone, has not succeeded for 30 hours, or has existed 30 hours without a success (runbook §5.2). The archive itself is the only primary copy on RAID5; read the last job's log for the failing ledger line.
+- name: HDDs busy all day alert
+  interval: 1m
+  input_series:
+  - series: node_disk_io_time_seconds_total{host="nas",device="sda",job="node-exporter"}
+    values: 0+30x1600
+  alert_rule_test:
+  - eval_time: 26h
+    alertname: BifrostNasHddBusy
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+        host: nas
+        device: sda
+        job: node-exporter
+      exp_annotations:
+        summary: NAS HDDs were busy in 288 five-minute windows today
+        description: 'More than 20 windows over 30% busy in a day: something writes hot data onto the RAID5 array again (TD-444 guard). The Sunday roll-up alone stays below this.'

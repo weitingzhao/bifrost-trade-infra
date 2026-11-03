@@ -1,0 +1,23 @@
+# Template of the private map for scripts/nas/td444-move.sh (TD-444 step 5 runbook §2, §3.3, §10).
+# The real map replaces every <old-dir-…> with the directory name from the private site
+# mapping (runbook §10). It never goes into git: the old directory names carry the live PV
+# names. Keep it next to the material package on the NAS, root-only (chmod 600).
+#
+# group      key   kind           source                              target                                                     [snapshot root]
+# 2a: daily backups (B1–B3)
+daily        B1    logical        /volume1/k3s-hot/<old-dir-B1>       /volume2/k3s-fast/data-logical-backup-hot
+daily        B2    gitea          /volume1/k3s-cold/<old-dir-B2>      /volume2/k3s-fast/cicd-gitea-backup
+daily        B3    cluster-state  /volume1/k3s-cold/<old-dir-B3>      /volume2/k3s-fast/kube-system-cluster-state-backup
+# 2b: only after the Finance owner confirmed the format (runbook §0)
+#finance     F1    finance        /volume1/k3s-hot/<old-dir-F1>       /volume2/k3s-fast/data-finance-backup-hot
+#finance     F2    finance        /volume1/k3s-hot/<old-dir-F2>       /volume2/k3s-fast/data-finance-prod-validation-backup-hot
+# group 3
+monitoring   MON1  monitoring     /volume1/k3s-hot/<old-dir-MON1>     /volume2/k3s-fast/monitoring-prometheus-db
+monitoring   MON2  monitoring     /volume1/k3s-hot/<old-dir-MON2>     /volume2/k3s-fast/monitoring-alertmanager-db
+# group 4 (large: pre --from-snapshot measures T_c on a read-only snapshot of the share)
+reg          REG   registry       /volume1/k3s-cold/<old-dir-REG>     /volume2/k3s-fast/cicd-registry-data                       /volume1/k3s-cold
+# group 6
+minio        MINIO minio          /volume1/k3s-hot/<old-dir-MINIO>    /volume2/minio-backup/data                                 /volume1/k3s-hot
+# §3.7 B: stopped new directory -> independent recovery directory
+reg-recovery   REGB   registry    /volume2/k3s-fast/cicd-registry-data   /volume1/k3s-cold/td444-recovery/cicd-registry-data     /volume2/k3s-fast
+minio-recovery MINIOB minio       /volume2/minio-backup/data             /volume1/minio-recovery-td444/data                      /volume2/minio-backup

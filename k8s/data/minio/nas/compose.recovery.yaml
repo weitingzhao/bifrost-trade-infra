@@ -1,0 +1,12 @@
+# TD-444 step 5 runbook §3.7 B for MinIO: an override that moves the data bind onto the
+# independent recovery directory. It is never used alone:
+#   docker compose -f compose.yaml -f compose.recovery.yaml up -d
+# Compose merges service volumes by mount target, so /data comes from here and every
+# other setting (ports, credentials, health check) from compose.yaml. Before using it,
+# the new instance is stopped, /volume1/minio-recovery-td444/data holds a verified full
+# copy of the stopped new directory (td444-move.sh pre/final/verify, group minio-recovery),
+# and its volume has 1.2x the space (§3.7 B steps 1-4).
+services:
+  minio:
+    volumes:
+      - /volume1/minio-recovery-td444/data:/data

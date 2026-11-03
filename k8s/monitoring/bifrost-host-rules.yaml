@@ -278,3 +278,115 @@ spec:
               monitoring/bifrost-blackbox-exporter) for the {{ $labels.via }} path, or
               ScrapeConfig monitoring/bifrost-gitea-probe has no target for it, so
               BifrostGiteaUnavailable cannot fire for that path.
+
+    # TD-444 step 5 runbook §5.3. The weekly roll-up of the SSD backups onto RAID5
+    # (scripts/nas/backup-rollup/rollup.sh) reports through the NAS node-exporter textfile
+    # collector; the nightly market-archive replica is a CronJob (k8s/storage/nfs-fast/arc).
+    # Every expected source is named in its own absent(), so losing one of five still fires;
+    # the two Finance sources count only once rollup.conf lists them (2b). Labels are folded
+    # to {source} so one source never gives two alerts. These are warnings: they reach the
+    # Owner's phone only once the ntfy route regex in values-kube-prometheus.yaml names them
+    # (runbook §5.3, group 5). Unit tests: rule-tests/nas-rollup.test.yaml.
+    - name: bifrost-nas-rollup
+      rules:
+        - alert: BifrostNasBackupRollupMissing
+          expr: |
+            max by (source) (absent(bifrost_nas_backup_rollup_last_success_timestamp_seconds{host="nas",source="minio"}))
+            or max by (source) (absent(bifrost_nas_backup_rollup_last_success_timestamp_seconds{host="nas",source="registry-data"}))
+            or max by (source) (absent(bifrost_nas_backup_rollup_last_success_timestamp_seconds{host="nas",source="logical-backup-hot"}))
+            or max by (source) (absent(bifrost_nas_backup_rollup_last_success_timestamp_seconds{host="nas",source="gitea-backup"}))
+            or max by (source) (absent(bifrost_nas_backup_rollup_last_success_timestamp_seconds{host="nas",source="cluster-state-backup"}))
+            or (
+              max by (source) (absent(bifrost_nas_backup_rollup_last_success_timestamp_seconds{host="nas",source="finance-backup-hot"}))
+              and on (source) max by (source) (bifrost_nas_backup_rollup_source_enabled{host="nas",source="finance-backup-hot"} == 1)
+            )
+            or (
+              max by (source) (absent(bifrost_nas_backup_rollup_last_success_timestamp_seconds{host="nas",source="finance-prod-validation-backup-hot"}))
+              and on (source) max by (source) (bifrost_nas_backup_rollup_source_enabled{host="nas",source="finance-prod-validation-backup-hot"} == 1)
+            )
+            or (
+              max by (source) (bifrost_nas_backup_rollup_source_enabled{host="nas"} == 1)
+              unless on (source) max by (source) (bifrost_nas_backup_rollup_last_success_timestamp_seconds{host="nas"})
+            )
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "Weekly roll-up has never published source {{ $labels.source }}"
+            description: >-
+              No last-success time for {{ $labels.source }}: either the roll-up never published a
+              generation with it, or rollup.conf / the textfile lost it. RAID5 holds no verified
+              weekly copy of this source (runbook §5.4). On the NAS: systemctl status
+              bifrost-backup-rollup.service and /volume1/@bifrost/backup-rollup/state/run-*.log.
+
+        - alert: BifrostNasBackupRollupStale
+          expr: |
+            max by (source) (time() - bifrost_nas_backup_rollup_last_success_timestamp_seconds{host="nas"}) > 8 * 86400
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "Weekly roll-up of {{ $labels.source }} is {{ $value | humanizeDuration }} old"
+            description: >-
+              The newest verified RAID5 generation of {{ $labels.source }} is older than 8 days
+              (the timer runs Sunday 12:30 UTC). Re-run it by hand within 24 hours (runbook §5.4):
+              sudo /volume1/@bifrost/backup-rollup/rollup.sh, after reading the last run log.
+
+        - alert: BifrostNasBackupRollupFailed
+          expr: |
+            max by (source) (bifrost_nas_backup_rollup_last_run_ok{host="nas"}) == 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Last weekly roll-up did not publish {{ $labels.source }}"
+            description: >-
+              The last run failed or did not publish, so nothing moved and nothing published was
+              deleted. The run log names the failing source and why (in_progress at the deadline,
+              completion mark, copy or verification); one .partial and one snapshot are kept for
+              diagnosis for at most 7 days.
+
+        - alert: BifrostNasTextfileBroken
+          expr: |
+            max by (host) (node_textfile_scrape_error{host="nas"}) == 1
+            or max by (host) (absent(node_textfile_mtime_seconds{host="nas",file=~".*backup-rollup\\.prom"}))
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "NAS textfile metrics are broken or backup-rollup.prom is missing"
+            description: >-
+              node-exporter on the NAS cannot read its textfile directory, or backup-rollup.prom is
+              not there, so the roll-up alerts above see nothing. Check the node-exporter flag
+              --collector.textfile.directory (scripts/host-exporters/nas/compose.yaml) and the file.
+
+        - alert: BifrostMarketArchiveReplicaStale
+          expr: |
+            absent(kube_cronjob_info{namespace="plugin-market-data",cronjob="market-archive-replica"})
+            or time() - max(kube_cronjob_status_last_successful_time{namespace="plugin-market-data",cronjob="market-archive-replica"}) > 30 * 3600
+            or (
+              (time() - max(kube_cronjob_created{namespace="plugin-market-data",cronjob="market-archive-replica"}) > 30 * 3600)
+              and on ()
+              absent(kube_cronjob_status_last_successful_time{namespace="plugin-market-data",cronjob="market-archive-replica"})
+            )
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Market-archive replica on the SSD is missing or stale"
+            description: >-
+              The CronJob plugin-market-data/market-archive-replica is gone, has not succeeded for
+              30 hours, or has existed 30 hours without a success (runbook §5.2). The archive itself
+              is the only primary copy on RAID5; read the last job's log for the failing ledger line.
+
+        - alert: BifrostNasHddBusy
+          expr: |
+            count_over_time((rate(node_disk_io_time_seconds_total{host="nas",device="sda"}[5m]) > 0.3)[1d:5m]) > 20
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "NAS HDDs were busy in {{ $value }} five-minute windows today"
+            description: >-
+              More than 20 windows over 30% busy in a day: something writes hot data onto the RAID5
+              array again (TD-444 guard). The Sunday roll-up alone stays below this.

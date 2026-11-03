@@ -1,0 +1,36 @@
+# TD-444 step 5 runbook §4 group 6, stage M4a: the new MinIO started with no network at all.
+#
+# Same project (minio-backup), service (minio), container name, image, credentials and
+# data bind as compose.yaml, but network_mode: none and no published ports: nothing
+# outside the container can reach it, so no client can write while it is checked. The
+# only path in is `docker exec` (health: curl to 127.0.0.1:9000 inside the container).
+# scripts/nas/td444-move.sh minio-m4a creates it, proves the isolation with docker
+# inspect (NetworkMode none, no PortBindings, only the "none" network) and only then
+# starts it; minio-m4a-stop stops it and inspects again. Never use it from the UGOS UI.
+name: minio-backup
+
+services:
+  minio:
+    image: minio/minio:RELEASE.2024-12-18T13-15-44Z
+    pull_policy: never
+    container_name: minio-backup
+    command: ["server", "/data", "--console-address", ":9001"]
+    env_file: .env
+    environment:
+      MINIO_PROMETHEUS_AUTH_TYPE: public
+    network_mode: none
+    volumes:
+      - /volume2/minio-backup/data:/data
+    restart: "no"
+    mem_limit: 1536m
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:9000/minio/health/cluster"]
+      interval: 30s
+      timeout: 10s
+      retries: 4
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"

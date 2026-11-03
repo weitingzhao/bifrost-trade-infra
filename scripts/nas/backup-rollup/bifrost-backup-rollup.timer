@@ -1,0 +1,11 @@
+# TD-444 step 5 runbook §5.1: Sunday 12:30 UTC (06:30 CST, 07:30 CDT), after the last
+# possible backup-retry Backup. Missed runs (NAS off) run once at the next boot.
+[Unit]
+Description=Bifrost weekly backup roll-up
+
+[Timer]
+OnCalendar=Sun *-*-* 12:30:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target
