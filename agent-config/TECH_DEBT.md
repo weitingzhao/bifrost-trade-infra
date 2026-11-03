@@ -3621,8 +3621,117 @@
 - **影响**：过渡期结束后所有改动走落地单，并行交付越多 Owner 重复批同一内容越多；作废单仍在 Console 上可点，批了白批。
 - **修法**（架构级，先问 Owner）：A. 授权绑定变更内容而不是 R：记录批准时的 patch-id（`git patch-id --stable`），干净重放（无冲突、patch-id 相同、落地 CI 绿、规则版本不变）沿用原授权，否则作废；B. 落地队列：Owner 一次批一组，平台按序重放、逐个推进，任一组员重放后 patch-id 变化就停下重问；C. 维持现状，统筹一次只建一张单。推荐 A（Owner 批的是内容；重放只换父提交）。
 - **同类延误**（10-30 实测）：①改过同一批文件的等待单重放时 `failed{overlap}`，不可重试，只能答 do_not_merge 后手工拣到新 main、新 mission 重交（TD-457、N-01）；②已授权的单要等仓库在途名额（`max_in_flight_per_repo: 1`）：别的任务刚被领取、正跑落地 CI 时，最终闸不推，按 `grantTryEvery` 10 分钟后再试（#203 授权到落地 11 分钟、#205 约 20 分钟）。修法加两条：等待中的已授权单优先于新领取；最终闸被在途挡住时在在途让出后立即重试，而不是固定 10 分钟。
+- **同类延误**（11-02 实测，三）：③等授权的单不算在途，控制器先给下一件准备落地；授权到了，又被这件新的在途挡住，要等它的 CI 跑完（#260，22:00:18Z 授权）；授权那件推了 main 之后，另一件的 R 过期，要重新准备、重跑 CI，核心改动还要一张新单（导入器第 2 个 root 与 5.5-9）。修法加一条：带可用授权的等待单优先于领取新 root，或把它算作在途，或在授权的 R 之上准备下一件。
 - **防线**：PG 测试——两张并行单，先落一张，另一张干净重放后不需新单即可落地；patch-id 变化（冲突解决）时必须新单。
 - **验收**：两件并行改动 Owner 各批一次即全部落地。
+
+### TD-491
+
+**P2 · 公开仓 · platform 仓库的夹具、测试与文档里有统筹本机的工作目录路径，路径防线没挡住**
+
+- **状态**：未开始（2026-11-02，R5:5.5-10 PROD 数据核对时记）。
+- **证据**：platform main `277363a4` 上按统筹家目录下那个工作目录的前缀 grep：
+  - `console/src/api/__fixtures__/board-roadmap-round-arch.json` 14 处；
+  - `console/src/pages/shell/progress/__tests__/fixtures/sample-progress-w62.json` 10 处；
+  - `mcp/platform/src/runtimeTools.ts`、`mcp/platform/src/registerPlanImport.ts`、`api/internal/agentrt/planimport/ledger.go`、`api/internal/hostops/CONTRACT.md`、`console/.design-sync/project/BUSINESS.md` 各 1 处，以及几个测试。
+
+  `agent-config/scripts/check_hardcoded_paths.py` 不认这种写法。R5:5.5-10 往前修时已去掉 Work 页注释里的 8 处。
+- **影响**：12 个仓库都公开，读者从这些路径能看出统筹机器上的目录布局；夹具照抄本机数据，以后新加的照样漏。
+- **修法**：①夹具、注释、文档里的这类路径改成中性占位（例如 `<work>/…`）；专门测本机路径扫描的测试（`store/localpath_test.go` 一类）保留，但要标明它是测试数据。②路径防线把这种前缀算进新增行的检查。
+- **防线**：`check_hardcoded_paths.py --new-only` 对新增行里的这种前缀报错，带一个阳性对照夹具。
+- **验收**：platform main 上 `git grep` 这种前缀，除路径扫描测试的固定样本外为 0；一个新加的夹具行带它时检查失败。
+
+### TD-492
+
+**P2 · cicd · 每次 CI 运行的工作区卷留 7 天，节点 07 的根盘几小时少几十 GB**
+
+- **状态**：未开始（2026-11-02 22:05 CST 记；当晚一次性清理已做，见下）。
+- **证据**：`k8s/cicd/tekton/pipelinerun-ttl.yaml:3`、`:93`（`MAX_AGE_SECONDS`，7 天），每个 PipelineRun 的 local-path 工作区卷随 run 留着。11-02 节点 ubt-k3s-07 根盘只剩 56/500 GB，6 小时少 34 GB，按速度约 12 小时写满；7 天 531 次运行、07 上 234 个 PV。当晚 #271（`owner_run_command`）删了 3 天前已结束的 CI 运行，07 回到 271 GB 空闲、PV 230 → 130。TTL 作业当天也失败 3 次（同 TD-488）。
+- **影响**：CI 多跑几天就会把节点写满，节点上的工作负载跟着挂。
+- **修法**：CI 运行（ci-*、landing-ci-*）留 3 天，发布运行留 7 天，分两个年龄；TTL 作业加超时、失败留日志（TD-488）；给节点 07 的容量指定负责人和告警阈值。改 `k8s/**`，由你推。
+- **防线**：`scripts/test_pipelinerun_ttl.py` 断言 CI 与发布两类运行的保留年龄分别等于登记值。
+- **验收**：连续 7 天 `kubectl get pv` 落在 07 上的 CI 工作区卷数不超过 3 天的运行量；节点 07 根盘空闲不低于 150 GB。
+
+### TD-493
+
+**P2 · 落地 · 接受了的任务因自己的提交让落地 CI 变红时，没有往前修的路；按改动范围跑的验证也漏了扫全仓的测试**
+
+- **状态**：未开始（2026-11-02 21:1xZ 记，两次）。
+- **证据**：
+  - 第一次：R5:5.8-3a 的导入器（`t_01M6EYXFTB6HC8T92TAG58TRTP`）。落地 CI `landing-ci-96924b2c…` 红在全仓扫描的防线 `TestRemovedPrimarySQLHelperStaysGone`，命中新加的 `debtimport/testdata/fields.md`。「再试」重跑同一个 R，照样红；只能「不合」再开新任务。被拒的 root 还挡着 `step_landed`：认它的提交要同一个 patch-id，而修法改了 patch-id。
+  - 第二次：同一下午，额度修复 `4178a222` 过了平台的验证和复核，也过了本机测试，落地 CI 红在 `internal/agentrt/agentrtapi` 的 `TestPools`。那里是 `store/pools.go` 的使用方，没在按范围选的测试里。
+- **影响**：每次都要你点一张「不合」，再起一个新 root；按范围跑的测试给出的是假绿。
+- **修法**：①给落地 CI 红的已接受任务一轮返工（同一 root、新尝试），修好后 delivered-by 认这一轮的提交；②按范围选测试时，总是带上扫全仓的测试包，以及改动包的反向依赖（R5:5.6-5 做反向依赖这一半）。
+- **防线**：平台测试：一个已接受 root 的落地 CI 红，出返工而不是只能不合；选测试的规则里，加一个文件就会选上扫全仓的那组包。
+- **验收**：再遇到落地 CI 因本身提交变红时，同一 root 返工后落地，不需要「不合」卡。
+
+### TD-494
+
+**P3 · 控制器 · PROD 的 agentrt-landing-requests 一轮大约每 10 分钟超时一次，每轮都重读同一批旧审批**
+
+- **状态**：未开始（2026-11-02 22:4xZ 记，未再复测）。
+- **证据**：PROD 控制器日志当晚反复出现这一轮的 `context deadline exceeded`，列出的是同一批旧的 `appr_…`（`f439fbc4…`、`9b2d6275…`、`9c00a567…`、`ac238806…`、`5003d037…`、`9d041fc0…`），旁边还有 `approval thread inbox: will retry`。#260 批准后的落地过了 18 分钟才推 main，可能和这一轮有关（推断，未核实）。
+- **影响**：批准后的落地变慢；日志被同一批旧单刷满。
+- **修法**：已经结束的请求在这一轮里结掉或跳过，一轮只处理未结的，同一个编号只记一次日志。
+- **防线**：控制器测试：一批已结束的请求加一条新请求，一轮在期限内完成，并只处理那条新的。
+- **验收**：PROD 控制器日志连续 24 小时没有这一轮的超时；批准到推 main 的中位数在 10 分钟以内。
+
+### TD-495
+
+**P3 · Console · 新的审批单大约 50 秒后才出现在 Console**
+
+- **状态**：未开始（2026-11-02 22:47Z 记）。
+- **证据**：#261 在 22:46:52Z 建好，你在 Console 上先看了一次没找到，约 50 秒后才出现；落地那一侧当时已经是 awaiting_owner。审批列表和「你的」两处的刷新路径（轮询间隔、缓存、控制器那一轮的速度）未逐项测量。
+- **影响**：你在等一张要你批的单时，看到的是「没有」。
+- **修法**：先量清是哪一段慢；要你动手的请求几秒内出现，或者页面上写明列表是几点读的。
+- **防线**：Console 测试：列表显示读取时间；建单后下一次读取一定包含它。
+- **验收**：建单到 Console 上出现不超过 10 秒，连测 5 次。
+
+### TD-496
+
+**P3 · Console · STG 发布和 main 的 CI 不挂在任务上，Work 页在它们跑着、甚至失败时写「Nothing running now」；B5 的阻断卡还说了一件没发生的部署**
+
+- **状态**：未开始（2026-11-03 01:1xZ 记）。
+- **证据**：
+  - B5 给 `0865f2c0` 的 STG 发布 `stgrel-17` 在 build-platform-api 失败：取 Go 依赖时 proxy 流出错。main 的 CI 也在跑。这时 Work 页的 Now 写的是「Nothing running now」。原因是 STG 发布的各阶段和 main CI 都不带任务，哪一步都显示不出它们。
+  - 阻断卡 Q85 的正文说「P 已经在 STG 上……STG 继续跑 P」，其实那次发布失败了，STG 仍是 `f40121a5`。卡片读的是这批发送，不是发布运行的结果。
+- **影响**：看页面以为什么都没在跑，其实发布失败了；卡片陈述了没发生的部署。
+- **修法**：STG 发布和 main CI 在 Work 的 Now 上有自己的一行，失败要看得见；卡片正文从发布运行的结果生成。R5:5.5-16「每句说法从事实生成」覆盖卡片这一半。
+- **防线**：Console 测试：一个在跑或失败的 STG 发布出现在 Now；卡片模板测试：发布失败时不说部署了。
+- **验收**：下一次 STG 发布失败时，Work 页 Now 上看得见，卡片说的是失败。
+
+### TD-497
+
+**P3 · 交付 · 没用上的交付任务永远停在 ready，交付脚本没有撤回**
+
+- **状态**：未开始（2026-11-02 记；当晚统筹用 `request_stop` 停了两个）。
+- **证据**：`t_01M6BP9G5AR3R8A7NGAE3MD0T1`（R5:5.7-2，M-261）和 `t_01M6CZR8J8M1JKBM70XC47SKS0`（R5:5.5-8，M-267）在同一 mission 里各有一个已接受并落地的兄弟任务，自己却一直 ready。它们钉给 `external:coordinator`，没有执行器会领，但倒计时（R5:5.5-13）会把它们算成排队。`handin.sh` 没有撤回子命令；`request_stop` 停下后只有你能解。
+- **影响**：计划上多出永远不会动的「排队」，倒计时不准。
+- **修法**：`handin.sh withdraw --task …`（只限没起尝试的、自己提的任务）；或者兄弟任务的 patch 落地后，delivered-by 顺手收掉从没跑过的同组 root。
+- **防线**：平台检查：已完成步骤上没有 ready 的交付 root；`test_handin.sh` 覆盖 withdraw。
+- **验收**：PROD 上所有已完成步骤的交付 root，ready 数为 0。
+
+### TD-498
+
+**P3 · CI · ci-frontend 不跑测试，各条 CI 也不出逐个测试的结果**
+
+- **状态**：未开始（2026-11-01，R5:5.8 设计第 3 轮复核记）。
+- **证据**：`k8s/cicd/tekton/pipeline-ci-frontend.yaml:2`、`:13`（clone → npm ci → lint → type-check → build）；lint 失败不挡（`:106-107`），没有调 vitest 的步骤，所以 ci-frontend 变绿证明不了任何测试。ci-python、ci-platform、ci-frontend 都不输出 JUnit，跳过和取消选择的测试也算绿。
+- **影响**：前端的测试只在本机跑；CI 上看不出哪个测试没跑。
+- **修法**：ci-frontend 加一个会挡的 vitest 步骤；三条 CI 输出 JUnit 并留作运行结果。改 `k8s/**`，由你推。
+- **防线**：流水线测试：ci-frontend 调测试脚本；每条 CI 都有 junit 结果。
+- **验收**：一个故意失败的前端测试让 ci-frontend 变红；三条 CI 的运行结果里都能读到逐个测试的结果。
+
+### TD-499
+
+**P3 · 交付 · 交付前不在本机跑 code-health，超长的 infra 文档只在落地 CI 里才被拦**
+
+- **状态**：未开始（2026-11-01，R5:5.8-1 落地 CI 红时记）。
+- **证据**：一份 744 行的 Markdown 设计文档让 `code.oversized.rocket.infra` 从 57 变 58（infra 把超过 500 行的 `*.md` 也算进去，`agent-config/scripts/code-health/scan.sh:278-280`），落地 CI `landing-ci-infra-538b09b…` 才拦下。`handin.sh` 交付前不跑这个扫描。
+- **影响**：一次红的落地，要你多点一张卡。
+- **修法**：`handin.sh propose` 或 `run` 对目标仓库跑 `scan.sh`，比较基点和候选，有回退就拒。
+- **防线**：`test_handin.sh` 加一个 501 行 md 的用例，交付被拒。
+- **验收**：交付一份超长 infra 文档时，`handin.sh` 在推分支前就拒绝。
 
 ### TD-490
 
