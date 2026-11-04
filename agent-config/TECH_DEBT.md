@@ -3818,7 +3818,7 @@
 
 - **状态**：未开始（2026-11-03 19:3x CST 记）。
 - **证据**：
-  - 卡 #99（M-267）：11-02 `t_01M6CZR8J8M1JKBM70XC47SKS0`（基点写错）被同 mission 的另一个任务替代后，一直没被取消。它钉给 `external:coordinator`，ready 了 48 小时，直到 mission 的预算把它挡住；预算卡写「No recommendation」。同一个 mission 里已有一个已接受的实现，`plan_node_id` 和 `spec_artifact_id` 都和它一样。
+  - 卡 #99（M-267）：11-02 `t_01M6CZR8J8M1JKBM70XC47SKS0`（基点写错）被同 mission 的 `t_01M6CZRS2HYWPY9JF0E3RCA3GD` 替代后，一直没被取消。它钉给 `external:coordinator`，ready 了 48 小时，直到 mission 的预算把它挡住；预算卡写「No recommendation」。同一个 mission 里已有一个已接受的实现，`plan_node_id` 和 `spec_artifact_id` 都和它一样。
   - platform main `bb6af68b`：`api/internal/agentrt/store/blockedrecommend.go:110-123` 的 `recFacts` 里没有兄弟任务；`:126` 的 `recommend` 对「只被预算挡住、mission 已超过一天」的落到 `:144-145`，不给推荐。infra `3f2b041`：`agent-config/scripts/landing/handin.sh:7`、`:189` 的 `propose` 没有「替代哪一个」的参数。
 - **影响**：重复的任务在计划上一直算排队，等预算挡住才出卡；卡上没有推荐，要你自己判断。
 - **修法**：①卡片引擎加一条规则：被挡住的任务所在 mission 里有已接受的 implement 任务、同 plan node、同任务书时，卡写「duplicate of t_…」，推荐关 mission（或「不做这件」）；②重提时记下它替代哪个任务（如 `handin.sh propose --replaces`），旧任务没起过尝试就随之撤下。第②项和 TD-497（没用上的交付 root 一直 ready、没有撤回）一起做；R5:5.6-2 的基点检查是同一类。
