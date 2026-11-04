@@ -100,18 +100,21 @@ fi
 # and mode unset (what it writes under the target ends up 0:0, mode 000, no error; inodes of a
 # --link-dest directory it links to keep theirs), and UGOS's own ug.* xattrs differ on the
 # target, so a comparison with -X lists the target directory unless the ug.* xattr filter is
-# given. Every call is logged to /tmp/fake/rsync.log.
+# given. With /tmp/fake/ugacl_root the source root also carries UGOS's system.ugacl_self, which
+# a copy does not write: a comparison with -X lists ./ unless system.ugacl_* is filtered too.
+# Every call is logged to /tmp/fake/rsync.log.
 if [[ -f /tmp/fake/rsync_ugos && $1 != -V ]]; then
   echo "$*" >> /tmp/fake/rsync.log
-  dry=0 xat=0 filt=0 ld=""
+  dry=0 xat=0 filt=0 ufilt=0 ld=""
   for a in "$@"; do
-    case $a in -n|--dry-run) dry=1 ;; --filter='-x ug.*') filt=1 ;; --link-dest=*) ld=${a#--link-dest=} ;; esac
+    case $a in -n|--dry-run) dry=1 ;; --filter='-x ug.*') filt=1 ;; --filter='-x system.ugacl_*') ufilt=1 ;; --link-dest=*) ld=${a#--link-dest=} ;; esac
     if [[ $a =~ ^-[a-zA-Z]*X[a-zA-Z]*$ ]]; then xat=1; fi
   done
   : > /tmp/fake/ld.inodes; if [[ -n $ld && -d $ld ]]; then find "$ld" -printf '%i\n' | sort -u > /tmp/fake/ld.inodes; fi
   rc=0; /usr/bin/rsync "$@" || rc=$?
   if ((dry)); then
-    if ((rc == 0 && xat && !filt)); then echo '.d........x ./'; fi
+    if ((rc == 0 && xat && !filt)); then echo '.d........x ./'
+    elif ((rc == 0 && xat && !ufilt)) && [[ -f /tmp/fake/ugacl_root ]]; then echo '.d........x ./'; fi
   else
     t=${!#}; t=${t%/}
     find "$t" -depth -printf '%i %p\n' | while read -r ino q; do

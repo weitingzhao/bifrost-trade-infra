@@ -74,7 +74,7 @@ if [[ -f $HERE/backup-checks.sh ]]; then CHECKS=$HERE/backup-checks.sh; else CHE
 MINIO_START_TIMEOUT=$MINIO_START_TIMEOUT_ARG
 if [[ -f $HERE/td444-attrs.py ]]; then ATTRS=$HERE/td444-attrs.py; else ATTRS=$HERE/../td444-attrs.py; fi
 RS_ACLS=1 RS_OPTS=()
-rsync_caps() { # the options of every rsync here: -A only with ACL support; ug.* never copied or compared
+rsync_caps() { # the options of every rsync here: -A only with ACL support; ug.* and system.ugacl_* never copied or compared
   local v
   # read whole: rsync writes -V line by line, and a pipe into grep -q kills it with SIGPIPE,
   # which pipefail reads as "no match"
@@ -82,8 +82,10 @@ rsync_caps() { # the options of every rsync here: -A only with ACL support; ug.*
   if [[ $v == *'no ACLs'* ]]; then RS_ACLS=0; RS_OPTS=(-aHX); log "this rsync has no ACL support: copies leave -A out"
   else RS_ACLS=1; RS_OPTS=(-aHAX); fi
   # ug.* are UGOS's own xattrs (ug.archive_bit ...), which it sets itself on what a copy
-  # creates: no data of ours, and comparing them would keep --link-dest from linking anything
-  RS_OPTS+=("--filter=-x ug.*" --numeric-ids)
+  # creates: no data of ours, and comparing them would keep --link-dest from linking anything.
+  # system.ugacl_* (UGOS's access record) is listed by a -X comparison but never written by a
+  # copy (td444-move.sh rsync_caps, NAS 11-04), so it is left out the same way.
+  RS_OPTS+=("--filter=-x ug.*" "--filter=-x system.ugacl_*" --numeric-ids)
 }
 no_extended_acls() { # no_extended_acls <name> <dir>: without -A an extended POSIX ACL would be lost
   local out

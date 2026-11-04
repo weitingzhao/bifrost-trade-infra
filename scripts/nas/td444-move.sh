@@ -240,7 +240,12 @@ rsync_caps() { # once, in the calling shell: sets RSYNC_OPTS, the options of eve
   # sets them itself on what a copy creates (the NAS showed ug.archive_bit QAIAAA== on a target
   # directory whose source has AAAAAA==). They are no data of ours, so copies and the
   # verification leave them out (rsync 3.4.1 xattr filter rule); user.* is copied and compared.
-  RSYNC_OPTS+=("--filter=-x ug.*" --numeric-ids)
+  # system.ugacl_* is UGOS's own access record (system.ugacl_self on a directory whose
+  # permissions were set through UGOS). UGOS's rsync lists it in a -X comparison, but a copy
+  # does not write it and exits 0: the NAS's pre minio (11-04) copied 98,359 paths and its
+  # verification listed only ./, the one source path carrying it. It is no data of ours and
+  # MinIO (root in Docker) does not read it, so copies and verification leave it out too.
+  RSYNC_OPTS+=("--filter=-x ug.*" "--filter=-x system.ugacl_*" --numeric-ids)
   if [[ -n $BWLIMIT ]]; then RSYNC_OPTS+=("--bwlimit=$BWLIMIT"); fi
 }
 fix_attrs() { # fix_attrs <group> <stage> <source> <target>: owner and mode from the source (§3.3)

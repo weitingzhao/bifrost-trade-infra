@@ -33,8 +33,11 @@ check "UGOS roll-up: the rsync double left owner and mode unset (the fix-up set 
 check "UGOS roll-up: the first generation's owners and modes are the source's" same_attrs "$(gen_dir 1)"
 check "UGOS roll-up: every rsync left -A and ug.* out" bash -c "[[ -s /tmp/fake/rsync.log ]] && ! grep -qvF -- '--filter=-x ug.*' /tmp/fake/rsync.log && ! grep -qE -- '-[a-zA-Z]*A' /tmp/fake/rsync.log"
 sleep 1
+check "UGOS roll-up: every rsync left system.ugacl_* out" bash -c "! grep -qvF -- '--filter=-x system.ugacl_*' /tmp/fake/rsync.log"
 echo changed > "$B1/drills/note"; chown 1000:10 "$B1/drills/note"; chmod 644 "$B1/drills/note"
+touch /tmp/fake/ugacl_root   # the second generation's source root carries system.ugacl_self
 expect_ok "UGOS roll-up: the second generation verifies and publishes" bash "$ROLL" "${R[@]}"
+rm -f /tmp/fake/ugacl_root
 check "UGOS roll-up: two generations" test "$(gens)" = 2
 g1=$(gen_dir 1) g2=$(gen_dir 2)
 check "UGOS roll-up: the second generation's owners and modes are the source's" same_attrs "$g2"

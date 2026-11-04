@@ -39,6 +39,10 @@ check "UGOS: after pre the target's owners and modes are the source's" same_attr
 check "UGOS: the user.* xattr was copied" test "$(getfattr --only-values -n user.td444 "$T/$B/data" 2> /dev/null)" = kept
 check "UGOS: every copy and comparison left ug.* out" bash -c "[[ -s /tmp/fake/rsync.log ]] && ! grep -qvF -- '--filter=-x ug.*' /tmp/fake/rsync.log"
 expect_ok "UGOS: verify passes (ug.* differs on the target, and is no difference)" bash "$PMOVE" "${G[@]}" verify reg
+check "UGOS: every copy and comparison left system.ugacl_* out" bash -c "! grep -qvF -- '--filter=-x system.ugacl_*' /tmp/fake/rsync.log"
+touch /tmp/fake/ugacl_root
+expect_ok "UGOS: verify passes when the source root carries system.ugacl_self (pre minio, 11-04)" bash "$PMOVE" "${G[@]}" verify reg
+rm -f /tmp/fake/ugacl_root
 setfattr -n user.td444 -v changed "$T/$B/data"
 expect_fail "UGOS: a differing user.* xattr is still a difference" bash "$PMOVE" "${G[@]}" verify reg
 setfattr -n user.td444 -v kept "$T/$B/data"
