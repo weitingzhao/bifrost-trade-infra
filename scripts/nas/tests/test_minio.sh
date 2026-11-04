@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # td444-minio.sh: M0–M4b with a fake docker, the fallback-eligibility table, base-check,
 # continuity and the range hand-over (runbook §4 group 6). Run through run.sh.
-# Regression tests of the implementation review: M2, M3, M4, S3.
+# Regression tests of the implementation review: M2, M3, M4, S3; of the fix review: R2.
 set -euo pipefail
 . "$(dirname "$0")/lib.sh"
 pkg_setup
@@ -52,6 +52,46 @@ dk_reset; phase_of "attempt m3" "done m3"; dk running=false; touch /tmp/fake/dk/
 expect_fail "M3: m4a stops before start when the container is not isolated" bash "$PMOVE" "${M[@]}" --run-id "$RUN" --confirm minio minio-m4a
 check "M3: the non-isolated container was never started" test "$(cat /tmp/fake/dk/running)" = false
 rm -f /tmp/fake/dk/force_network
+
+# ---- R2: a failed or unfinished reconfirmation voids A; rollback-a re-checks the container
+r2_run() { # r2_run <run id> [m4a]: m0 and m1 for real, m2 and m3 recorded, then m4a + m4a-stop
+  RUN=$1; dk_reset
+  bash "$PMOVE" "${M[@]}" --run-id "$RUN" --confirm minio --expect-compose-sha256 "$ORIG_SHA" minio-m0 > /dev/null 2>&1 || bad "R2 setup: m0 of $RUN"
+  bash "$PMOVE" "${M[@]}" --run-id "$RUN" --confirm minio minio-m1 > /dev/null 2>&1 || bad "R2 setup: m1 of $RUN"
+  printf '2026-11-03T00:00:00Z %s\n' "attempt m2" "done m2" "attempt m3" "done m3" >> "/state/minio-$RUN.phase"
+  [[ ${2:-} == m4a ]] || return 0
+  bash "$PMOVE" "${M[@]}" --run-id "$RUN" --confirm minio minio-m4a > /dev/null 2>&1 || bad "R2 setup: m4a of $RUN"
+  bash "$PMOVE" "${M[@]}" --run-id "$RUN" --confirm minio minio-m4a-stop > /dev/null 2>&1 || bad "R2 setup: m4a-stop of $RUN"
+}
+not_started() { ! grep -q ' up -d ' /tmp/fake/dk/log; }
+r2_run r2a m4a
+expect_ok "R2 control: one clean m4a and m4a-stop allow A" bash "$PMOVE" --state /state --run-id r2a minio-eligibility
+touch /tmp/fake/dk/inspect_fail
+expect_fail "R2: a later m4a-stop whose inspect fails fails" bash "$PMOVE" "${M[@]}" --run-id r2a --confirm minio minio-m4a-stop
+rm -f /tmp/fake/dk/inspect_fail
+check "R2: the failed reconfirmation is recorded" grep -q ' fail isolation_reconfirmed' /state/minio-r2a.phase
+expect_fail "R2: after a failed reconfirmation eligibility is NO-A" bash "$PMOVE" --state /state --run-id r2a minio-eligibility
+RUN=r2b; phase_of "attempt m4a 1" "done isolation_proven_pre 1 cid-1" "done m4a 1" "done isolation_reconfirmed 1 cid-1" "attempt isolation_reconfirmed"
+expect_fail "R2: a reconfirmation that never finished voids the earlier proof" bash "$PMOVE" --state /state --run-id "$RUN" minio-eligibility
+r2_run r2c m4a
+dk id=cid-replaced netmode=minio-backup_default 'ports={"9000/tcp":[{"HostIp":"127.0.0.1"}]}' 'networks=minio-backup_default ' running=false; : > /tmp/fake/dk/log
+expect_fail "R2: rollback-a refuses when the container is not the one proven isolated" bash "$PMOVE" "${M[@]}" --run-id r2c --confirm minio minio-rollback-a
+check "R2: that rollback-a started nothing" not_started
+check "R2: and recorded no done rollback-a" bash -c '! grep -q " done rollback-a" /state/minio-r2c.phase'
+expect_fail "R2: the replaced container voids A for the run" bash "$PMOVE" --state /state --run-id r2c minio-eligibility
+r2_run r2d m4a
+dk netmode=minio-backup_default 'ports={"9000/tcp":[{"HostIp":"127.0.0.1"}]}' 'networks=minio-backup_default '; : > /tmp/fake/dk/log
+expect_fail "R2: rollback-a refuses when the proven container is no longer isolated" bash "$PMOVE" "${M[@]}" --run-id r2d --confirm minio minio-rollback-a
+check "R2: that rollback-a started nothing" not_started
+r2_run r2e
+dk id=cid-replaced; : > /tmp/fake/dk/log
+expect_fail "R2: without m4a, rollback-a refuses a container other than the one m1 stopped" bash "$PMOVE" "${M[@]}" --run-id r2e --confirm minio minio-rollback-a
+check "R2: that rollback-a started nothing" not_started
+r2_run r2f m4a; : > /tmp/fake/dk/log
+expect_ok "R2 control: rollback-a after a clean m4a starts the old MinIO" bash "$PMOVE" "${M[@]}" --run-id r2f --confirm minio minio-rollback-a
+check "R2 control: done rollback-a recorded" grep -q ' done rollback-a' /state/minio-r2f.phase
+r2_run r2g; : > /tmp/fake/dk/log
+expect_ok "R2 control: rollback-a without m4a starts the old MinIO" bash "$PMOVE" "${M[@]}" --run-id r2g --confirm minio minio-rollback-a
 
 # ---- eligibility table (unchanged rows)
 RUN=e1; phase_of "attempt m0" "done m0" "attempt m3" "fail m3"

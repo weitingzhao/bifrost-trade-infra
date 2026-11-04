@@ -3,8 +3,9 @@
 #
 # Runs on the NAS as root, from the unpacked material package (runbook §3.2). Writing commands
 # run only from the package's own copy (<pkg>/scripts/nas/td444-move.sh), after the package
-# matched SHA256SUMS. Helpers sourced next to it: td444-guard.sh (copy guard, abort traps),
-# td444-minio.sh (MinIO stages), backup-checks.sh (integrity checks shared with the roll-up).
+# matched SHA256SUMS. Helpers next to it: td444-guard.sh (copy guard, abort traps),
+# td444-minio.sh (MinIO stages), backup-checks.sh (integrity checks shared with the roll-up)
+# and registry-check.py (its registry graph check, needs python3).
 #   sudo bash <pkg>/scripts/nas/td444-move.sh --pkg <pkg> --sums <pkg>/../SHA256SUMS --map <private map> <command> ...
 # The map (private; template td444-map.example) lists every copy as
 #   <group> <key> <kind> <source dir> <target dir> [<snapshot root>]
@@ -16,7 +17,8 @@
 #   identity-record <group>        record the mount identity (state only)
 #   pre <group> [--from-snapshot]  copy, add only, never delete (§3.3)
 #   final <group>                  the only --delete pass: identity, path and delete-list checks,
-#                                  typed "yes", copy, full verification (§3.3)
+#                                  typed "yes", copy, full verification (§3.3); a registry line
+#                                  also needs --reg-digests <file> (<repository>@sha256:<hex> lines)
 #   verify <group> --from-snapshot --confirm <group>   (creates a snapshot)
 #   snap-clean                     delete the recorded read-only snapshots   (--confirm snap-clean)
 #   minio-m0 .. minio-m4b, minio-m4a-stop, minio-rollback-a, minio-readback   (--confirm minio)
@@ -31,7 +33,7 @@ PROG=${0##*/}
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 STATE=/volume1/@bifrost/td444
 MAP="" PKG="" SUMS="" CONFIRM="" RUN_ID="" RANGE="" DATA="" METHOD="mc"
-BWLIMIT="" TIMEOUT=0 FROM_SNAPSHOT=0 EXPECT_COMPOSE_SHA=""
+BWLIMIT="" TIMEOUT=0 FROM_SNAPSHOT=0 EXPECT_COMPOSE_SHA="" REG_DIGESTS=""
 TEMP_PAUSE=72 TEMP_RESUME=65 TEMP_MISSING=180 TEMP_POLL=30 TEMP_NAME=nvme TEMP_SENSORS=2
 HWMON=${TD444_HWMON:-/sys/class/hwmon}   # tests point this at a fake tree
 COMPOSE_DIR=/volume1/docker/minio-backup CONTAINER=minio-backup BUCKET=bifrost-postgres-backup
@@ -39,7 +41,7 @@ SRC_ROOTS=(/volume1/k3s-hot /volume1/k3s-cold /volume2/k3s-fast /volume2/minio-b
 DST_ROOTS=(/volume2/k3s-fast /volume2/minio-backup /volume1/k3s-cold/td444-recovery /volume1/minio-recovery-td444)
 EXPORT_REF=/volume1/k3s-hot
 EXPORT_NEW=(/volume2/k3s-fast /volume2/market-archive-backup)
-HELPERS=(td444-move.sh td444-guard.sh td444-minio.sh backup-checks.sh)
+HELPERS=(td444-move.sh td444-guard.sh td444-minio.sh backup-checks.sh registry-check.py)
 
 log() { printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
 die() { log "FAIL: $*"; exit 1; }
@@ -55,6 +57,7 @@ while (($#)); do
     --method) METHOD=$2; shift 2 ;;      --bwlimit) BWLIMIT=$2; shift 2 ;;
     --timeout) TIMEOUT=$2; shift 2 ;;    --from-snapshot) FROM_SNAPSHOT=1; shift ;;
     --expect-compose-sha256) EXPECT_COMPOSE_SHA=$2; shift 2 ;;
+    --reg-digests) REG_DIGESTS=$2; shift 2 ;;
     --temp-pause) TEMP_PAUSE=$2; shift 2 ;;      --temp-resume) TEMP_RESUME=$2; shift 2 ;;
     --temp-missing) TEMP_MISSING=$2; shift 2 ;;  --temp-poll) TEMP_POLL=$2; shift 2 ;;
     --temp-sensors) TEMP_SENSORS=$2; shift 2 ;;  --compose-dir) COMPOSE_DIR=$2; shift 2 ;;
@@ -254,7 +257,22 @@ content_verify() { # exit 0 and an empty itemize list, or failure (§3.3)
   log "$1: content identical (rsync -c, empty list), T_c=$((SECONDS - t0))s"
   printf '%s %s\n' "$1" "$((SECONDS - t0))" >> "$STATE/tc.list"
 }
-manifest_check() { check_kind "$2" "$3" || die "$1: own manifest check ($2) failed on $3"; log "$1: own manifests ($2) verify"; }
+manifest_check() { # the kind's own check (backup-checks.sh); MinIO objects are the M stages' evidence
+  if [[ $2 == minio ]]; then
+    log "$1: MinIO objects are checked by minio-base-check, minio-continuity and minio-readback (runbook §4 group 6)"; return 0
+  fi
+  BC_REG_DIGESTS=$REG_DIGESTS
+  check_kind "$2" "$3" || die "$1: own manifest check ($2) failed on $3"
+  log "$1: own manifests ($2) verify"
+}
+kind_inputs_ok() { # what the own checks of a group need, before any copy
+  local i
+  while read -r i; do
+    [[ ${M_KIND[$i]} == registry ]] || continue
+    [[ -n $REG_DIGESTS && -s $REG_DIGESTS ]] || die "${M_KEY[$i]}: --reg-digests <file> is required (the recorded <repository>@sha256:<hex> digests, runbook §4 group 4)"
+    command -v python3 > /dev/null || die "${M_KEY[$i]}: python3 is needed for the registry check (runbook §3.8)"
+  done < <(entries "$1")
+}
 
 # ---------------------------------------------------------------- pre / final / verify
 cmd_pre() { # every check of the whole group passes before the first directory or copy
@@ -283,7 +301,7 @@ cmd_pre() { # every check of the whole group passes before the first directory o
 }
 cmd_final() {
   local g=$1 i dl n rc
-  require_confirm "$g"; check_pkg; no_active_copy; group_ok "$g"
+  require_confirm "$g"; check_pkg; no_active_copy; group_ok "$g"; kind_inputs_ok "$g"
   identity_check "$g"
   while read -r i; do [[ -d ${M_DST[$i]} ]] || die "${M_KEY[$i]}: target ${M_DST[$i]} missing; run pre first"; done < <(entries "$g")
   ABORT_PHASE=$g
@@ -311,7 +329,7 @@ cmd_final() {
 }
 cmd_verify() {
   local g=$1 i view
-  group_ok "$g"
+  group_ok "$g"; kind_inputs_ok "$g"
   if ((FROM_SNAPSHOT)); then [[ $CONFIRM == "$g" ]] || die "--from-snapshot creates a snapshot; add --confirm $g"; fi
   while read -r i; do
     check_real_paths "$i"
@@ -352,12 +370,16 @@ norm_exports() { # "client option" lines of one exported path, sorted
     { emit($0) }' | LC_ALL=C sort -u
 }
 dir_attrs() { # dir_attrs <dir> <out>: mode/owner, ACL, xattrs; fails when any of them cannot be read
-  local acl xat
-  { printf 'mode-owner %s\n' "$(stat -c '%a %u %g' "$1")"; } > "$2" || return 1
+  local mo acl xat
+  rm -f "$2"
+  mo=$(stat -c '%a %u %g' "$1") || { log "cannot read the mode and owner of $1"; return 1; }
+  [[ $mo =~ ^[0-7]{3,4}\ [0-9]+\ [0-9]+$ ]] || { log "unexpected mode and owner '$mo' of $1"; return 1; }
   acl=$(getfacl -n -p --omit-header "$1") || { log "cannot read the ACL of $1"; return 1; }
   xat=$(getfattr -d -m - --absolute-names "$1") || { log "cannot read the xattrs of $1"; return 1; }
-  printf '%s\n' "$acl" | sed 's/^/acl /' >> "$2"
-  printf '%s\n' "$xat" | grep -v '^# file' | sed '/^$/d; s/^/xattr /' >> "$2" || true
+  { printf 'mode-owner %s\n' "$mo"
+    printf '%s\n' "$acl" | sed 's/^/acl /'
+    printf '%s\n' "$xat" | grep -v '^# file' | sed '/^$/d; s/^/xattr /' || true
+  } > "$2"
 }
 cmd_exports() {
   command -v exportfs > /dev/null && command -v getfacl > /dev/null && command -v getfattr > /dev/null \
@@ -390,7 +412,7 @@ case $CMD in
   check-pkg) check_pkg ;;
   map-check) load_map; log "map ${MAP}: ${#M_KEY[@]} lines pass the per-line and whole-map rules" ;;
   exports) cmd_exports ;;
-  temps) log "highest SSD temperature (all $TEMP_SENSORS sensors): $(max_temp) °C"
+  temps) read_temps; log "highest SSD temperature: ${TEMP_MAX:-none} °C ($TEMP_N of $TEMP_SENSORS sensors read)"
          for h in "$HWMON"/hwmon*; do if [[ $(cat "$h/name" 2> /dev/null) == "$TEMP_NAME" ]]; then printf '%s %s\n' "$h" "$(cat "$h/temp1_input" 2> /dev/null || echo unreadable)"; fi; done ;;
   status) [[ -n $ARG1 ]] || usage; cat "$(phase_file "$ARG1")" ;;
   identity-record) load_map; require_confirm "$ARG1"; check_pkg; identity_record "$ARG1" ;;

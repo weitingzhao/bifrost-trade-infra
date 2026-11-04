@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # td444-move.sh: map guards, identity, pre/final/verify, temperature guard, cancellation,
 # exports (runbook §2, §3.3). Run through run.sh. Regression tests of the implementation
-# review are named after its items (M1, M6, M9, S2, S6).
+# review are named after its items (M1, M6, M9, S2, S6), those of the fix review after
+# theirs (R1, R5, S1).
 set -euo pipefail
 . "$(dirname "$0")/lib.sh"
 pkg_setup
@@ -98,6 +99,16 @@ expect_ok "one of two sensors missing pauses after --temp-missing" bash "$PMOVE"
 grep -q 'no reading from every SSD' /tmp/out && ok "missing sensor was logged" || bad "missing sensor not logged"
 head -c 3000000 /dev/urandom > "$B1/big3.bin"
 expect_fail "--timeout stops a long copy" bash "$PMOVE" "${G[@]}" --confirm daily --timeout 2 --bwlimit 10K --temp-poll 1 pre daily
+# S1: a known over-temperature pauses at once, even while another sensor gives no reading
+head -c 3000000 /dev/urandom > "$B1/big4.bin"
+echo 80000 > /hwmon/hwmon0/temp1_input; mv /hwmon/hwmon1/temp1_input /hwmon/hwmon1.keep; rm -f /tmp/paused.sample
+( sleep 4; cp /state/copy-paused /tmp/paused.sample 2> /dev/null || true; sleep 2
+  echo 60000 > /hwmon/hwmon0/temp1_input; mv /hwmon/hwmon1.keep /hwmon/hwmon1/temp1_input ) &
+expect_ok "S1: one sensor at 80 °C and one missing: the copy pauses, then resumes" bash "$PMOVE" "${G[@]}" --confirm daily --temp-poll 1 --temp-missing 100 --bwlimit 300K pre daily
+check "S1: the pause is logged as over-temperature at once (no missing-sensor grace)" grep -q 'copy paused: SSD at 80 °C' /tmp/out
+check "S1: the pause state names the over-temperature" grep -q 'SSD at 80 °C' /tmp/paused.sample
+check "S1: resumed only with every sensor read and cool" grep -q 'copy resumed: all 2 SSD sensors read, highest 60 °C' /tmp/out
+check "S1: no pause state is left after the copy" test ! -e /state/copy-paused
 
 # ---- M1: cancelling the script stops the copy it started
 target=/volume2/k3s-fast/data-logical-backup-hot
@@ -115,11 +126,39 @@ cancel_case() { # cancel_case <name> <how>
   check "M1: $1 — target stops changing after the script ends" test "$s1" = "$s2"
   check "M1: $1 — no rsync is left running" bash -c '! pgrep -x rsync > /dev/null'
   check "M1: $1 — no active-copy record is left" test ! -e /state/active-copy
+  if [[ $2 == term ]]; then check "M1: $1 — the log says the copy stopped" grep -q 'no copy of this run is left running' "$(newest_log)"; fi
   pkill -x rsync || true; rm -f "$B1/cancel-$1.bin"
 }
+newest_log() { find /state/logs -name '*-pre-daily.log' -printf '%T@ %p\n' | sort -n | tail -1 | cut -d' ' -f2; }
 cancel_case TERM term
 cancel_case INT int
 cancel_case "outer timeout" outer
+
+# ---- R1: a copy group that survives KILL keeps its record and blocks the next writer
+# (kill double through BASH_ENV: the real rsync keeps running, the script cannot stop it)
+stuck_case() { # stuck_case <name> term|timeout
+  local t0=$SECONDS rc=0 pid
+  head -c 4000000 /dev/urandom > "$B1/stuck-$2.bin"
+  case $2 in
+    term) BASH_ENV=/tmp/stuck-kill.sh bash "$PMOVE" "${G[@]}" --confirm daily --bwlimit 20K --temp-poll 1 pre daily > /tmp/out 2>&1 & pid=$!; sleep 4; kill -TERM "$pid" ;;
+    timeout) BASH_ENV=/tmp/stuck-kill.sh timeout 90 bash "$PMOVE" "${G[@]}" --confirm daily --timeout 3 --bwlimit 20K --temp-poll 1 pre daily > /tmp/out 2>&1 & pid=$! ;;
+  esac
+  wait "$pid" || rc=$?
+  check "R1: $1 — the script fails" test "$rc" -ne 0
+  check "R1: $1 — it returns within the stop grace, without waiting for the copy" test $((SECONDS - t0)) -lt 60
+  check "R1: $1 — the active-copy record is kept" test -s /state/active-copy
+  check "R1: $1 — the record is marked stop-failed" grep -q 'stop-failed' /state/active-copy
+  check "R1: $1 — the log says the copy did not stop" grep -q 'did NOT stop' "$(newest_log)"
+  check "R1: $1 — the log never claims that no copy is left" bash -c "! grep -q 'no copy of this run is left running' '$(newest_log)'"
+  expect_fail "R1: $1 — the next writing command refuses while the group lives" bash "$PMOVE" "${G[@]}" --confirm daily pre daily
+  pkill -KILL -x rsync || true
+  for _ in 1 2 3 4 5; do pgrep -x rsync > /dev/null || break; sleep 1; done
+  expect_ok "R1 control: $1 — once the group is gone the next run clears the record and copies" bash "$PMOVE" "${G[@]}" --confirm daily pre daily
+  check "R1 control: $1 — no record is left" test ! -e /state/active-copy
+  rm -f "$B1/stuck-$2.bin"
+}
+stuck_case "abort by TERM" term
+stuck_case "--timeout" timeout
 rm -f "$B1"/big*.bin
 
 # ---- exports (M9: ACL read errors never pass)
@@ -137,6 +176,13 @@ expect_fail "M9: ACLs unreadable on both sides fail exports" bash "$PMOVE" --sta
 echo /volume2/k3s-fast > /tmp/fake/getfacl_fail
 expect_fail "M9: ACLs unreadable on one side fail exports" bash "$PMOVE" --state /state exports
 rm -f /tmp/fake/getfacl_fail
+printf '%s\n' /volume1/k3s-hot /volume2/k3s-fast /volume2/market-archive-backup > /tmp/fake/stat_fail
+expect_fail "R5: mode/owner unreadable on both sides fails exports" bash "$PMOVE" --state /state exports
+check "R5: no share root is reported as matching" bash -c '! grep -q "mode, owner, ACL and xattrs match" /tmp/out'
+echo /volume2/k3s-fast > /tmp/fake/stat_fail
+expect_fail "R5: mode/owner unreadable on one side fails exports" bash "$PMOVE" --state /state exports
+rm -f /tmp/fake/stat_fail
+expect_ok "R5 control: with stat readable again exports pass" bash "$PMOVE" --state /state exports
 sed -i 's/,all_squash)$/,root_squash)/' /tmp/exports.txt
 expect_fail "a different squash option is caught" bash "$PMOVE" --state /state exports
 

@@ -1,10 +1,11 @@
 # shellcheck shell=bash
 # Shared setup for the NAS script tests (runs inside debian:12, see run.sh): packages, shims
-# for btrfs / exportfs / docker / curl / getfacl, the fake SSD hwmon tree, and assertions.
-# Shims read their behaviour from files under /tmp/fake so a test can switch a failure on.
+# for btrfs / exportfs / docker / curl / getfacl / stat / mv, a kill double for BASH_ENV,
+# the fake SSD hwmon tree, and assertions. Shims read their behaviour from files under
+# /tmp/fake so a test can switch a failure on; the scripts under test carry no test hooks.
 export DEBIAN_FRONTEND=noninteractive
 if ! command -v rsync > /dev/null; then
-  apt-get update -qq > /dev/null && apt-get install -y -qq rsync acl attr util-linux bsdutils procps > /dev/null
+  apt-get update -qq > /dev/null && apt-get install -y -qq rsync acl attr util-linux bsdutils procps python3 > /dev/null
 fi
 SRC=${SRC:-/src}
 # shellcheck disable=SC2034  # used by the test files that source this one
@@ -94,7 +95,31 @@ cat > /shim/curl <<'EOF'
 #!/bin/bash
 [[ -e /tmp/fake/dk/healthy ]]
 EOF
+# stat: fails for every path listed in /tmp/fake/stat_fail
+cat > /shim/stat <<'EOF'
+#!/bin/bash
+p=""; for a in "$@"; do [[ $a == /* ]] && p=$a; done
+if [[ -n $p && -f /tmp/fake/stat_fail ]] && grep -Fxq "$p" /tmp/fake/stat_fail; then echo "stat: cannot stat '$p'" >&2; exit 1; fi
+exec /usr/bin/stat "$@"
+EOF
+# mv: the n-th publish rename (.partial-<stamp> -> <stamp>) fails while /tmp/fake/mv_fail_at holds n
+cat > /shim/mv <<'EOF'
+#!/bin/bash
+if [[ -f /tmp/fake/mv_fail_at && $# -eq 2 && ${1##*/} == .partial-* && ${2##*/} =~ ^[0-9]{8}T[0-9]{6}Z$ ]]; then
+  n=$(( $(cat /tmp/fake/mv_count 2> /dev/null || echo 0) + 1 )); echo "$n" > /tmp/fake/mv_count
+  if ((n == $(cat /tmp/fake/mv_fail_at))); then echo "mv: injected failure of publish rename $n" >&2; exit 1; fi
+fi
+exec /usr/bin/mv "$@"
+EOF
 chmod +x /shim/*
+# kill (test double, loaded through BASH_ENV into the script under test): the copy group
+# swallows TERM and KILL, so it is still alive after stop_group gave up
+cat > /tmp/stuck-kill.sh <<'EOF'
+kill() {
+  if [[ $# -eq 3 && $2 == -- && $3 == -[0-9]* && ( $1 == -TERM || $1 == -KILL ) ]]; then return 0; fi
+  builtin kill "$@"
+}
+EOF
 export PATH=/shim:$PATH
 mkdir -p /hwmon/hwmon0 /hwmon/hwmon1
 for h in 0 1; do echo nvme > /hwmon/hwmon$h/name; echo 50000 > /hwmon/hwmon$h/temp1_input; done

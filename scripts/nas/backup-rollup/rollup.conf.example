@@ -4,9 +4,13 @@
 # Prune stays off until the source passed its restore drill (§5.1 per-source switch).
 # F1/F2 are added only after the Finance owner confirmed their format (runbook §0, 2b),
 # together with their absent() alerts.
+# registry-data needs registry-data.digests next to this file: the digests that must stay
+# restorable, one <repository>@sha256:<hex> per line (runbook §3.8 item 1).
+# minio stays out until a check reads its objects back: kind minio always fails its
+# completion check, and one failing source stops the whole generation (runbook §3.8 item 2).
 #
 # name                   kind           source dir                                      snapshot root         prune
-minio                    minio          /volume2/minio-backup/data                      /volume2/minio-backup off
+#minio                   minio          /volume2/minio-backup/data                      /volume2/minio-backup off
 registry-data            registry       /volume2/k3s-fast/cicd-registry-data            /volume2/k3s-fast     off
 logical-backup-hot       logical        /volume2/k3s-fast/data-logical-backup-hot       /volume2/k3s-fast     off
 gitea-backup             gitea          /volume2/k3s-fast/cicd-gitea-backup             /volume2/k3s-fast     off

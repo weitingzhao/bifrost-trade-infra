@@ -3,9 +3,13 @@
 #
 # Runs on the NAS as root from bifrost-backup-rollup.timer (Sunday 12:30 UTC), or by hand:
 #   sudo /volume1/@bifrost/backup-rollup/rollup.sh [--conf FILE] [--dest DIR] [--now]
-# backup-checks.sh (the completion checks shared with td444-move.sh) sits next to it.
+# backup-checks.sh (the completion checks shared with td444-move.sh) and registry-check.py
+# (its registry graph check, needs python3) sit next to it.
 # Config (rollup.conf, template rollup.conf.example): one source per line
 #   <name> <kind> <source dir> <snapshot root (a btrfs subvolume)> <prune on|off>
+# A registry source also needs <config dir>/<name>.digests: the digests that must stay
+# restorable, one <repository>@sha256:<hex> per line. A minio source always fails its
+# completion check (runbook §3.8 item 2), so it stays out of rollup.conf for now.
 #
 # One run, under flock, produces one generation stamped <UTC>:
 #   1. config check: absolute real paths, no two sources overlapping, none inside --dest;
@@ -26,7 +30,6 @@
 #      on failure one .partial and one snapshot are kept for diagnosis, at most 7 days;
 #   8. metrics through the node-exporter textfile collector, written atomically; every
 #      source ever configured stays "expected" until --retire-source, so alerts still fire.
-# Test hook (tests only): ROLLUP_TEST_FAIL_PUBLISH_AFTER=<n> stops after n renames.
 set -euo pipefail
 umask 077
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -72,6 +75,7 @@ fi
 
 # ---------------------------------------------------------------- config (S2)
 N=() K=() SRC=() ROOT=() PRUNE=()
+CONFDIR=$(dirname "$CONF")
 overlap() { [[ $1 == "$2" || $1 == "$2"/* || $2 == "$1"/* ]]; }
 while read -r name kind src root prune extra; do
   [[ -z ${name:-} || $name == \#* ]] && continue
@@ -88,6 +92,7 @@ while read -r name kind src root prune extra; do
     ! overlap "${SRC[$i]}" "$src" || die "sources ${N[$i]} and $name overlap"
   done
   [[ $(findmnt -no TARGET -T "$root") == "$SRC_MOUNT" ]] || die "$name: $root is not on $SRC_MOUNT"
+  [[ $kind != registry || -s $CONFDIR/$name.digests ]] || die "$name: a registry source needs $CONFDIR/$name.digests (<repository>@sha256:<hex> per line)"
   N+=("$name") K+=("$kind") SRC+=("$src") ROOT+=("$root") PRUNE+=("$prune")
 done < "$CONF"
 ((${#N[@]})) || die "no sources in $CONF"
@@ -266,6 +271,7 @@ for i in "${!N[@]}"; do
     fi
     log "${N[$i]}: a backup is in progress; retrying in ${RETRY}s"; sleep "$RETRY"
   done
+  BC_REG_DIGESTS="$CONFDIR/${N[$i]}.digests"
   check_kind "${K[$i]}" "$view" || { FAILED_SOURCE=${N[$i]}; die "${N[$i]}: completion evidence missing or not verified"; }
   VIEW[i]=$view
 done
@@ -285,7 +291,6 @@ for i in "${!N[@]}"; do
 done
 
 # publish: rename every source, then the commit marker makes it one generation
-renamed=0
 for i in "${!N[@]}"; do
   d="$DEST/${N[$i]}"; part="$d/.partial-$STAMP"
   bytes=$(du -s -B1 --apparent-size "$part" | cut -f1); files=$(find "$part" -type f | wc -l)
@@ -293,8 +298,6 @@ for i in "${!N[@]}"; do
     "$STAMP" "${N[$i]}" "${K[$i]}" "${ROOT[$i]}" "$files" "$bytes" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$part/GENERATION.json"
   mv "$part" "$d/$STAMP" || { FAILED_SOURCE=${N[$i]}; die "${N[$i]}: publish rename failed"; }
   echo "$bytes" > "$STATE/bytes.${N[$i]}.new"
-  renamed=$((renamed + 1))
-  if [[ -n ${ROLLUP_TEST_FAIL_PUBLISH_AFTER:-} ]] && ((renamed >= ROLLUP_TEST_FAIL_PUBLISH_AFTER)); then die "test hook: stopping after $renamed renames"; fi
 done
 printf '%s %s\n' "$STAMP" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$DEST/.committed/$STAMP.tmp"
 mv "$DEST/.committed/$STAMP.tmp" "$DEST/.committed/$STAMP"

@@ -5,7 +5,10 @@
 #
 # Evidence rules: a container state counts only when docker inspect answered and said so
 # (an inspect error is never "stopped"); M4a runs once per run, and its isolation proofs
-# name the container they were taken on; every docker call obeys --timeout.
+# name the container they were taken on; a reconfirmation first records its attempt, which
+# voids the earlier proof until it ends in done, and any failure of it is recorded (A is
+# then void); rollback-a reconfirms the current container before it starts anything; every
+# docker call obeys --timeout.
 # shellcheck disable=SC2154  # globals come from td444-move.sh
 
 mphase() { phase "minio-$RUN_ID" "$@"; }
@@ -55,16 +58,43 @@ lan_health_url() {
 }
 proof_cid() { { grep -E " done $1 " "$(mfile)" || true; } | tail -1 | awk '{print $NF}'; }
 eligibility() { # the one table (runbook §4 group 6): prints A or NO-A with the reason
-  local n
+  local n last
+  if grep -Eq ' fail current_container( |$)' "$(mfile)"; then echo "NO-A the current container is not the one this run stopped"; return; fi
   n=$(grep -Ec ' attempt m4a( |$)' "$(mfile)" || true)
   if ((n == 0)); then echo "A no attempt m4a"; return; fi
   if ((n > 1)); then echo "NO-A m4a was attempted $n times in this run"; return; fi
   if mhas attempt m4b; then echo "NO-A m4b was attempted"; return; fi
   if grep -Eq ' fail isolation_' "$(mfile)"; then echo "NO-A an isolation proof failed"; return; fi
+  last=$({ grep -E ' (attempt|done|fail) isolation_reconfirmed( |$)' "$(mfile)" || true; } | tail -1)
+  if [[ -n $last && $last != *" done isolation_reconfirmed "* ]]; then echo "NO-A the last isolation reconfirmation did not finish"; return; fi
   local a b
   a=$(proof_cid isolation_proven_pre); b=$(proof_cid isolation_reconfirmed)
   if [[ -n $a && $a == "$b" ]]; then echo "A isolation of $a proven before start and reconfirmed after stop"; return; fi
   echo "NO-A m4a attempted without both isolation proofs on the same container"
+}
+reconfirm() { # stop the isolated container if needed, then prove: stopped, the proven ID, isolated
+  local want st cid f
+  mphase attempt isolation_reconfirmed   # voids any earlier proof until this one ends in done
+  want=$(proof_cid isolation_proven_pre)
+  [[ -n $want ]] || { mphase fail isolation_reconfirmed "no proof before start"; die "no isolation proof before start: no A for run $RUN_ID"; }
+  st=$(container_state) || st=unknown
+  if [[ $st != false ]]; then compose -f "$COMPOSE_DIR/compose.isolated.yaml" stop minio || log "compose stop returned an error"; fi
+  st=$(container_state) || { mphase fail isolation_reconfirmed "inspect gave no answer"; die "the container is not proven stopped: no A for run $RUN_ID"; }
+  [[ $st == false ]] || { mphase fail isolation_reconfirmed "still running"; die "the container still runs: no A for run $RUN_ID"; }
+  cid=$(dkr inspect -f '{{.Id}}' "$CONTAINER" 2> /dev/null) || { mphase fail isolation_reconfirmed "no container id"; die "docker gave no container id: no A for run $RUN_ID"; }
+  [[ $cid == "$want" ]] || { mphase fail isolation_reconfirmed "container $cid is not $want"; die "this is not the container proven isolated ($cid): no A for run $RUN_ID"; }
+  f=$(isolation_now) || { mphase fail isolation_reconfirmed "inspect failed"; die "inspect failed: no A for run $RUN_ID"; }
+  log "isolation after stop of $cid: $f"
+  isolated_ok "$f" || { mphase fail isolation_reconfirmed "not isolated: $f"; die "isolation not reconfirmed: no A for run $RUN_ID"; }
+  mphase "done" isolation_reconfirmed "1 $cid"
+}
+current_is_m1() { # without M4a: still the container m1 stopped (same ID = its old config), stopped
+  local st cid
+  cid=$(dkr inspect -f '{{.Id}}' "$CONTAINER" 2> /dev/null) || { mphase fail current_container "no container id"; die "docker gave no container id: no A for run $RUN_ID"; }
+  [[ $cid == "$(proof_cid m1)" ]] || { mphase fail current_container "container $cid is not the one m1 stopped"; die "the container ($cid) is not the one m1 stopped: no A for run $RUN_ID"; }
+  st=$(container_state) || { mphase fail current_container "inspect gave no answer"; die "the container is not proven stopped: no A for run $RUN_ID"; }
+  [[ $st == false ]] || die "the container m1 stopped runs again (its old config); stop it, then repeat rollback-a"
+  mphase "done" current_container "$cid"
 }
 objects_of() { # business objects (dirs holding xl.meta) under the bucket, relative to the data root
   find "$1/$BUCKET" -type f -name xl.meta -printf '%h\n' | sed "s#^$1/##" | LC_ALL=C sort
@@ -177,16 +207,7 @@ cmd_minio() {
       mphase "done" m4a 1 ;;
     m4a-stop)
       need_run; mhas attempt m4a || die "m4a was never attempted"
-      local want; want=$(proof_cid isolation_proven_pre)
-      [[ -n $want ]] || { mphase fail isolation_reconfirmed 1; die "no isolation proof before start: no A for this run"; }
-      if [[ $(container_state || echo unknown) != false ]]; then compose -f "$COMPOSE_DIR/compose.isolated.yaml" stop minio || true; fi
-      require_stopped
-      cid=$(container_id)
-      [[ $cid == "$want" ]] || { mphase fail isolation_reconfirmed 1; die "this is not the container proven isolated"; }
-      f=$(isolation_now) || { mphase fail isolation_reconfirmed 1; die "inspect failed"; }
-      log "isolation after stop of $cid: $f"
-      isolated_ok "$f" || { mphase fail isolation_reconfirmed 1; die "isolation not reconfirmed: no A for this run"; }
-      mphase "done" isolation_reconfirmed "1 $cid" ;;
+      reconfirm ;;
     m4b)
       need_run; mhas "done" m4a || die "m4a not done"
       ask_yes "M4b opens MinIO to the LAN; from now on A is impossible for run $RUN_ID."
@@ -196,12 +217,12 @@ cmd_minio() {
       mphase "done" m4b ;;
     rollback-a)
       need_run
-      if mhas attempt m4a && [[ -z $(proof_cid isolation_reconfirmed) ]] && ! grep -Eq ' fail isolation_' "$(mfile)"; then
-        CMD=minio-m4a-stop cmd_minio
-      fi
+      log "eligibility before the check: $(eligibility)"
+      [[ $(eligibility) == A* ]] || die "A is not allowed for run $RUN_ID: $(eligibility). Recovery event (§4 group 6)."
+      # the container A restarts from must be the proven one, now: stopped, same ID, isolated
+      if mhas attempt m4a; then reconfirm; else mhas "done" m1 || die "m1 not done: nothing to roll back"; current_is_m1; fi
       log "eligibility: $(eligibility)"
       [[ $(eligibility) == A* ]] || die "A is not allowed for run $RUN_ID: $(eligibility). Recovery event (§4 group 6)."
-      require_stopped
       mphase attempt rollback-a
       [[ $(sha256sum "$COMPOSE_DIR/compose.yaml.orig-td444" | cut -d' ' -f1) == "$(cat "$STATE/minio-$RUN_ID.orig-sha256")" ]] || die "compose.yaml.orig-td444 changed"
       install -m 0644 "$COMPOSE_DIR/compose.yaml.orig-td444" "$COMPOSE_DIR/compose.yaml"
