@@ -76,6 +76,20 @@ printf 'aaaa\n' > "$B1/drills/x"; cp -p "$B1/drills/x" "$f"
 printf 'bbbb\n' > "$f.new"; touch -r "$f" "$f.new"; mv "$f.new" "$f"
 expect_fail "verify catches same size, same mtime, other content (-c)" bash "$PMOVE" "${G[@]}" verify daily
 cp -p "$B1/drills/x" "$f"
+# ---- UGOS 1.18's rsync has no ACL support: -A is left out only while no source carries extended POSIX ACLs
+touch /tmp/fake/rsync_no_acls
+expect_ok "no-ACL rsync: pre copies without -A when no source has extended ACLs" bash "$PMOVE" "${G[@]}" --confirm daily pre daily
+check "no-ACL rsync: the log says -A is left out" grep -q "copies leave -A out" /tmp/out
+expect_ok "no-ACL rsync: verify runs without -A" bash "$PMOVE" "${G[@]}" verify daily
+echo "$B1/drills/x" > /tmp/fake/extended_acl
+echo marker > "$B1/drills/acl-marker"
+expect_fail "no-ACL rsync: an extended POSIX ACL under a source stops pre" bash "$PMOVE" "${G[@]}" --confirm daily pre daily
+check "no-ACL rsync: pre stopped before copying anything" test ! -e /volume2/k3s-fast/data-logical-backup-hot/drills/acl-marker
+expect_fail "no-ACL rsync: an extended POSIX ACL under a source stops final" script -qec "bash $PMOVE ${G[*]} --confirm daily final daily" /dev/null < <(printf '%s' "$YES3")
+check "no-ACL rsync: final stopped before copying anything" test ! -e /volume2/k3s-fast/data-logical-backup-hot/drills/acl-marker
+rm -f /tmp/fake/rsync_no_acls
+expect_ok "control: an rsync with ACL support copies with -A, pre passes" bash "$PMOVE" "${G[@]}" --confirm daily pre daily
+rm -f /tmp/fake/extended_acl "$B1/drills/acl-marker" /volume2/k3s-fast/data-logical-backup-hot/drills/acl-marker
 T3=/volume2/k3s-fast/kube-system-cluster-state-backup
 sed -i '/^file /d' "$T3/monthly/2026-11/MANIFEST" && sed -i '/^file /d' "$B3/monthly/2026-11/MANIFEST"
 touch -r "$B3/monthly/2026-11/MANIFEST" "$T3/monthly/2026-11/MANIFEST"

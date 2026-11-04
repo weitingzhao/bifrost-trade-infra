@@ -39,6 +39,17 @@ cat > /shim/exportfs <<'EOF'
 #!/bin/bash
 cat /tmp/exports.txt
 EOF
+cat > /shim/rsync <<'EOF'
+#!/bin/bash
+# with /tmp/fake/rsync_no_acls: an rsync built without ACLs (UGOS 1.18): -V says "no ACLs", -A is refused
+if [[ -f /tmp/fake/rsync_no_acls ]]; then
+  if [[ $1 == -V ]]; then /usr/bin/rsync -V | sed 's/ACLs,/no ACLs,/'; exit 0; fi
+  for a in "$@"; do
+    if [[ $a == -A || $a =~ ^-[a-zA-Z]*A[a-zA-Z]*$ ]]; then echo 'rsync: ACLs are not supported on this client' >&2; exit 1; fi
+  done
+fi
+exec /usr/bin/rsync "$@"
+EOF
 cat > /shim/getfattr <<'EOF'
 #!/bin/bash
 # prints /tmp/fake/xattr/<path with / as _> as the path's xattrs when that file exists
@@ -53,6 +64,9 @@ cat > /shim/getfacl <<'EOF'
 for a in "$@"; do [[ $a == /* ]] && p=$a; done
 if [[ -f /tmp/fake/getfacl_fail ]] && { grep -Fxq '*' /tmp/fake/getfacl_fail || grep -Fxq "$p" /tmp/fake/getfacl_fail; }; then
   echo "getfacl: $p: Operation not supported" >&2; exit 1
+fi
+if [[ -f /tmp/fake/extended_acl && " $* " == *' --skip-base '* ]]; then
+  while read -r q; do [[ $q == "$p"* ]] && printf '# file: %s\nuser:4242:rwx\n\n' "$q"; done < /tmp/fake/extended_acl; exit 0
 fi
 exec /usr/bin/getfacl "$@"
 EOF

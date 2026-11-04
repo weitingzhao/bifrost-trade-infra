@@ -224,7 +224,26 @@ identity_check() { # every path of the group: same mount identity as recorded, 1
   log "mount identity and free space of $1 match the record"
 }
 
-rsync_opts() { printf '%s\n' -aHAX --numeric-ids ${BWLIMIT:+--bwlimit="$BWLIMIT"}; }
+RSYNC_ACLS=""
+rsync_opts() { # -A only when this rsync has ACL support (UGOS 1.18's says "no ACLs"; no_extended_acls guards that)
+  [[ -n $RSYNC_ACLS ]] || { if rsync -V | grep -q 'no ACLs'; then RSYNC_ACLS=0; else RSYNC_ACLS=1; fi; }
+  if ((RSYNC_ACLS)); then printf '%s\n' -aHAX; else printf '%s\n' -aHX; fi
+  printf '%s\n' --numeric-ids ${BWLIMIT:+--bwlimit="$BWLIMIT"}
+}
+no_extended_acls() { # no_extended_acls <key> <dir>: without -A, any extended POSIX ACL under dir would be lost: stop (§2)
+  local out
+  rsync_opts > /dev/null
+  ((RSYNC_ACLS)) && return 0
+  out=$(mktemp)
+  getfacl -R --skip-base -p "$2" > "$out" \
+    || { rm -f "$out"; die "$1: cannot read the POSIX ACLs under $2; this rsync has no ACL support (stop and check, §2)"; }
+  if grep -q '^# file' "$out"; then
+    log "$1: these carry extended POSIX ACLs, which this rsync (no ACL support) cannot copy:"; grep '^# file' "$out" | head -5
+    rm -f "$out"; die "$1: extended POSIX ACLs under $2 (stop and check, §2)"
+  fi
+  rm -f "$out"
+  log "$1: no extended POSIX ACLs under $2; this rsync has no ACL support, so copies leave -A out"
+}
 make_snapshot() { # read-only snapshot of the snapshot root, recorded with its UUID; prints the source view
   local i=$1 root=${M_SNAP[$1]} mnt snapdir snap uuid
   [[ -n $root ]] || die "${M_KEY[$i]}: no snapshot root in the map"
@@ -281,6 +300,7 @@ cmd_pre() { # every check of the whole group passes before the first directory o
   identity_check "$g"
   while read -r i; do
     check_real_paths "$i"
+    no_extended_acls "${M_KEY[$i]}" "${M_SRC[$i]}"
     if ((FROM_SNAPSHOT)); then [[ -n ${M_SNAP[$i]} ]] || die "${M_KEY[$i]}: --from-snapshot needs a snapshot root"; fi
   done < <(entries "$g")
   ABORT_PHASE=$g
@@ -303,7 +323,10 @@ cmd_final() {
   local g=$1 i dl n rc
   require_confirm "$g"; check_pkg; no_active_copy; group_ok "$g"; kind_inputs_ok "$g"
   identity_check "$g"
-  while read -r i; do [[ -d ${M_DST[$i]} ]] || die "${M_KEY[$i]}: target ${M_DST[$i]} missing; run pre first"; done < <(entries "$g")
+  while read -r i; do
+    [[ -d ${M_DST[$i]} ]] || die "${M_KEY[$i]}: target ${M_DST[$i]} missing; run pre first"
+    no_extended_acls "${M_KEY[$i]}" "${M_SRC[$i]}"
+  done < <(entries "$g")
   ABORT_PHASE=$g
   while read -r i; do
     ABORT_STAGE="final:${M_KEY[$i]}"
