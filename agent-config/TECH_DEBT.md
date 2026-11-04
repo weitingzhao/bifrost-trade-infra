@@ -3929,6 +3929,17 @@
 - **防线**：`TestForeignWork_ReplayOtherIdentity` 对每种换了身份的重放断言 `identity_mismatch`（修复前得到 `key_conflict`），对自己的身份、同一个键、换了内容的断言仍是 `key_conflict`。
 - **验收**：`go -C api test ./internal/agentrt/agentrtapi/ -run TestForeignWork_ReplayOtherIdentity -count=1` 在设好 `AGENTRT_TEST_PG` 和 `AGENTRT_TEST_REQUIRED=1` 时通过。
 
+### TD-517
+
+**P2 · 集群 · 新节点入集群不装 NFS 客户端：07 没有 nfs-common，用 NFS 卷的 Pod 调度到它上面就挂不上**
+
+- **状态**：在做（2026-11-04 记；07 已由 Owner 手动装上，根因未修）。
+- **证据**：11-04 14:41 CST，TD-444 第 1 组装 nfs-fast，provisioner 的 Pod 被调度到 ubt-k3s-07，一直停在 ContainerCreating，事件 `FailedMount … mount failed: exit status 32 … bad option; for several filesystems (e.g. nfs…) you might need a /sbin/mount.<type> helper program`。07 是 10-27 新入集群的节点（`agent-config/work/multi-agent/REPORT-w68-07-join-2026-10-27.md`），入集群的 `scripts/k3s/join-bifrost-agent.sh`、`install-agent.sh` 都不装 nfs-common；单独的 `scripts/k3s/install-nfs-common-nodes.sh` 的 `DEFAULT_NODES` 是手写的四台（.73 .70 .75 .77），没有 .80。之前 07 上恰好没有用 NFS 卷的 Pod，问题一直没暴露。Owner 14:5x 在 07 上装了 nfs-common，provisioner 14:51 Running。
+- **影响**：TD-444 第 2a、3、4 组切到 nfs-fast 后，备份任务、Prometheus、registry 的 Pod 只要被调度到缺客户端的节点就起不来；以后再加节点还会重演。
+- **修法**：`join-bifrost-agent.sh` 入集群时安装 nfs-common，并对 `192.168.10.20` 做一次只读挂载测试，失败就不解除 burn-in 污点；`install-nfs-common-nodes.sh` 的节点表改为从 `kubectl get nodes` 读，不再手写。
+- **防线**：`scripts/k3s` 的测试断言 join 脚本含 nfs-common 安装和挂载测试；节点表脚本里不出现写死的 IP 列表。
+- **验收**：加一台测试节点（或重放 07 的入集群步骤）后，它能挂 nfs-hot 和 nfs-fast；`install-nfs-common-nodes.sh` 不带参数时覆盖 `kubectl get nodes` 里的全部 amd64 节点。
+
 ### TD-490
 
 **P2 · 落地 · platform 的落地不查 infra 的文档消费者登记表，下一件 infra 落地才红**
