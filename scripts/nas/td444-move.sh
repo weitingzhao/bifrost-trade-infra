@@ -373,7 +373,8 @@ dir_attrs() { # dir_attrs <dir> <out>: mode/owner, ACL, xattrs; fails when any o
   local mo acl xat
   rm -f "$2"
   mo=$(stat -c '%a %u %g' "$1") || { log "cannot read the mode and owner of $1"; return 1; }
-  [[ $mo =~ ^[0-7]{3,4}\ [0-9]+\ [0-9]+$ ]] || { log "unexpected mode and owner '$mo' of $1"; return 1; }
+  # %a prints no leading zeros: a UGOS share root is mode 000 (access by ACL) and reads "0".
+  [[ $mo =~ ^[0-7]{1,4}\ [0-9]+\ [0-9]+$ ]] || { log "unexpected mode and owner '$mo' of $1"; return 1; }
   acl=$(getfacl -n -p --omit-header "$1") || { log "cannot read the ACL of $1"; return 1; }
   xat=$(getfattr -d -m - --absolute-names "$1") || { log "cannot read the xattrs of $1"; return 1; }
   { printf 'mode-owner %s\n' "$mo"

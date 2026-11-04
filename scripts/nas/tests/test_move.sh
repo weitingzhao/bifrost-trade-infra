@@ -183,6 +183,12 @@ echo /volume2/k3s-fast > /tmp/fake/stat_fail
 expect_fail "R5: mode/owner unreadable on one side fails exports" bash "$PMOVE" --state /state exports
 rm -f /tmp/fake/stat_fail
 expect_ok "R5 control: with stat readable again exports pass" bash "$PMOVE" --state /state exports
+chmod 000 /volume1/k3s-hot /volume2/k3s-fast /volume2/market-archive-backup
+expect_ok "share roots of mode 000 (UGOS: access by ACL; stat %a reads 0) match" bash "$PMOVE" --state /state exports
+check "mode 000 share roots are reported as matching" grep -q "share root /volume2/k3s-fast: mode, owner, ACL and xattrs match" /tmp/out
+chmod 755 /volume2/k3s-fast
+expect_fail "a share root of another mode than the reference is caught" bash "$PMOVE" --state /state exports
+chmod 755 /volume1/k3s-hot /volume2/market-archive-backup
 sed -i 's/,all_squash)$/,root_squash)/' /tmp/exports.txt
 expect_fail "a different squash option is caught" bash "$PMOVE" --state /state exports
 
