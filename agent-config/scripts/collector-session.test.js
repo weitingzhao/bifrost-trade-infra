@@ -130,6 +130,7 @@ test('a resume sends again, first, the earlier ends the server never acked', () 
   c.transition(st, ev('SessionEnd', { pid: 7, thread: 'T1' }), T0)
   const r = c.transition(st, start('resume', 8), T0)
   assert.deepEqual(r.replay, [{ epoch: 1, thread: 'T1' }])
+  assert.equal(c.noteReplay(st, 1, T0.toISOString()), true)
   assert.ok(st.epochs[0].end.replayed_at)
   st.epochs[0].end.acked_at = T0.toISOString()
   c.transition(st, end(8), T0)
@@ -237,11 +238,12 @@ test('M3: a failed replay is tried again at each later resume, up to a cap, and 
   c.transition(st, start('startup', 7), T0)
   c.transition(st, end(7), T0)
   for (let i = 1; i <= CAP; i++) {
-    // Each pick is an attempt, counted before the send: a crash after it is a spent attempt, not an exclusion.
     assert.deepEqual(c.transition(st, start('resume', 7 + i), T0).replay, [{ epoch: 1, thread: 'S' }], `attempt ${i}`)
+    assert.equal(c.noteReplay(st, 1, T0.toISOString()), true, 'counted once it is sent')
     assert.equal(st.epochs[0].end.replay_attempts, i)
   }
   assert.deepEqual(c.transition(st, start('resume', 100), T0).replay, [], 'the cap stops it; the end stays an unacked gap')
+  assert.equal(c.noteReplay(st, 1, T0.toISOString()), false)
   assert.deepEqual(c.endGaps(st).filter(g => g.epoch === 1), [{ epoch: 1, kind: 'end_unacked' }])
   const again = fresh()
   c.transition(again, start('startup', 7), T0)
@@ -249,6 +251,14 @@ test('M3: a failed replay is tried again at each later resume, up to a cap, and 
   c.transition(again, start('resume', 8), T0)
   again.epochs[0].end.acked_at = T0.toISOString()
   assert.deepEqual(c.transition(again, start('resume', 9), T0).replay, [])
+})
+
+test('round 2: picking a replay costs no attempt; resumes that never send it leave the attempts alone', () => {
+  const st = fresh()
+  c.transition(st, start('startup', 7), T0)
+  c.transition(st, end(7), T0)
+  for (let pid = 8; pid < 8 + CAP + 2; pid++) assert.deepEqual(c.transition(st, start('resume', pid), T0).replay, [{ epoch: 1, thread: 'S' }])
+  assert.equal(st.epochs[0].end.replay_attempts, undefined)
 })
 
 test('M4: an older process repeating its resume start opens no epoch and supersedes no newer one', () => {
@@ -300,13 +310,41 @@ test('M1: an end that cannot take the epoch lock is not sent; it is kept and fol
   assert.ok(st.gaps.some(g => g.kind === 'end_deferred' && g.epoch === 1))
 })
 
-test('a closed epoch whose pid comes back after the repeat window is a new process (the pid was reused)', () => {
+const LATER = new Date(T0.getTime() + 2 * 3600 * 1000)
+const startedAs = (source, pid, started) => ev('SessionStart', { source, pid, startTime: () => started })
+
+test('M4 round 2: a process that ran over a minute and was just superseded repeats its start: no new epoch', () => {
   const st = fresh()
-  c.transition(st, start('startup', 7), T0)
+  c.transition(st, startedAs('startup', 7, 'ps:A'), T0)
+  c.transition(st, startedAs('resume', 8, 'ps:B'), T0)
+  c.transition(st, startedAs('resume', 9, 'ps:C'), LATER)
+  assert.deepEqual(c.transition(st, startedAs('resume', 8, 'ps:B'), LATER), { epoch: 2, identity: 'pid', replay: [] })
+  assert.equal(st.max, 3)
+  assert.equal(st.epochs[2].superseded_at, undefined)
+  assert.equal(c.transition(st, end(9), LATER).end, true, 'the newer process still ends')
+})
+
+test('a pid the system reused (same pid, another start time) opens a new epoch', () => {
+  const st = fresh()
+  c.transition(st, startedAs('startup', 7, 'ps:A'), T0)
   c.transition(st, end(7), T0)
-  const later = new Date(T0.getTime() + 2 * 3600 * 1000)
-  assert.equal(c.transition(st, start('resume', 7), later).epoch, 2)
-  assert.equal(c.transition(st, start('resume', 7), later).epoch, 2, 'and its own repeat right after is a repeat')
+  assert.equal(st.epochs[0].pid_started, 'ps:A', 'the start time is kept on the epoch')
+  assert.equal(c.transition(st, startedAs('resume', 7, 'ps:Z'), T0).epoch, 2)
+  assert.equal(c.transition(st, startedAs('resume', 7, 'ps:Z'), T0).epoch, 2, 'and its own repeat is a repeat')
+})
+
+test('without a start time on either side the same pid is the same process, however late', () => {
+  const st = fresh()
+  c.transition(st, startedAs('startup', 7, ''), T0)
+  c.transition(st, end(7), T0)
+  assert.equal(c.transition(st, startedAs('resume', 7, 'ps:Z'), LATER).epoch, 1, 'the epoch recorded none')
+  const other = fresh()
+  c.transition(other, startedAs('startup', 7, 'ps:A'), T0)
+  c.transition(other, end(7), T0)
+  assert.equal(c.transition(other, startedAs('resume', 7, ''), LATER).epoch, 1, 'none can be read now')
+  assert.equal(c.processStart(0), '')
+  assert.equal(c.processStart(process.pid, 0), '', 'no budget, no read')
+  assert.match(c.processStart(process.pid), /^(proc|ps):./, 'a live process has one (ps or /proc)')
 })
 
 test('an answer that cannot take the epoch lock is kept and folded in: the ack is not lost', () => {

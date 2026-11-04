@@ -22,7 +22,9 @@ const N = 'collector-noop.test.js'
 // [name, file, from, to, test file, test name pattern]
 const MUTANTS = [
   ['resume reuses the counter', 'collector-epochs.js', 'st.max += 1', 'st.max = 1', U, '^the epoch counter never goes back'],
-  ['an older process repeating its start opens an epoch (M4)', 'collector-epochs.js', 'if (byPid && (isOpen(byPid) || now - Date.parse(byPid.opened_at) < REPEAT_WINDOW_MS)) {', 'if (byPid && isOpen(byPid)) {', U, '^M4: an older process repeating its resume start opens no epoch'],
+  ['an older process repeating its start opens an epoch (M4)', 'collector-epochs.js', '    if (byPid && !pidReused(byPid, ev)) {', '    if (byPid && isOpen(byPid)) {', U, '^M4 round 2: a process that ran over a minute'],
+  ['a reused pid is never noticed', 'collector-epochs.js', '  return Boolean(now) && now !== e.pid_started', '  return false', U, '^a pid the system reused'],
+  ['a missing start time counts as reuse', 'collector-epochs.js', '  return Boolean(now) && now !== e.pid_started', '  return now !== e.pid_started', U, '^without a start time on either side'],
   ['a late end is sent', 'collector-epochs.js', '    if (!isOpen(e)) {\n      st.dropped_ends += 1', '    if (false) {\n      st.dropped_ends += 1', U, '^a late SessionEnd across a resume'],
   ['fork is refused', 'collector-session.js', "'compact', 'fork'])", "'compact'])", U, '^the event table'],
   ['no context reads as whole context', 'collector-session.js', "if (!root && !node) return bind('unlinked', 'no_context')", 'if (!root && !node) return null', U, '^client_bind'],
@@ -32,7 +34,9 @@ const MUTANTS = [
   ['an end is sent without the lock (M1)', 'collector-epochs.js', "    if (ev.kind === 'end') {\n      // No end goes out", "    if (false) {\n      // No end goes out", U, '^M1: an end that cannot take the epoch lock'],
   ['a kept end is never folded in (M1)', 'collector-epochs.js', '    const folded = foldPending(st, dir)', '    const folded = []', U, '^M1: an end that cannot take the epoch lock'],
   ['an end without a pid closes the current epoch (M2)', 'collector-epochs.js', '    } else if (!e) {\n      st.dropped_ends += 1\n', '    } else if (!e && ev.pid === 0) {\n      e = current\n    } else if (!e) {\n      st.dropped_ends += 1\n', U, '^M2: an end whose process cannot be told apart'],
-  ['a replay is tried once only (M3)', 'collector-epochs.js', 'count(e.end.replay_attempts) >= MAX_REPLAY_ATTEMPTS', 'count(e.end.replay_attempts) >= 1', U, '^M3: a failed replay is tried again'],
+  ['a replay is tried once only (M3)', 'collector-epochs.js', 'if (!e.end || e.end.acked_at || count(e.end.replay_attempts) >= MAX_REPLAY_ATTEMPTS) continue', 'if (!e.end || e.end.acked_at || count(e.end.replay_attempts) >= 1) continue', U, '^M3: a failed replay is tried again'],
+  ['a pick spends an attempt (round 2)', 'collector-epochs.js', "    out.push({ epoch: e.epoch, thread: e.end.thread || e.thread || '' })", "    e.end.replay_attempts = count(e.end.replay_attempts) + 1\n    out.push({ epoch: e.epoch, thread: e.end.thread || e.thread || '' })", U, '^round 2: picking a replay costs no attempt'],
+  ['a resend is never counted', 'thread-heartbeat.js', '      if (!collector.countReplay(beat._end, deps)) continue\n', '', K, '^round 2: resumes that cannot take the thread lock'],
   ['an unseen process supersedes a live one', 'collector-epochs.js', "  if (ev.pid > 0 || !current) return open('first_event', '', false)", "  if (ev.pid > 0 || !current) return open('first_event', '', true)", U, '^a first event from a process never seen'],
   ['an answer under a busy lock is lost', 'collector-epochs.js', '    deferRecord(sessionDir(end.vendor, end.session), 0, answer, new Date(now))', '    void answer', U, '^an answer that cannot take the epoch lock'],
   ['the parent pid stands in for CLAUDE_PID', 'collector-epochs.js', "const raw = String(env.CLAUDE_PID || '').trim()", 'const raw = String(process.ppid)', K, '^two resumes in the same second'],

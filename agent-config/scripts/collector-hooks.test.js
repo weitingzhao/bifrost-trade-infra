@@ -400,3 +400,66 @@ test('M4: an older process repeating its resume start leaves the newer epoch and
     t.srv.close()
   }
 })
+
+// Review round 2 (Codex, S1-4): each test below failed on 1012704.
+
+test('M4 round 2: a process over a minute old, just superseded, repeats its start: the newer epoch keeps its end', async () => {
+  const t = await session('m4b')
+  try {
+    await t.hook('SessionStart', { extra: { source: 'startup' } })
+    await t.hook('SessionStart', { pid: 41002, extra: { source: 'resume' } })
+    // Age epoch 2 instead of waiting; these pids name no live process, so no start time is read.
+    const st = t.epochs()
+    st.epochs[1].opened_at = new Date(Date.now() - 61000).toISOString()
+    fs.writeFileSync(h.epochsFile(t.home, 'claude', S), JSON.stringify(st))
+    await t.hook('SessionStart', { pid: 41003, extra: { source: 'resume' } })
+    await t.hook('SessionStart', { pid: 41002, extra: { source: 'resume' } })
+    await t.hook('SessionEnd', { pid: 41003, extra: { reason: 'other' } })
+    assert.equal(t.epochs().max, 3)
+    assert.deepEqual(h.beats(t.srv).slice(-2), [['session_start', 'resume', S, 2], ['turn_end', '', S, 3]])
+  } finally {
+    t.srv.close()
+  }
+})
+
+test('a reused pid: a live process whose start time differs from the epoch it names opens a new epoch', async () => {
+  const t = await session('reuse')
+  try {
+    const pid = process.pid
+    await t.hook('SessionStart', { pid, extra: { source: 'startup' } })
+    assert.match(t.epochs().epochs[0].pid_started, /^(proc|ps):./, 'the live process start time is recorded')
+    await t.hook('SessionEnd', { pid, extra: { reason: 'other' } })
+    await t.hook('SessionStart', { pid, extra: { source: 'resume' } })
+    assert.equal(t.epochs().max, 1, 'the same start time: the same process, a repeat')
+    const st = t.epochs()
+    st.epochs[0].pid_started = 'ps:another process'
+    fs.writeFileSync(h.epochsFile(t.home, 'claude', S), JSON.stringify(st))
+    await t.hook('SessionStart', { pid, extra: { source: 'resume' } })
+    assert.equal(t.epochs().max, 2, 'another start time under the same pid: a new process')
+  } finally {
+    t.srv.close()
+  }
+})
+
+test('round 2: resumes that cannot take the thread lock spend no replay attempt; the next one sends the end', async () => {
+  let refuse = true
+  const t = await session('starve', rec => (rec.body.event === 'turn_end' && refuse ? { status: 503, body: { error: 'down' } } : null))
+  try {
+    await t.hook('SessionStart', { extra: { source: 'startup' } })
+    await t.hook('SessionEnd', { extra: { reason: 'other' } })
+    refuse = false
+    const release = await h.holdLock(path.join(t.home, '.cache', 'bifrost', 'thread-keys', 'claude', `${S}.lock`))
+    try {
+      for (const pid of [41002, 41003]) await t.hook('SessionStart', { pid, extra: { source: 'resume' } })
+    } finally {
+      release()
+    }
+    assert.equal(t.epochs().epochs[0].end.replay_attempts, undefined, 'no attempt was spent without a send')
+    await t.hook('SessionStart', { pid: 41004, extra: { source: 'resume' } })
+    assert.deepEqual(h.beats(t.srv).slice(-2), [['turn_end', '', S, 1], ['session_start', 'resume', S, 4]])
+    const e = t.epochs().epochs[0].end
+    assert.deepEqual([e.replay_attempts, Boolean(e.acked_at)], [1, true])
+  } finally {
+    t.srv.close()
+  }
+})

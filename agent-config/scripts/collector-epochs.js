@@ -10,9 +10,11 @@
  * Process identity: CLAUDE_PID (§12 D1); 0 when absent or not a number, and
  * always 0 for Cursor and Codex. One process has one epoch per session:
  * - SessionStart of a process that already has an epoch reuses it, whether
- *   that epoch is open, or ended or superseded within REPEAT_WINDOW_MS; it
- *   never opens one and never supersedes a newer one (review M4). After that
- *   window a closed epoch's pid is one the system reused for a new process.
+ *   that epoch is open, ended or superseded, however long ago it opened; it
+ *   never opens one and never supersedes a newer one (review M4). The pid is
+ *   taken as reused by a new process only on evidence: the start time of the
+ *   process under that pid (processStart) differs from the one the epoch
+ *   recorded. No start time, on either side, is the same process.
  * - resume from a new process opens max+1 and supersedes the open epochs;
  *   startup / clear / fork from a new process opens one and supersedes
  *   nothing; compact keeps the epoch.
@@ -34,10 +36,13 @@
  *   an answer that cannot take the lock is kept the same way and folded in.
  * - A resume sends an unacked end again before its own beat: at most
  *   REPLAYS_PER_HOOK per hook, at most MAX_REPLAY_ATTEMPTS in all. Only an
- *   ack ends the retries; an attempt is counted when it is picked (review M3).
+ *   ack ends the retries (review M3). An attempt is counted (noteReplay) only
+ *   once the hook has the budget and the thread lock to send it; a resend
+ *   skipped for want of either costs nothing (review round 2).
  */
 const crypto = require('node:crypto')
 const fs = require('node:fs')
+const { spawnSync } = require('node:child_process')
 const os = require('node:os')
 const path = require('node:path')
 
@@ -51,7 +56,7 @@ const KEEP_GAPS = 50
 const REPLAYS_PER_HOOK = 2
 const MAX_REPLAY_ATTEMPTS = 5
 const PENDING_RE = /^pending-end\.[0-9]+\.[0-9a-f]{16}\.json$/
-const REPEAT_WINDOW_MS = 60 * 1000
+const START_READ_MS = 500
 
 function home(...p) {
   return path.join(process.env.BIFROST_HOME_OVERRIDE || os.homedir(), ...p)
@@ -101,17 +106,53 @@ function latest(list) {
   return best
 }
 
-/** Unacked ends to send again, oldest first; each pick is one attempt. */
-function pickReplays(st, at) {
+/** Unacked ends to send again, oldest first. Picking one costs no attempt; noteReplay counts it. */
+function pickReplays(st) {
   const out = []
   for (const e of st.epochs) {
     if (out.length >= REPLAYS_PER_HOOK) break
     if (!e.end || e.end.acked_at || count(e.end.replay_attempts) >= MAX_REPLAY_ATTEMPTS) continue
-    e.end.replay_attempts = count(e.end.replay_attempts) + 1
-    e.end.replayed_at = at
     out.push({ epoch: e.epoch, thread: e.end.thread || e.thread || '' })
   }
   return out
+}
+
+/** Count one attempt to send an end again (pure; the caller holds the lock). False past the cap. */
+function noteReplay(st, epoch, at) {
+  const e = st.epochs.find(x => x.epoch === epoch)
+  if (!e || !e.end || e.end.acked_at || count(e.end.replay_attempts) >= MAX_REPLAY_ATTEMPTS) return false
+  e.end.replay_attempts = count(e.end.replay_attempts) + 1
+  e.end.replayed_at = at
+  return true
+}
+
+/**
+ * The start time of the process under pid, as this host reports it, or '' when
+ * it cannot be read in time: Linux /proc/<pid>/stat field 22, else ps.
+ */
+function processStart(pid, budgetMs = START_READ_MS) {
+  if (!(pid > 0) || !(budgetMs >= 1)) return ''
+  try {
+    const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8')
+    const field = stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19]
+    if (/^[0-9]+$/.test(field || '')) return `proc:${field}`
+  } catch {
+    // no /proc (macOS): ask ps
+  }
+  try {
+    const r = spawnSync('/bin/ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8', timeout: Math.min(START_READ_MS, budgetMs), stdio: ['ignore', 'pipe', 'ignore'] })
+    const out = String(r.stdout || '').trim().replace(/\s+/g, ' ')
+    return r.status === 0 && out ? `ps:${out}` : ''
+  } catch {
+    return ''
+  }
+}
+
+/** Evidence that pid now names another process than the one epoch e recorded. */
+function pidReused(e, ev) {
+  if (!e.pid_started || typeof ev.startTime !== 'function') return false
+  const now = ev.startTime()
+  return Boolean(now) && now !== e.pid_started
 }
 
 /**
@@ -132,20 +173,22 @@ function transition(st, ev, now) {
       gap('end_missing', e.epoch)
     }
     st.max += 1
-    st.epochs.push({ epoch: st.max, pid: ev.pid, ppid: ev.ppid, source, opened_by: ev.name, opened_at: at, thread: ev.thread })
+    const rec = { epoch: st.max, pid: ev.pid, ppid: ev.ppid, source, opened_by: ev.name, opened_at: at, thread: ev.thread }
+    const started = ev.pid > 0 && typeof ev.startTime === 'function' ? ev.startTime() : ''
+    if (started) rec.pid_started = started
+    st.epochs.push(rec)
     if (identity === 'first_event') gap('start_lost', st.max)
     return { epoch: st.max, identity, replay: [] }
   }
   if (ev.kind === 'start' && ev.source !== 'compact') {
-    // A repeat is the same process: its epoch still open, or opened moments ago. An old,
-    // closed epoch under the same pid is a pid the system reused for a new process.
-    if (byPid && (isOpen(byPid) || now - Date.parse(byPid.opened_at) < REPEAT_WINDOW_MS)) {
+    // The same pid is the same process unless its start time says otherwise (review M4).
+    if (byPid && !pidReused(byPid, ev)) {
       // A SessionStart after this process's first event adopts its epoch; a repeat is a repeat.
       if (!START_HOOKS.has(byPid.opened_by)) Object.assign(byPid, { opened_by: ev.name, source: ev.source, adopted_at: at })
       return { epoch: byPid.epoch, identity: 'pid', replay: [] }
     }
     if (ev.source === 'resume') {
-      const replay = pickReplays(st, at)
+      const replay = pickReplays(st)
       const r = open('start', 'resume', true)
       r.replay = replay
       return r
@@ -260,17 +303,25 @@ function processID(vendor, env) {
   return /^[1-9][0-9]{0,9}$/.test(raw) ? Number(raw) : 0
 }
 
-function hookEvent(vendor, payload, body, env) {
+function hookEvent(vendor, payload, body, env, deps = {}) {
   const name = String(payload.hook_event_name || '')
   const kind = START_HOOKS.has(name) ? 'start' : END_HOOKS.has(name) ? 'end' : 'other'
+  const pid = processID(vendor, env)
+  // Read only when a transition asks (opening an epoch, a start of a known pid), once per hook.
+  let started = null
+  const startTime = () => {
+    if (started === null) started = pid > 0 && deps.startTime ? String(deps.startTime(pid) || '') : ''
+    return started
+  }
   return {
     name,
     kind,
     source: kind === 'start' ? body.reason || 'startup' : '',
     reason: kind === 'end' ? String(payload.reason || '').slice(0, 64) : '',
-    pid: processID(vendor, env),
+    pid,
     ppid: process.ppid,
     thread: body.thread,
+    startTime,
   }
 }
 
@@ -281,7 +332,7 @@ function hookEvent(vendor, payload, body, env) {
 function resolve(vendor, payload, body, deps, env = process.env) {
   const id = body.identity
   if (!id || !id.session) return { replay: [] }
-  const ev = hookEvent(vendor, payload, body, env)
+  const ev = hookEvent(vendor, payload, body, env, deps)
   const now = deps.now ? deps.now() : new Date()
   let r
   try {
@@ -350,6 +401,17 @@ function recordEnd(end, res, deps) {
   }
 }
 
+/** Count one attempt to resend an end, under the lock; false (send nothing) past the cap or without the lock. */
+function countReplay(end, deps) {
+  if (!end || !count(end.epoch)) return false
+  const now = (deps.now ? deps.now() : new Date()).toISOString()
+  try {
+    return withEpochs(end.vendor, end.session, deps, st => noteReplay(st, end.epoch, now))
+  } catch {
+    return false
+  }
+}
+
 /** End gaps of one session's epochs: an end intent the server never acked, or an epoch left without an end. */
 function endGaps(st) {
   const out = []
@@ -369,6 +431,9 @@ module.exports = {
   transition,
   resolve,
   recordEnd,
+  countReplay,
+  noteReplay,
+  processStart,
   endGaps,
   MAX_REPLAY_ATTEMPTS,
   REPLAYS_PER_HOOK,

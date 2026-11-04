@@ -786,7 +786,11 @@ function withFileLock(lockPath, fn, capMs) {
 }
 
 function collectorDeps(collector) {
-  return { withLock: (lockPath, fn) => withFileLock(lockPath, fn, collector.EPOCH_LOCK_MS) }
+  return {
+    withLock: (lockPath, fn) => withFileLock(lockPath, fn, collector.EPOCH_LOCK_MS),
+    // The process start time that tells a reused pid; inside the hook budget, never after it.
+    startTime: pid => collector.processStart(pid, lockBudgetMs()),
+  }
 }
 
 /** Cross-process lock. The kernel releases the flock when this process exits. */
@@ -1340,6 +1344,8 @@ async function collectorPrepare(collector, vendor, payload, body) {
     if (lockBudgetMs() < REPLAY_RESERVE_MS) break
     try {
       allocateStamp(beat)
+      // The attempt is counted only now, with the budget and the thread lock had.
+      if (!collector.countReplay(beat._end, deps)) continue
       collector.recordEnd(beat._end, await postRecover(beat, REPLAY_TIMEOUT_MS), deps)
     } catch {
       // the end stays unacked; the audit reports it
