@@ -13,7 +13,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 const h = require('./collector-test-harness.js')
 
-const FILES = ['thread-heartbeat.js', 'collector-session.js', 'collector-epochs.js', 'host-heartbeat.js', 'progress-publish.js', 'collector-test-harness.js',
+const FILES = ['thread-heartbeat.js', 'collector-session.js', 'collector-epochs.js', 'collector-launch.js', 'host-heartbeat.js', 'progress-publish.js', 'collector-test-harness.js',
   'collector-session.test.js', 'collector-hooks.test.js', 'collector-noop.test.js', 'source-capability-witness.test.js']
 const U = 'collector-session.test.js'
 const K = 'collector-hooks.test.js'

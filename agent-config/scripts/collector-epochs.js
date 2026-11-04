@@ -327,7 +327,7 @@ function hookEvent(vendor, payload, body, env, deps = {}) {
 
 /**
  * Give a collector beat its epoch. Mutates body.identity and, for a session
- * end, sets body._end. Returns { drop } or { replay: [beats] }.
+ * end, sets body._end. Returns { drop } or { replay: [beats], epoch, opened, superseded, end, pid, kind, name }.
  */
 function resolve(vendor, payload, body, deps, env = process.env) {
   const id = body.identity
@@ -335,8 +335,17 @@ function resolve(vendor, payload, body, deps, env = process.env) {
   const ev = hookEvent(vendor, payload, body, env, deps)
   const now = deps.now ? deps.now() : new Date()
   let r
+  let opened = false
+  let superseded = []
   try {
-    r = withEpochs(vendor, id.session, deps, st => transition(st, ev, now))
+    r = withEpochs(vendor, id.session, deps, st => {
+      const max = st.max
+      const before = new Set(st.epochs.filter(e => e.superseded_at).map(e => e.epoch))
+      const out = transition(st, ev, now)
+      opened = st.max > max
+      superseded = st.epochs.filter(e => e.superseded_at && !before.has(e.epoch)).map(e => e.epoch)
+      return out
+    })
   } catch {
     if (ev.kind === 'end') {
       // No end goes out without its intent (review M1): keep it, or keep nothing and send nothing.
@@ -365,7 +374,8 @@ function resolve(vendor, payload, body, deps, env = process.env) {
     beat._end = { vendor, session: id.session, epoch: rep.epoch }
     return beat
   })
-  return { replay }
+  // What the launch side needs (collector-launch.js): which epoch, whether it was opened, which it superseded.
+  return { replay, epoch: r.epoch, opened, superseded, end: Boolean(r.end), pid: ev.pid, kind: ev.kind, name: ev.name }
 }
 
 /** Record the server's answer to an end beat: acked, or failed with the gap end_unacked. */

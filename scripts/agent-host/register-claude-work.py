@@ -3,6 +3,11 @@
 
 Use register, heartbeat, submit or abandon. Authentication comes exclusively
 from BIFROST_DISPATCH_TOKEN. Each run keeps its own state directory.
+
+Collector mode (R5:5.5-12 S1-5; collector token from PLATFORM_COLLECTOR_TOKEN or
+~/.config/bifrost/collector.token): `event` is what the hooks run, detached, for
+one (session, epoch) of a launched session; `bind` registers a session after
+the fact. Both write through collector_work.py, the work's only writer.
 """
 
 from __future__ import annotations
@@ -270,7 +275,21 @@ def main(argv=None) -> int:
             command.add_argument("--report", required=True)
             command.add_argument("--exit-code", type=int, default=0)
             command.add_argument("--commit-sha", action="append", default=[])
+    event = commands.add_parser("event", allow_abbrev=False)
+    event.add_argument("--event", required=True, choices=("start", "heartbeat", "submit", "cancel"))
+    bind = commands.add_parser("bind", allow_abbrev=False)
+    for command in (event, bind):
+        command.add_argument("--vendor", default="claude", choices=("claude",))
+        command.add_argument("--session", required=True)
+        command.add_argument("--epoch", required=True, type=int)
+        command.add_argument("--url", required=True)
+    event.add_argument("--launch", default="")
+    for name in ("root", "node", "description"):
+        bind.add_argument("--" + name, required=True)
+    bind.add_argument("--sidebar", default="")
     options = parser.parse_args(argv)
+    if options.command in ("event", "bind"):
+        return collector_main(options)
     try:
         reply = run(options)
         print(
@@ -286,6 +305,27 @@ def main(argv=None) -> int:
             message = message.replace(token, "[redacted]")
         print(f"claude work failed: {message}", file=sys.stderr)
         return 1
+
+
+def collector_main(options) -> int:
+    """`event` and `bind`: collector mode only, through the work's single writer."""
+    work = importlib.util.module_from_spec(
+        spec := importlib.util.spec_from_file_location("collector_work", Path(__file__).with_name("collector_work.py"))
+    )
+    spec.loader.exec_module(work)
+    try:
+        if options.command == "bind":
+            reply = work.bind(options.vendor, options.session, options.epoch, options.root, options.node, options.description, options.url, options.sidebar)
+        else:
+            reply = work.run_event(options.event, options.vendor, options.session, options.epoch, options.url, options.launch)
+    except (RuntimeError, ValueError, OSError) as exc:
+        token = work.auth.collector_token()
+        message = str(exc).replace(token, "[redacted]") if token else str(exc)
+        print(f"claude work failed: {message}", file=sys.stderr)
+        return 1
+    if reply:
+        print(json.dumps({key: reply[key] for key in ("external_work_id", "state", "seq")}))
+    return 0
 
 
 if __name__ == "__main__":

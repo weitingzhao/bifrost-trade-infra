@@ -42,9 +42,9 @@
  * identity by CLAUDE_PID (§12 D1), one epoch per process and session, an
  * end sent only with its intent persisted, retried at later resumes.
  *
- * Not here (S1-5): registering external work (the single writer is
- * register-claude-work.py) and appending to the launcher's launch.json. Until
- * then a session with whole launcher context sends no client_bind.
+ * Launched and bound sessions (S1-5) are in collector-launch.js: the launch's
+ * sessions, client_bind for them, and the work's single writer
+ * (register-claude-work.py event), started per event.
  *
  *   node collector-session.js diagnose    mode, host id and its source, problems (no secrets)
  */
@@ -188,6 +188,7 @@ module.exports = {
   countReplay: epochs.countReplay,
   noteReplay: epochs.noteReplay,
   processStart: epochs.processStart,
+  afterResolve: (...args) => require('./collector-launch.js').afterResolve(...args),
   endGaps: epochs.endGaps,
   loadEpochs: epochs.loadEpochs,
   sessionDir: epochs.sessionDir,

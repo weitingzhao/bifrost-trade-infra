@@ -83,3 +83,36 @@ The tests use a loopback fake HTTP server and a fake Codex executable. They
 cover registration failure, heartbeats, payload privacy, failed submission
 replay, changed registration rejection, and killing/resuming a live wrapper.
 They neither contact the platform nor run the real Codex CLI.
+
+## Collector mode (R5:5.5-12 S1-5)
+
+With a collector token configured (`PLATFORM_COLLECTOR_TOKEN`, or the first
+line of `~/.config/bifrost/collector.token`) the wrapper registers with it
+instead of `BIFROST_DISPATCH_TOKEN`: vendor `codex`, session = the run key
+(1–128 of `[A-Za-z0-9._:-]`), epoch 1, run key `codex:<run key>:1`; every event
+names that identity, the server writes the host, and `registered_at` is kept
+in `state.json`. The child gets neither token. Without a collector token the
+wrapper is byte for byte what it was (`tests/test_collector_s15_noop.py`).
+
+**Reconcile.** A run whose supervisor vanished without `exit.json` stays
+Running. When no wrapper holds the run, no supervisor holds `child.lock` and
+there is no exit receipt, end it as cancelled with the token it was
+registered with; a second reconcile sends nothing:
+
+```sh
+python3 scripts/agent-host/dispatch-codex.py reconcile --url … \
+  --session local_example --run-key work-example --state-dir /tmp/dispatch-state
+```
+
+**For the Owner: the Codex session id (§12 D8).** Both keep `epoch` the
+wrapper's own count; Codex hook rows stay `unsupported` until their fields are
+verified.
+
+| | A: session = run key (now) | B: session = `thread.started.thread_id` |
+|---|---|---|
+| when known | before launch: registration still precedes the child | ~0.2 s after launch, from `exec --json` on the child's stdout |
+| needs | nothing new | the wrapper owning stdout and parsing JSONL; registration after launch (the fail-closed "register first" order is lost, or a second identity step is needed; the identity is immutable) |
+| resume | a new run key is a new work | `exec resume` keeps the id: the wrapper must count epochs itself (D10) |
+| Codex hook rows | never matched to the work | could match one by one if the hook's `session_id` is the thread id (unverified), after the server stops treating Codex rows as unsupported |
+
+Recommended: A until Codex hook fields are measured.

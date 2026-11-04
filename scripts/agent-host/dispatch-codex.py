@@ -6,7 +6,13 @@ Run with --run-key, --session, --root, --node, --description JSON,
 Authentication is read from BIFROST_DISPATCH_TOKEN (never persisted or sent
 as payload). Re-run the same invocation after a crash to observe the same
 child and replay a durable pending event. A lost child is never relaunched
-implicitly: its run remains Unconfirmed until explicitly reconciled.
+implicitly: its run remains Unconfirmed until explicitly reconciled with
+`reconcile` and the same --url, --session, --run-key and --state-dir.
+
+Collector mode (R5:5.5-12 S1-5): when a collector token is configured
+(PLATFORM_COLLECTOR_TOKEN or ~/.config/bifrost/collector.token) the run is
+registered with it instead, as vendor codex, session <run key>, epoch 1, and
+every event names that identity. Without one nothing changes.
 """
 
 from __future__ import annotations
@@ -14,6 +20,7 @@ from __future__ import annotations
 import argparse
 import fcntl
 import hashlib
+import importlib.util
 import json
 import os
 import subprocess
@@ -23,6 +30,12 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
+
+_auth_spec = importlib.util.spec_from_file_location(
+    "collector_auth", Path(__file__).with_name("collector_auth.py")
+)
+auth = importlib.util.module_from_spec(_auth_spec)
+_auth_spec.loader.exec_module(auth)
 
 
 def digest(data: bytes) -> str:
@@ -95,8 +108,10 @@ class Client:
 class EventJournal:
     """Persist an event before POST and replay its exact key/sequence on retry."""
 
-    def __init__(self, client: Client, path: Path, state: dict, run_key: str):
+    def __init__(self, client: Client, path: Path, state: dict, run_key: str, identity=None):
         self.client, self.path, self.state, self.run_key = client, path, state, run_key
+        # A collector's events each name the identity the work was registered with.
+        self.identity = dict(identity or {})
         self.route = "/external-work/" + urllib.parse.quote(state["id"], safe="")
 
     def deliver_pending(self):
@@ -115,6 +130,7 @@ class EventJournal:
             "idempotency_key": f"{self.run_key}:{seq}",
             "seq": seq,
             "type": kind,
+            **self.identity,
             **fields,
         }
         atomic(self.path, self.state)
@@ -152,11 +168,13 @@ def supervise(directory: Path, lock_fd: int, repo: str, args: list[str]) -> int:
         os.close(lock_fd)
 
 
-def launch(directory: Path, args: list[str], repo: str) -> subprocess.Popen:
+def launch(directory: Path, args: list[str], repo: str, strip=()) -> subprocess.Popen:
     with (directory / "child.lock").open("a") as child_lock:
         fcntl.flock(child_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         env = dict(os.environ)
         env.pop("BIFROST_DISPATCH_TOKEN", None)
+        for name in strip:
+            env.pop(name, None)
         return subprocess.Popen(
             [
                 sys.executable,
@@ -173,17 +191,32 @@ def launch(directory: Path, args: list[str], repo: str) -> subprocess.Popen:
         )
 
 
-def dispatch(options, args: list[str], *, interval=30.0, poll=0.2) -> int:
+def credentials(run_key: str):
+    """The token and, in collector mode, the identity every write names."""
+    collector = auth.collector_token()
+    if collector:
+        if not auth.ID_RE.fullmatch(run_key):
+            raise ValueError("in collector mode the run key is the session: 1-128 of [A-Za-z0-9._:-]")
+        return collector, {"vendor": "codex", "session": run_key, "epoch": 1}
     token = os.environ.get("BIFROST_DISPATCH_TOKEN", "")
     if not token:
         raise ValueError("BIFROST_DISPATCH_TOKEN is required")
-    client = Client(options.url, options.session, token)
-    run_dir = (
+    return token, None
+
+
+def run_directory(options) -> Path:
+    return (
         Path(options.state_dir)
         / hashlib.sha256(
             (options.session + "\0" + options.run_key).encode()
         ).hexdigest()
     )
+
+
+def dispatch(options, args: list[str], *, interval=30.0, poll=0.2) -> int:
+    token, identity = credentials(options.run_key)
+    client = Client(options.url, options.session, token)
+    run_dir = run_directory(options)
     run_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     with (run_dir / "wrapper.lock").open("a") as wrapper_lock:
         try:
@@ -217,6 +250,10 @@ def dispatch(options, args: list[str], *, interval=30.0, poll=0.2) -> int:
             "source_run_key": options.run_key,
             "artifact_id": digest(description),
         }
+        if identity:
+            # The server fixes a collector's run key to its identity (store.IdentityRunKey).
+            registration["source_run_key"] = "codex:" + options.run_key + ":1"
+            registration.update(identity)
         report = str(Path(options.report).resolve())
         repo = str(Path(options.repo).resolve())
         if path.exists():
@@ -241,8 +278,10 @@ def dispatch(options, args: list[str], *, interval=30.0, poll=0.2) -> int:
         )
         out = client.request("POST", "/external-work", registration)
         state["id"] = out["external_work_id"]
+        if identity and out.get("registered_at"):
+            state["registered_at"] = out["registered_at"]
         atomic(path, state)
-        journal = EventJournal(client, path, state, options.run_key)
+        journal = EventJournal(client, path, state, options.run_key, identity)
         event = journal.event
         journal.deliver_pending()
         current = client.request("GET", journal.route)
@@ -262,7 +301,11 @@ def dispatch(options, args: list[str], *, interval=30.0, poll=0.2) -> int:
             # receipt must not permit an implicit second launch on resume.
             state["launch_attempted"] = True
             atomic(path, state)
-            child = launch(run_dir, args, repo)
+            if identity:
+                # The child gets no collector token either; hooks read it from its file.
+                child = launch(run_dir, args, repo, ("PLATFORM_COLLECTOR_TOKEN",))
+            else:
+                child = launch(run_dir, args, repo)
         next_heartbeat = time.monotonic() + interval
         while not (run_dir / "exit.json").exists():
             if (
@@ -304,6 +347,63 @@ def dispatch(options, args: list[str], *, interval=30.0, poll=0.2) -> int:
         return receipt["exit_code"]
 
 
+def reconcile(options) -> int:
+    """End a run whose child vanished without an exit receipt: cancelled, once.
+
+    Only when no wrapper holds the run, no supervisor holds the child lock and
+    no exit.json exists. The token is the one the run was registered with. A
+    run reconciled before, or already ended on the server, sends nothing more.
+    """
+    run_dir = run_directory(options)
+    path = run_dir / "state.json"
+    if not path.is_file():
+        raise ValueError("no run with this session, run key and state dir")
+    with (run_dir / "wrapper.lock").open("a") as wrapper_lock:
+        try:
+            fcntl.flock(wrapper_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise RuntimeError("a wrapper owns this run; it is not lost") from None
+        state = json.loads(path.read_text())
+        if state.get("reconciled") and "pending" not in state:
+            print("reconcile: already ended; nothing sent", file=sys.stderr)
+            return 0
+        if "id" not in state:
+            raise ValueError("the run was never registered; nothing to reconcile")
+        if (run_dir / "exit.json").exists():
+            raise ValueError("the run has an exit receipt; re-run the wrapper to submit it")
+        if child_active(run_dir):
+            raise RuntimeError("the child still holds its lock; it is running")
+        registration = state["registration"]
+        identity = {k: registration[k] for k in ("vendor", "session", "epoch") if k in registration} or None
+        token = auth.collector_token() if identity else os.environ.get("BIFROST_DISPATCH_TOKEN", "")
+        if not token:
+            raise ValueError("the token this run was registered with is not configured")
+        client = Client(options.url, options.session, token)
+        journal = EventJournal(client, path, state, options.run_key, identity)
+        journal.deliver_pending()
+        current = client.request("GET", journal.route)
+        state["seq"] = current["seq"]
+        atomic(path, state)
+        if current["state"] not in ("Submitted", "Cancelled"):
+            journal.event("cancelled")
+        state["reconciled"] = True
+        atomic(path, state)
+        print("reconcile: run ended as cancelled", file=sys.stderr)
+        return 0
+
+
+def main_reconcile(argv) -> int:
+    parser = argparse.ArgumentParser(prog="dispatch-codex.py reconcile", description=reconcile.__doc__)
+    for name in ("url", "session", "run-key", "state-dir"):
+        parser.add_argument("--" + name, required=True)
+    options = parser.parse_args(argv)
+    try:
+        return reconcile(options)
+    except (RuntimeError, ValueError, OSError) as exc:
+        print(f"reconcile failed: {exc}", file=sys.stderr)
+        return 1
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     for name in (
@@ -333,4 +433,6 @@ if __name__ == "__main__":
         sys.exit(
             supervise(Path(sys.argv[2]), int(sys.argv[3]), sys.argv[4], sys.argv[5:])
         )
+    if len(sys.argv) > 1 and sys.argv[1] == "reconcile":
+        sys.exit(main_reconcile(sys.argv[2:]))
     sys.exit(main())

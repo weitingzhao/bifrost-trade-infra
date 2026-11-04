@@ -126,3 +126,65 @@ the same HTTP handler and urllib response/error/redirect chain entirely in
 memory. It supplements, rather than replaces, the unchanged Codex wrapper
 tests and the normal loopback tests. Neither mode runs Claude or uses a real
 credential; the Claude tests fail if the CLI launches a subprocess.
+
+## Collector mode: launched and bound sessions (R5:5.5-12 S1-5)
+
+With a collector token configured (`PLATFORM_COLLECTOR_TOKEN`, or the first
+line of `~/.config/bifrost/collector.token`), Claude work is written by the
+hooks, not by hand. Without one, everything above is unchanged.
+
+**Launch.** `dispatch-claude.py` writes a launch record and the work
+description, then becomes `claude` (exec keeps its pid as `cli_pid`):
+
+```sh
+python3 scripts/agent-host/dispatch-claude.py \
+  --root R5 --node 'R5:5.5-12' --plan-version 7 --acceptance-ref S1-5 \
+  --task '…' --repo bifrost-trade-infra --branch r5/example \
+  --estimate-minutes 30 60 -- [claude arguments]
+python3 scripts/agent-host/dispatch-claude.py --unlinked -- [claude arguments]
+```
+
+Every description field is required; an incomplete one exits 2 and writes
+nothing. The record is `~/.cache/bifrost/external-work/launches/<id>/launch.json`
+(mode 600): host, cli_pid, sidebar, plan context and `sessions`, to which the
+hooks append each (session, epoch) the CLI opens. A process inside a running
+Claude session has `CLAUDE_CODE_SESSION_ID`; its `CLAUDE_CODE_HOST_SESSION_ID`
+belongs to that session, so the launch uses `launch-<id>` (§12 D6). Only the
+launch's own process (CLAUDE_PID equal to `cli_pid`) is the launch: a session
+started inside it inherits the environment and is reported unlinked.
+
+**The single writer.** For a linked launch the hooks start, detached,
+`register-claude-work.py event --event start|heartbeat|submit|cancel` for the
+epoch: registration (vendor, session, epoch; run key `claude:<session>:<epoch>`)
+and `started` at the first event, a heartbeat at each prompt and turn end and
+at most every 30 seconds on tool events, `submitted` at SessionEnd, and
+`cancelled` for an epoch a resume superseded. The work's directory is
+`~/.cache/bifrost/external-work/claude/<session>/<epoch>/`; `wrapper.lock`
+makes that call its only writer, and every call converges (register and start
+first, then its own event), so calls arriving out of order are harmless.
+
+**Bind after the fact.** A session that was not launched (desktop, hand-started
+CLI) is registered with its CLI session id and epoch:
+
+```sh
+python3 scripts/agent-host/register-claude-work.py bind --session <CLI session id> \
+  --epoch 1 --url "$PLATFORM_HEARTBEAT_URL" --root R5 --node 'R5:5.5-12' --description desc.json
+```
+
+Repeating the same bind writes nothing; other content for the same epoch is
+refused. Its later hook events drive the same writer.
+
+**Waiting for registration (§13 I6).** Until a linked launch's registration
+has arrived, its beats carry no `client_bind`: the platform's reason set has no
+value for "pending". `node agent-config/scripts/collector-audit.js` says it
+locally (`registration: pending`) and reports a launch whose `sessions` stayed
+empty as `launch_without_sessions`. Asked of the platform: a reason
+`registration_pending` (state unlinked) in the closed set, after which the hooks
+can send it. A refused registration (HTTP 4xx) is kept and reported as
+`refused / register_failed`; only `bind` retries it.
+
+```sh
+python3 -m pytest -q scripts/agent-host/tests/test_collector_launch.py \
+  scripts/agent-host/tests/test_collector_codex.py scripts/agent-host/tests/test_collector_s15_noop.py \
+  scripts/agent-host/tests/test_collector_s15_mutation.py
+```

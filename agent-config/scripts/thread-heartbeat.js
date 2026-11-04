@@ -1337,6 +1337,11 @@ async function collectorPrepare(collector, vendor, payload, body) {
   const deps = collectorDeps(collector)
   const r = collector.resolve(vendor, payload, body, deps)
   if (r.drop) return false
+  try {
+    collector.afterResolve(vendor, payload, body, r, deps, process.env, baseURL())
+  } catch {
+    // the beat still goes; the launch record and the writer are the audit's to check
+  }
   for (const beat of r.replay) {
     // A resend never costs this hook's own beat its turn: it goes only while
     // the budget still holds that beat's lock wait and send. A skipped one stays
