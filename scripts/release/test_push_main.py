@@ -846,7 +846,54 @@ class PushMain(_Fixture):
         self.assertIn("push-main: 2 of 2 test runs passed (2 files)", r.stdout)
         self.assertEqual(_git(origin, "rev-parse", "main"), head)
 
-    # TD-413 docs: a push that changes only Markdown runs none of the tests
+    # TD-515: a push that changes a hook script runs the hook scripts' node tests.
+    def _hooks(self, work: Path, fails: bool) -> None:
+        self._add(work, "agent-config/scripts/hook.js", "module.exports = { v: 1 }\n")
+        self._add(work, "agent-config/scripts/hook.test.js",
+                  "const test = require('node:test')\nconst assert = require('node:assert')\n"
+                  "test('hook regression', () => {\n  console.log('hook regression ran')\n"
+                  f"  assert.equal({'1' if fails else '0'}, 0)\n}})\n")
+        _git(work, "push", "--quiet", "origin", "main")
+
+    def test_a_change_to_a_hook_script_runs_the_node_tests(self) -> None:
+        origin, work = self._infra()
+        self._hooks(work, True)
+        before = _git(origin, "rev-parse", "main")
+        self._add(work, "agent-config/scripts/hook.js", "module.exports = { v: 2 }\n")
+        r = self._push(cwd=work)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("tests of bifrost-trade-infra: scripts/release agent-config/scripts/hook.test.js, one process per test file",
+                      r.stdout)
+        self.assertIn("push-main: FAILED agent-config/scripts/hook.test.js (exit 1", r.stdout)
+        self.assertIn("hook regression ran", r.stdout)
+        self.assertEqual(_git(origin, "rev-parse", "main"), before)
+
+    def test_node_tests_run_only_when_the_push_changes_a_hook_script(self) -> None:
+        origin, work = self._infra()
+        self._hooks(work, True)
+        # The red node test is not this push's: it changes no hook script.
+        head = self._add(work, "scripts/release/helper.py", "X = 2\n")
+        r = self._push(cwd=work)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn("hook.test.js", r.stdout)
+        self.assertEqual(_git(origin, "rev-parse", "main"), head)
+        # Nor does a script one directory down: landing has its own tests.
+        head = self._add(work, "agent-config/scripts/landing/notes.js", "// a helper\n")
+        r = self._push(cwd=work)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn("hook.test.js", r.stdout)
+        self.assertEqual(_git(origin, "rev-parse", "main"), head)
+
+    def test_a_green_node_test_lets_the_push_through(self) -> None:
+        origin, work = self._infra()
+        self._hooks(work, False)
+        head = self._add(work, "agent-config/scripts/hook.js", "module.exports = { v: 3 }\n")
+        r = self._push(cwd=work)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("push-main: 2 of 2 test runs passed (2 files)", r.stdout)
+        self.assertEqual(_git(origin, "rev-parse", "main"), head)
+
+    # TD-413 docs:a push that changes only Markdown runs none of the tests
     # but the document guards (the exam-key scan), and says so without a
     # reason; one file that is not Markdown beside them runs every test.
     def _infra_red(self) -> tuple[Path, Path]:

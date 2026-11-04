@@ -357,6 +357,13 @@ run_tests() {
         done
         wanted+=(agent-config/scripts/landing)
       fi
+      # TD-515: the hook scripts' node tests, when the push changes a hook
+      # script; no gate ran them before, and one stayed red for weeks.
+      if $hooks_touched; then
+        for p in "$tree"/agent-config/scripts/*.test.js; do
+          [[ -f "$p" ]] && wanted+=("${p#"$tree"/}")
+        done
+      fi
       if $docs_only; then
         # Every document guard must be there to stand for the rest; one that
         # is not runs every test instead (review td413docs-1 B2).
@@ -436,18 +443,19 @@ if [[ "$rc" -ne 0 ]]; then
 fi
 # The verdict ("docs" or "code") on the first line; the documents as a
 # line on the second: the first five, shown with escapes, and how many more;
-# on the third, "landing" when a change is under agent-config/scripts/landing/.
+# on the third, "landing" when a change is under agent-config/scripts/landing/;
+# on the fourth, "hooks" when a change is a .js file in agent-config/scripts/.
 verdict="$(python3 - "$raw" <<'PY'
 import sys
 data = open(sys.argv[1], "rb").read().split(b"\0")
-paths, docs, i, landing = [], True, 0, False
+paths, docs, i, landing, hooks = [], True, 0, False, False
 while i < len(data) - 1:
     meta, path = data[i].decode("ascii", "replace"), data[i + 1].decode("utf-8", "surrogateescape")
     i += 2
     fields = meta.lstrip(":").split()
     if len(fields) < 5:
-        # A record it cannot read: every test, the landing ones too.
-        docs, landing = False, True
+        # A record it cannot read: every test, the landing and hook ones too.
+        docs, landing, hooks = False, True, True
         break
     old, new, status = fields[0], fields[1], fields[4]
     plain = {old, new} <= {"000000", "100644"} and (status in ("A", "D") or (status == "M" and old == new))
@@ -455,12 +463,15 @@ while i < len(data) - 1:
         docs = False
     if path.startswith("agent-config/scripts/landing/"):
         landing = True
+    if path.startswith("agent-config/scripts/") and "/" not in path[len("agent-config/scripts/"):] and path.endswith(".js"):
+        hooks = True
     paths.append("".join(c if c.isprintable() else c.encode("unicode_escape", "backslashreplace").decode() for c in path))
 docs = docs and bool(paths)
 shown = ", ".join(paths[:5]) + (f", and {len(paths) - 5} more" if len(paths) > 5 else "")
 print("docs" if docs else "code")
 print(shown)
 print("landing" if landing else "-")
+print("hooks" if hooks else "-")
 PY
 )" || rc=$?
 rm -f "$raw"
@@ -470,6 +481,8 @@ docs_only=false
 docs_said="$(sed -n 2p <<<"$verdict")"
 landing_touched=false
 [[ "$(sed -n 3p <<<"$verdict")" == "landing" ]] && landing_touched=true
+hooks_touched=false
+[[ "$(sed -n 4p <<<"$verdict")" == "hooks" ]] && hooks_touched=true
 
 # ci — <commit> has a Succeeded ci-* run of its repo (W-31 3.4 ②), or the push stops.
 ci() {

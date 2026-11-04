@@ -7,7 +7,8 @@ Run from the root of the tree under test; paths are relative to it. A directory
 stands for the pytest files under it (test_*.py and *_test.py, in the directories
 pytest itself enters: not hidden ones, build, dist, node_modules, venv, *.egg,
 CVS, _darcs, {arch}, nor one holding a virtual environment). A .py file runs
-with pytest -q -p no:cacheprovider, a .sh file with bash.
+with pytest -q -p no:cacheprovider, a .sh file with bash, a .test.js file with
+node --test (TD-515).
 
 A test file runs as one process, or, from PART_BYTES of source up, as one per
 part: part i of n runs the file's i-th, (i+n)-th, ... tests in collection
@@ -117,6 +118,8 @@ def runs_of(root: Path, path: str) -> list[tuple[str, list[str], int]]:
     size = (root / path).stat().st_size
     if path.endswith(".sh"):
         return [(path, ["bash", path], size)]
+    if path.endswith(".test.js"):
+        return [(path, ["node", "--test", path], size)]
     parts = max(1, math.ceil(size / PART_BYTES))
     if parts == 1:
         return [(path, ["python3", "-m", "pytest", *PYTEST, path], size)]

@@ -3917,17 +3917,6 @@
 - **防线**：store 测试 `TestTD514RecordedRequestSkipsTheStreamLock`：另一个连接占着流锁时，已记的观察立即返回；新状态确实等到超时（正向对照）；对不上的重复仍被拒。修复前它失败，报错与 PROD 日志相同。
 - **验收**：`go -C api test ./internal/agentrt/store/ -run TestTD514 -count=3` 在设好 `AGENTRT_TEST_PG` 和 `AGENTRT_TEST_REQUIRED=1` 时通过；修复上线后，下一次有落地在跑的那一小时里 `kubectl -n bifrost-platform-prod logs deploy/platform-workers --since=1h | grep -c 'agentrt-landing-requests'` 为 0。
 
-### TD-515
-
-**P3 · 门禁 · `agent-config/scripts` 下的 node 测试不在任何门禁里，红了也没人知道**
-
-- **状态**：未开始（2026-11-04 记，R5:5.5-12 S1-4 开发时发现）。
-- **证据**：`agent-config/scripts/progress-publish.test.js` 里「nothing exported can send a request to a caller-chosen path」一条，在 infra `4508170` 及更早的提交上一直失败：它列出的 `thread-heartbeat.js` 导出清单缺 `startProgressBeats`（那个函数只往心跳路由发 after_tool，调用方给的是字段不是路径）。这一条已在 S1-5 之后的提交里修好，但它能红这么久是因为没有门禁跑它：ci-infra 的 quick 段只跑 platform `api/cmd/infracheck --print-check` 给出的 pytest 清单；`scripts/release/push-main.sh` 推 infra 时只跑 `scripts/release`、`scripts/agentrt`、`scripts/agent-host`（改了落地脚本时加 `agent-config/scripts/landing`）的 pytest 与 .sh。`agent-config/scripts/*.test.js` 共 8 个文件（其中 5 个是 R5:5.5-12 新加的），都只在改它的人手动跑时才跑。另：`host-heartbeat.test.js` 的安装器用例要从脚本目录往上找到工作区根，在没有工作区布局的独立检出里必失败（工作区里 14/14 通过）。
-- **影响**：钩子脚本（每个会话都会执行）的测试坏了不会挡住任何推送；真的新失败会被已有的红掩盖。
-- **修法**：push-main 推 infra 时，凡改到 `agent-config/scripts/*.js`，就在干净检出上跑 `node --test agent-config/scripts/*.test.js`（检出要像 push-main 现在给 platform 那样摆出工作区布局，安装器用例才找得到工作区根）；ci-infra 的 quick 段同样加上（先确认 ci-infra-tools 镜像里有 node）。
-- **防线**：push-main 的测试加一个用例：一个改了 `agent-config/scripts/` 下 .js 的提交，其 node 测试失败时拒推。
-- **验收**：`bash scripts/release/test_push_main.sh` 通过，新用例在本条修复前失败；`node --test agent-config/scripts/*.test.js` 在 main 上全部通过。
-
 ### TD-516
 
 **P3 · 运行时 · 外部工作重放：同一个幂等键换了三元组，回的是 `key_conflict` 而不是 `identity_mismatch`**
