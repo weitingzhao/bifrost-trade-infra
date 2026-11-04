@@ -1,0 +1,5 @@
+{"_meta": {"scrubbed": true, "source": "codex", "format": "exec-jsonl", "run_mode": "codex exec --json resume <thread_id>", "cli_version": "codex-cli 0.166.0-alpha.5.1", "evidence": "raw/x05-resume-stream.jsonl", "note": "_ms = ms since the reader started"}}
+{"_ms": 273, "obj": {"type": "thread.started", "thread_id": "00000000-0000-7000-8000-000000000001"}}
+{"_ms": 460, "obj": {"type": "turn.started"}}
+{"_ms": 3112, "obj": {"type": "item.completed", "item": {"id": "item_0", "type": "agent_message", "text": "ok"}}}
+{"_ms": 3132, "obj": {"type": "turn.completed", "usage": {"input_tokens": 31126, "cached_input_tokens": 27648, "cache_write_input_tokens": 0, "output_tokens": 10, "reasoning_output_tokens": 0}}}

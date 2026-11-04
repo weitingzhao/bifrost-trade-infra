@@ -38,6 +38,12 @@
  *                             walking up from this file to the directory that
  *                             contains bifrost-platform/config/ops-context.yaml.
  *   BIFROST_HEARTBEAT=off     send nothing
+ *
+ * Collector mode (R5:5.5-12 S1-4): when a collector token is configured
+ * (PLATFORM_COLLECTOR_TOKEN or ~/.config/bifrost/collector.token), the beat is
+ * sent with it, `token` reports whether it is readable, and the host is the
+ * host id (BIFROST_HOST_ID or ~/.config/bifrost/host-id, else the OS short
+ * name). Without one, the reporter token and the OS short name, as before.
  */
 const fs = require('node:fs')
 const os = require('node:os')
@@ -52,7 +58,19 @@ function home(...p) {
   return path.join(process.env.BIFROST_HOME_OVERRIDE || os.homedir(), ...p)
 }
 
+/** The collector module when a collector token is configured; any failure is reporter mode. */
+function collectorMode() {
+  try {
+    const mod = require('./collector-session.js')
+    return mod.collectorToken() ? mod : null
+  } catch {
+    return null
+  }
+}
+
 function tokenText() {
+  const collector = collectorMode()
+  if (collector) return collector.collectorToken()
   if (process.env.PLATFORM_REPORTER_TOKEN) return process.env.PLATFORM_REPORTER_TOKEN.trim()
   try {
     return fs.readFileSync(home('.config', 'bifrost', 'lineage-reporter.token'), 'utf8').split('\n')[0].trim()
@@ -70,6 +88,8 @@ function baseURL() {
 }
 
 function hostName() {
+  const collector = collectorMode()
+  if (collector) return collector.hostIdentity().host
   return (os.hostname().split('.')[0] || 'unknown').replace(/[^A-Za-z0-9._-]/g, '-').slice(0, 64)
 }
 

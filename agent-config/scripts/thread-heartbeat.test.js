@@ -27,6 +27,9 @@ delete process.env.BIFROST_HEARTBEAT_RUN_BEAT_MS
 delete process.env.CLAUDE_CODE_HOST_SESSION_ID
 delete process.env.CURSOR_CONVERSATION_ID
 delete process.env.CURSOR_SESSION_ID
+// Collector mode has its own tests (collector-*.test.js); these run in reporter mode.
+delete process.env.PLATFORM_COLLECTOR_TOKEN
+delete process.env.BIFROST_HOST_ID
 
 const { beatFor, toolTimeoutSeconds, shouldSkip, reduceThrottle, allocateStamp, loadGate, supersedeActive, saveIssuedKey, withThreadLock, armHookDeadline, clearHookDeadline, lockRuntime, startProgressBeats } = require('./thread-heartbeat.js')
 const ISSUED_KEY = 'ab'.repeat(32)

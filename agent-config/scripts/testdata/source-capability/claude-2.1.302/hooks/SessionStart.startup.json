@@ -1,0 +1,41 @@
+{
+  "_meta": {
+    "scrubbed": true,
+    "source": "claude-code",
+    "format": "hook-stdin-json",
+    "run_mode": "p",
+    "cli_version": "2.1.302",
+    "observed_at": "2026-11-04T05:57:20.324Z",
+    "evidence": "raw/c01-hooklog.jsonl"
+  },
+  "payload": {
+    "session_id": "00000000-0000-4000-8000-000000000001",
+    "transcript_path": "<home>/.claude/projects/<encoded-project>/00000000-0000-4000-8000-000000000001.jsonl",
+    "cwd": "<project>",
+    "hook_event_name": "SessionStart",
+    "source": "startup"
+  },
+  "hook_process": {
+    "parent_comm": "claude",
+    "parent_is_cli": true,
+    "env_pid_match": null
+  },
+  "env_names_relevant": [
+    "CLAUDECODE",
+    "CLAUDE_CODE_CHILD_SESSION",
+    "CLAUDE_CODE_ENTRYPOINT",
+    "CLAUDE_CODE_MESSAGING_SOCKET",
+    "CLAUDE_CODE_MESSAGING_TOKEN",
+    "CLAUDE_CODE_SESSION_ATTENDED",
+    "CLAUDE_CODE_SESSION_ID",
+    "CLAUDE_ENV_FILE",
+    "CLAUDE_PID",
+    "CLAUDE_PROJECT_DIR"
+  ],
+  "env_eq_session_id": [
+    "CLAUDE_CODE_SESSION_ID"
+  ],
+  "transcript_stat": {
+    "exists": false
+  }
+}

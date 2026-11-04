@@ -61,6 +61,14 @@
  * When the environment has a sidebar thread id, every beat also carries it as
  * `sidebar`: CLAUDE_CODE_HOST_SESSION_ID. When it is not set, the field is absent and the
  * beat is unchanged. The platform decides whether an old session was superseded.
+ *
+ * Collector mode (R5:5.5-12 S1-4) is off until a collector token is configured
+ * (PLATFORM_COLLECTOR_TOKEN, or ~/.config/bifrost/collector.token). Without
+ * one, every request is the one this script sent before. With one, heartbeats
+ * use that token, the host id (BIFROST_HOST_ID or ~/.config/bifrost/host-id),
+ * no title, the session fields and epochs of collector-session.js, and its
+ * extra events (SessionStart, PreCompact, SessionEnd, StopFailure). Progress
+ * documents keep the reporter token in both modes.
  */
 const fs = require('node:fs')
 const os = require('node:os')
@@ -128,6 +136,7 @@ function home(...p) {
   return path.join(process.env.BIFROST_HOME_OVERRIDE || os.homedir(), ...p)
 }
 
+/** The reporter token: progress documents, and every heartbeat outside collector mode. */
 function token() {
   if (process.env.PLATFORM_REPORTER_TOKEN) return process.env.PLATFORM_REPORTER_TOKEN.trim()
   try {
@@ -135,6 +144,27 @@ function token() {
   } catch {
     return ''
   }
+}
+
+/**
+ * The collector module when a collector token is configured, else null.
+ * Any failure to load or read it is reporter mode: the hooks then do exactly
+ * what they did before collector mode existed.
+ */
+function collectorMode() {
+  try {
+    const mod = require('./collector-session.js')
+    return mod.collectorToken() ? mod : null
+  } catch {
+    return null
+  }
+}
+
+/** The credential a heartbeat is sent with: the collector's for a collector-built beat, else the reporter's. */
+function heartbeatToken(body) {
+  if (!body || !body.identity) return token()
+  const mod = collectorMode()
+  return mod ? mod.collectorToken() : ''
 }
 
 function baseURL() {
@@ -228,9 +258,13 @@ function attachSidebar(body) {
   return body
 }
 
-/** Map one hook payload to a heartbeat body, or null when the event is not one we report. */
-function beatFor(vendor, payload) {
-  const map = EVENTS[vendor]
+/**
+ * Map one hook payload to a heartbeat body, or null when the event is not one
+ * we report. `collector` is the collector module in collector mode: its event
+ * table, the host id, no title, and the identity fields (body.identity).
+ */
+function beatFor(vendor, payload, collector) {
+  const map = collector ? collector.eventMap(vendor, EVENTS) : EVENTS[vendor]
   if (!map || !payload || typeof payload !== 'object') return null
   let event = map[payload.hook_event_name]
   let reason = ''
@@ -241,15 +275,21 @@ function beatFor(vendor, payload) {
     reason = kind
   }
   if (!event) return null
+  if (collector) {
+    const side = collector.sideReason(vendor, event, payload)
+    if (side === null) return null
+    if (side) reason = side
+  }
   let override = (process.env.BIFROST_HEARTBEAT_THREAD || '').trim()
   // Only hooks inherited from the run wrapper may use its reserved namespace.
   if (override.startsWith('run-') && process.env.BIFROST_HEARTBEAT_WRAPPED_RUN !== '1') override = ''
   const thread = String(override || payload.session_id || payload.conversation_id || '').trim()
   if (!thread) return null
-  let title = (process.env.BIFROST_HEARTBEAT_TITLE || '').trim()
-  if (!title && vendor === 'claude') title = claudeTitle(thread)
-  if (!title && vendor === 'codex') title = codexTitle(thread)
-  const body = { thread, vendor, host: hostName(), event }
+  // A collector never reads or sends a title (R5:5.5-12 C10).
+  let title = collector ? '' : (process.env.BIFROST_HEARTBEAT_TITLE || '').trim()
+  if (!collector && !title && vendor === 'claude') title = claudeTitle(thread)
+  if (!collector && !title && vendor === 'codex') title = codexTitle(thread)
+  const body = { thread, vendor, host: collector ? collector.hostIdentity().host : hostName(), event }
   const work = workFrom(title)
   if (work) body.work = work
   if (title) body.title = title.slice(0, 160)
@@ -264,13 +304,23 @@ function beatFor(vendor, payload) {
   }
   const useID = String(payload.tool_use_id || payload.tool_call_id || '').trim()
   if (useID) body.tool_use_id = useID.replace(/[^A-Za-z0-9_.:-]/g, '').slice(0, 128)
+  if (collector) body.identity = collector.identity(vendor, payload)
   return attachSidebar(body)
 }
 
+// `session` here is the local gate key and `_end` the local end record; neither
+// is sent. A collector beat's identity fields (the raw vendor session among
+// them) are sent at the top level.
 function wireBody(body) {
   const out = { ...body }
   delete out.tool_use_id
   delete out.session
+  delete out._end
+  if (out.identity) {
+    const id = out.identity
+    delete out.identity
+    Object.assign(out, id)
+  }
   return out
 }
 
@@ -567,11 +617,13 @@ const lockRuntime = {
   },
 }
 
-function holdFlock(lockPath) {
+function holdFlock(lockPath, capMs) {
   // Fixed before preparation. Hook mode uses the shared hook deadline, so the
   // time spent preparing and starting the helper is not added back on.
   if (lockBudgetMs() < 1) throw new Error('thread lock timeout')
-  const deadline = hookDeadline ? hookDeadline : lockRuntime.now() + LOCK_WAIT_MS
+  let deadline = hookDeadline ? hookDeadline : lockRuntime.now() + LOCK_WAIT_MS
+  // A capped wait (the epoch lock) leaves the rest of the budget to the thread lock.
+  if (capMs > 0) deadline = Math.min(deadline, lockRuntime.now() + capMs)
   lockRuntime.prepare(lockPath)
   const ready = `${lockPath}.ready.${process.pid}.${crypto.randomBytes(4).toString('hex')}`
   const remaining = deadline - lockRuntime.now()
@@ -717,6 +769,21 @@ function beginTryHold(lockPath) {
       finish(null, 'cancel')
     },
   }
+}
+
+/** The epoch lock of collector mode: the same flock helper, waiting at most capMs. */
+function withFileLock(lockPath, fn, capMs) {
+  fs.mkdirSync(path.dirname(lockPath), { recursive: true, mode: 0o700 })
+  const held = holdFlock(lockPath, capMs)
+  try {
+    return fn()
+  } finally {
+    held.release()
+  }
+}
+
+function collectorDeps(collector) {
+  return { withLock: (lockPath, fn) => withFileLock(lockPath, fn, collector.EPOCH_LOCK_MS) }
 }
 
 /** Cross-process lock. The kernel releases the flock when this process exits. */
@@ -910,7 +977,7 @@ async function publishProgress(bodyBuffer, deadlineMs) {
 }
 
 async function post(body, timeoutMs = 5000, signal) {
-  const tok = token()
+  const tok = heartbeatToken(body)
   if (!tok || process.env.BIFROST_HEARTBEAT === 'off') return { sent: false, why: tok ? 'off' : 'no reporter token', key: '' }
   try {
     const res = await fetch(`${baseURL()}${ROUTE}`, {
@@ -1060,7 +1127,7 @@ async function postProgressRecover(body, control) {
 
 /** Hand the POST to a detached child. The body sits in a mode-600 file, not the environment. */
 function sendDetached(body) {
-  if (!token() || process.env.BIFROST_HEARTBEAT === 'off') return
+  if (!heartbeatToken(body) || process.env.BIFROST_HEARTBEAT === 'off') return
   const dir = home('.cache', 'bifrost', 'heartbeat-out')
   let file = ''
   try {
@@ -1229,12 +1296,14 @@ async function hook(vendor) {
   } catch {
     return
   }
-  const body = beatFor(vendor, payload)
+  const collector = collectorMode()
+  const body = beatFor(vendor, payload, collector)
   if (!body) return
   body.session = body.thread
   const first = !hasActiveKey(body.vendor, body.session)
   // A throttled tool event must not skip the turn_start the server never confirmed.
   if (!first && !hasUnconfirmedTurn(body.vendor, body.session) && throttled(body)) return
+  if (collector && !(await collectorPrepare(collector, vendor, payload, body))) return
   try {
     allocateStamp(body)
   } catch {
@@ -1245,9 +1314,31 @@ async function hook(vendor) {
   if (first || hasUnconfirmedTurn(body.vendor, body.session)) {
     const res = await postRecover(body, FIRST_EVENT_TIMEOUT_MS)
     if (res.sent) rememberSent(body)
+    if (body._end) collector.recordEnd(body._end, res, collectorDeps(collector))
     return
   }
   sendDetached(body)
+}
+
+/**
+ * Collector mode only: give the beat its epoch under the epoch lock, and
+ * first send again an earlier epoch's end the server never acked (a resume).
+ * False when the beat is not sent (a late or unresolved session end).
+ */
+async function collectorPrepare(collector, vendor, payload, body) {
+  if (process.env.BIFROST_HEARTBEAT === 'off') return true
+  const deps = collectorDeps(collector)
+  const r = collector.resolve(vendor, payload, body, deps)
+  if (r.drop) return false
+  for (const beat of r.replay) {
+    try {
+      allocateStamp(beat)
+      collector.recordEnd(beat._end, await postRecover(beat, FIRST_EVENT_TIMEOUT_MS), deps)
+    } catch {
+      // the end stays unacked; the audit reports it
+    }
+  }
+  return true
 }
 
 async function run(vendor, argv) {
@@ -1260,9 +1351,13 @@ async function run(vendor, argv) {
   const override = (process.env.BIFROST_HEARTBEAT_THREAD || '').trim()
   const thread = override ? (override.startsWith('run-') ? override : `run-${override}`) : `run-${crypto.randomUUID()}`
   const title = (process.env.BIFROST_HEARTBEAT_TITLE || `headless ${path.basename(cmd[0])}`).slice(0, 160)
-  const base = { thread, vendor, host: hostName(), title, session: thread }
+  const collector = collectorMode()
+  // A collector's run beats carry no title and no vendor session (the wrapper is not one).
+  const base = collector
+    ? { thread, vendor, host: collector.hostIdentity().host, session: thread, identity: collector.runIdentity() }
+    : { thread, vendor, host: hostName(), title, session: thread }
   attachSidebar(base)
-  const work = workFrom(title)
+  const work = workFrom(collector ? '' : title)
   if (work) base.work = work
   const start = { ...base, event: 'turn_start' }
   try {
@@ -1310,7 +1405,11 @@ async function main(argv) {
       } catch {
         // unlinking a sent file is best-effort
       }
-      await postRecover(JSON.parse(raw))
+      const body = JSON.parse(raw)
+      const res = await postRecover(body)
+      // A session end records the server's answer on its epoch (collector mode).
+      const collector = body._end ? collectorMode() : null
+      if (collector) collector.recordEnd(body._end, res, collectorDeps(collector))
     } catch {
       // a lost detached beat is not retried here; the next event sends again
     }

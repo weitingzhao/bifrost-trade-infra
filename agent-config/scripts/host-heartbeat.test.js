@@ -7,6 +7,10 @@ const path = require('node:path')
 const { spawn } = require('node:child_process')
 const test = require('node:test')
 
+// Collector mode has its own tests (collector-*.test.js); these run in reporter mode.
+delete process.env.PLATFORM_COLLECTOR_TOKEN
+delete process.env.BIFROST_HOST_ID
+
 const SCRIPT = path.join(__dirname, 'host-heartbeat.js')
 const HEARTBEAT = path.join(__dirname, 'thread-heartbeat.js')
 const { buildReport, findWorkspace } = require('./host-heartbeat.js')

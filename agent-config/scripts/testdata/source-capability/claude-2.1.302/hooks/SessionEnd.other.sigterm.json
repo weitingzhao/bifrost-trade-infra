@@ -1,0 +1,48 @@
+{
+  "_meta": {
+    "scrubbed": true,
+    "source": "claude-code",
+    "format": "hook-stdin-json",
+    "run_mode": "interactive, kill -TERM",
+    "cli_version": "2.1.302",
+    "observed_at": "2026-11-04T06:01:56.265Z",
+    "evidence": "raw/i3-sigterm-hooklog.jsonl"
+  },
+  "payload": {
+    "session_id": "00000000-0000-4000-8000-000000000001",
+    "transcript_path": "<home>/.claude/projects/<encoded-project>/00000000-0000-4000-8000-000000000001.jsonl",
+    "cwd": "<project>",
+    "prompt_id": "00000000-0000-4000-8000-000000000002",
+    "hook_event_name": "SessionEnd",
+    "reason": "other"
+  },
+  "hook_process": {
+    "parent_comm": "claude",
+    "parent_is_cli": true,
+    "env_pid_match": {
+      "CLAUDECODE": 2,
+      "CLAUDE_CODE_CHILD_SESSION": 2,
+      "CLAUDE_CODE_SESSION_ATTENDED": 2,
+      "CLAUDE_PID": 0,
+      "DISABLE_AUTOUPDATER": 2,
+      "NoDefaultCurrentDirectoryInExePath": 2,
+      "SHLVL": 2
+    }
+  },
+  "env_names_relevant": [
+    "CLAUDECODE",
+    "CLAUDE_CODE_CHILD_SESSION",
+    "CLAUDE_CODE_ENTRYPOINT",
+    "CLAUDE_CODE_SESSION_ATTENDED",
+    "CLAUDE_CODE_SESSION_ID",
+    "CLAUDE_PID",
+    "CLAUDE_PROJECT_DIR"
+  ],
+  "env_eq_session_id": [
+    "CLAUDE_CODE_SESSION_ID"
+  ],
+  "transcript_stat": {
+    "exists": true,
+    "size": 47959
+  }
+}

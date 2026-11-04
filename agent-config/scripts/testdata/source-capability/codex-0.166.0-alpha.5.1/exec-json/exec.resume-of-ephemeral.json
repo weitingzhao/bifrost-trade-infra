@@ -1,0 +1,15 @@
+{
+  "_meta": {
+    "scrubbed": true,
+    "source": "codex",
+    "format": "exec-jsonl",
+    "run_mode": "codex exec --json resume <ephemeral thread_id>",
+    "cli_version": "codex-cli 0.166.0-alpha.5.1",
+    "evidence": "raw/x06-resume-ephemeral-*"
+  },
+  "stdout_lines": 0,
+  "exit_code": 1,
+  "stderr": [
+    "Error: thread/resume: thread/resume failed: no rollout found for thread id 00000000-0000-7000-8000-000000000001 (code -32600)"
+  ]
+}
