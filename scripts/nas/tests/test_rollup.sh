@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # backup-rollup/rollup.sh (runbook §5.1): publish, link-dest, retention, failures.
 # Regression tests of the implementation review: M5, S2, S4, S5; of the fix review: R4, S2
-# (the publish failure comes from the mv shim of lib.sh, not from a switch in rollup.sh).
+# (the publish failure comes from the mv shim of lib.sh, not from a switch in rollup.sh);
+# of its round 3: F1, F2 (and test_registry_check.py, run from here).
 # MinIO sources (the read-back, R3) are in test_rollup_minio.sh. Run through run.sh.
 set -euo pipefail
 . "$(dirname "$0")/lib.sh"
@@ -122,6 +123,18 @@ mv /rconf/registry-data.digests /tmp/digests.keep
 neg "R4: a registry source without its expected digest list" registry-data
 mv /tmp/digests.keep /rconf/registry-data.digests
 expect_ok "R4 control: the index, its child and the untagged expected image publish" bash "$ROLL" "${R[@]}"
+# fix review round 3 at the roll-up entry (the checker's own cases: test_registry_check.py)
+BADIDX=$(blob "{\"schemaVersion\":2,\"mediaType\":\"$OI\",\"manifests\":[{\"mediaType\":\"$OM\",\"digest\":\"$CHILD\",\"size\":1}]}")
+link multi revision "$BADIDX"; cp /rconf/registry-data.digests /tmp/digests.keep
+printf '%s\n' "multi@$CHILD" "multi@$BADIDX" >> /rconf/registry-data.digests
+neg "F1: an index that states the wrong size of a child already walked" registry-data
+cp /tmp/digests.keep /rconf/registry-data.digests
+mkdir -p "$V2/repositories/app/_manifests/tags/broken/index/sha256/${APP#sha256:}" "$V2/repositories/app/_manifests/tags/broken/current"
+printf '%s' "$APP" > "$V2/repositories/app/_manifests/tags/broken/index/sha256/${APP#sha256:}/link"
+neg "F2: an extra tag without its current/link" registry-data
+rm -rf "$V2/repositories/app/_manifests/tags/broken"
+expect_ok "F1/F2 control: the repaired registry publishes" bash "$ROLL" "${R[@]}"
+expect_ok "registry-check.py unit tests (F1, F2, S3)" python3 "$SRC/tests/test_registry_check.py"
 
 # ---- in progress / not OK (unchanged rules)
 mkdir "$B1/daily/.partial-2026-11-08T043000Z"
