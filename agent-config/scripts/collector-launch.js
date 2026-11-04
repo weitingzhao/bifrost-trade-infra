@@ -13,9 +13,10 @@
  * For the launch's own process, each epoch the hooks open is appended to the
  * record's `sessions`, and for a linked launch the work's single writer
  * (register-claude-work.py event) is started, detached, per event:
- * SessionStart → start; an epoch a resume superseded has its work cancelled,
- * whichever process resumed (its cancel kept first: a late start of it
- * registers nothing);
+ * SessionStart → start; every epoch a resume superseded gets its cancel kept
+ * (terminal.json), whichever process resumed and whether or not its work
+ * exists yet, so a late start of it registers nothing; an existing work is
+ * cancelled by the writer;
  * UserPromptSubmit, Stop and StopFailure → heartbeat each time, other events
  * → heartbeat at most once in TOOL_BEAT_MS, SessionEnd → submit. A session
  * bound after the fact (`register-claude-work.py bind`) has a work directory,
@@ -198,12 +199,17 @@ function afterResolve(vendor, payload, body, r, deps, env, url) {
   }
   const now = Date.parse(at)
   for (const [event, epoch, tool] of writerEvents(r)) {
-    // A superseded epoch's work is cancelled whoever superseded it: one that has a work directory,
-    // or any epoch of the launch's (its writer may not have started yet; it then registers nothing).
     const dir = workDir(vendor, session, epoch)
-    if (event === 'cancel' ? !(fs.existsSync(dir) || writes) : !writes) continue
+    if (!dir) continue
+    if (event === 'cancel') {
+      // Every superseded epoch gets its cancel kept, whoever superseded it and whether or not its
+      // work exists yet: a start writer that comes later registers nothing (review R2-M2). A
+      // writer runs only for a work that exists.
+      noteTerminal(dir, 'cancel')
+      if (!workState(vendor, session, epoch)) continue
+    } else if (!writes) continue
     if (tool && toolThrottled(dir, now)) continue
-    if (event === 'cancel' || event === 'submit') noteTerminal(dir, event)
+    if (event === 'submit') noteTerminal(dir, event)
     const args = ['--event', event, '--vendor', vendor, '--session', session, '--epoch', String(epoch), '--url', url]
     if (linkedLaunch && event !== 'cancel') args.push('--launch', found.id)
     spawnWriter(args, env)

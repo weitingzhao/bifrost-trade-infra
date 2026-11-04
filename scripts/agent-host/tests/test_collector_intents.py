@@ -12,6 +12,7 @@ import os
 import subprocess
 import sys
 import time
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -163,3 +164,82 @@ def test_m2_the_hooks_keep_the_end_themselves_when_no_writer_can_run(tmp_path):
         assert not [c for c in platform.calls if "/agentrt/" in c["path"]], "no writer ran"
     finally:
         platform.close()
+
+
+
+def run_node(home, code, env):
+    base = {"PATH": os.environ["PATH"], "HOME": str(home), "BIFROST_HOME_OVERRIDE": str(home), **env}
+    p = subprocess.run(["node", "-e", code], env=base, capture_output=True, text=True, timeout=20)
+    assert p.returncode == 0, p.stderr
+    return json.loads(p.stdout)
+
+
+def test_r2m2_a_resume_between_the_epoch_and_its_work_directory_still_keeps_the_cancel(w, tmp_path):
+    """The review's window: the launch hook saved epoch 1 and paused; a plain resume superseded it; then the
+    launch hook went on and started its writer. The resume keeps the cancel unconditionally."""
+    js = AGENT_HOST.parents[1] / "agent-config" / "scripts"
+    launch_env = {"BIFROST_LAUNCH_ID": w.launch_id, "BIFROST_PLAN_ROOT": "R5", "BIFROST_PLAN_NODE": "R5:5.5-12", "BIFROST_WORK_DESCRIPTION": w.desc, "CLAUDE_PID": str(os.getpid())}
+    code = r"""
+const fs = require('node:fs'), cp = require('node:child_process')
+const spawned = []; cp.spawn = (bin, args) => { spawned.push(args); return { on() {}, unref() {} } }
+const ep = require(EPOCHS), launch = require(LAUNCH)
+const deps = { withLock: (f, fn) => fn(), startTime: p => 'start-' + p, now: () => new Date('2026-11-04T00:00:00Z') }
+const payload = { hook_event_name: 'SessionStart' }
+const first = { identity: { session: 'race' }, reason: 'startup', thread: 'race' }
+const r1 = ep.resolve('claude', payload, first, deps, process.env)
+const plain = { CLAUDE_PID: '7171' }
+const resume = { identity: { session: 'race' }, reason: 'resume', thread: 'race' }
+const r2 = ep.resolve('claude', payload, resume, deps, plain)
+launch.afterResolve('claude', payload, resume, r2, deps, plain, 'http://offline.invalid')
+launch.afterResolve('claude', payload, first, r1, deps, process.env, 'http://offline.invalid')
+const dir = ep.sessionDir('claude', 'race')
+console.log(JSON.stringify({ superseded: r2.superseded, spawned, kept: JSON.parse(fs.readFileSync(dir + '/1/terminal.json', 'utf8')).event }))
+""".replace("EPOCHS", json.dumps(str(js / "collector-epochs.js"))).replace("LAUNCH", json.dumps(str(js / "collector-launch.js")))
+    out = run_node(tmp_path / "home", code, launch_env)
+    assert out["superseded"] == [1] and out["kept"] == "cancel"
+    assert w.work.run_event("start", "claude", "race", 1, "http://offline.invalid", w.launch_id) is None, "the late start writer registers nothing"
+    assert w.platform.works == {}
+
+
+def test_r2m2_a_cancel_kept_while_registering_is_never_preceded_by_started(w, monkeypatch):
+    client = w.work.dispatch.Client
+    note = w.work.note_terminal
+
+    class Racing(client):
+        def request(self, method, path, body=None, *, raw=False):
+            out = super().request(method, path, body, raw=raw)
+            if path == "/external-work":
+                note(w.work.auth.epoch_dir("claude", "race2", 1), "cancel")
+            return out
+
+    monkeypatch.setattr(w.work.dispatch, "Client", Racing)
+    assert w.work.run_event("start", "claude", "race2", 1, "http://offline.invalid", w.launch_id)["state"] == "Cancelled"
+    assert types(w) == ["cancelled"]
+
+
+def test_r2s1_the_audit_owes_a_cancel_whose_registration_reply_was_lost(w, monkeypatch):
+    """Every registration reply is lost, the first and the cancel's three tries: the platform has the work."""
+    client = w.work.dispatch.Client
+
+    class Losing(client):
+        def request(self, method, path, body=None, *, raw=False):
+            out = super().request(method, path, body, raw=raw)
+            if path == "/external-work":
+                raise RuntimeError("platform unavailable")
+            return out
+
+    monkeypatch.setattr(w.work.dispatch, "Client", Losing)
+    with pytest.raises(RuntimeError):
+        w.work.run_event("start", "claude", "old", 1, "http://offline.invalid", w.launch_id)
+    with pytest.raises(RuntimeError):
+        w.work.run_event("cancel", "claude", "old", 1)
+    record = w.work.auth.launch_dir(w.launch_id) / "launch.json"
+    rec = json.loads(record.read_text())
+    rec["sessions"] = [{"vendor": "claude", "session": "old", "epoch": 1}]
+    record.write_text(json.dumps(rec))
+    home = Path(os.environ["BIFROST_HOME_OVERRIDE"])
+    out = run_node(home, "console.log(JSON.stringify(require(" + json.dumps(str(AUDIT)) + ").audit()))", {})
+    item = out["launches"][0]
+    assert item["works"][0]["registration"] == "unconfirmed" and item["works"][0]["end_not_delivered"] is True
+    assert {"work_not_registered", "work_end_not_delivered"} <= set(item["gaps"])
+    assert next(iter(w.platform.works.values()))["state"] == "Registered", "the platform does have it"

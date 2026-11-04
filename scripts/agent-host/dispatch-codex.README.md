@@ -91,15 +91,19 @@ line of `~/.config/bifrost/collector.token`) the wrapper registers with it
 instead of `BIFROST_DISPATCH_TOKEN`: vendor `codex`, session = the run key
 (1–128 of `[A-Za-z0-9._:-]`), epoch 1, run key `codex:<run key>:1`; every event
 names that identity, the server writes the host, and `registered_at` is kept
-in `state.json`. Its local state and lock are keyed by that identity, not by
-`--session`, so two callers cannot both launch one work. The file stays
+in `state.json`. Its local state and lock are keyed by that identity and the
+platform (its normalized URL), not by `--session`: two callers cannot both
+launch one work, and two platforms never share a run. The file stays
 self-contained: it is copied and run alone, in either mode.
 
-In both modes the child gets no credential: every variable whose name holds
-TOKEN, SECRET, PASSWORD or CREDENTIAL, and every `PLATFORM_*`, `AGENTRT_*`,
-`HANDIN_*` and `BIFROST_DISPATCH_*` variable, is removed. A denylist, not an
-allowlist: Codex needs the rest of the caller's environment (its own
-`OPENAI_*`/`CODEX_*` settings, locale, proxies), which no list can foresee.
+In both modes the child gets no credential: every credential-shaped name
+(TOKEN, SECRET, PASSWORD, CREDENTIAL, COOKIE, pass files, `*_KEY`, `*_KEY_ID`,
+`*_AUTH`, `*_AUTH_*`, `KUBECONFIG`) and the coordinator's namespaces
+(`AGENTRT_*`, `HANDIN_*`, `BIFROST_DISPATCH_*`) are removed; configuration
+stays, `PLATFORM_HEARTBEAT_URL` and the other addresses included. A pattern,
+not an allowlist: Codex needs the rest of the caller's environment (locale,
+proxies, `CODEX_HOME`), which no list can foresee. Codex's model login is its
+own `CODEX_HOME` state, so `OPENAI_API_KEY` is removed like any key.
 
 Without a collector token, `tests/test_collector_s15_noop.py` runs the wrapper
 copied alone into an empty directory, as the coordinator does, next to the

@@ -214,6 +214,8 @@ def _deliver(state, path, directory, event, token, retry_failed=False):
         status = current["state"]
         if status in TERMINAL:
             return current
+        if status == "Registered" and terminal != "cancel":
+            terminal = read_terminal(directory)  # a cancel kept while registering: never start
         if terminal == "cancel":
             current = check_reply(journal.event("cancelled"))
         else:

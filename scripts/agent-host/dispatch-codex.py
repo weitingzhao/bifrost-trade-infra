@@ -33,10 +33,11 @@ import urllib.request
 from pathlib import Path
 
 # Kept here, not imported, as this file runs alone: the platform's session
-# shape; credential-shaped names and platform namespaces never reach the child.
+# shape; credential-shaped names and the coordinator's namespaces never reach the child.
 SESSION_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
-SECRET_NAME = re.compile(r"TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL", re.I)
-PLATFORM_PREFIXES = ("PLATFORM_", "AGENTRT_", "HANDIN_", "BIFROST_DISPATCH_")
+SECRET_NAME = re.compile(
+    r"TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|COOKIE|PASSFILE|(^|_)(API_?)?KEY(_ID)?$|(^|_)AUTH($|_)|^KUBECONFIG$", re.I)
+COORDINATOR_PREFIXES = ("AGENTRT_", "HANDIN_", "BIFROST_DISPATCH_")
 
 
 def collector_token() -> str:
@@ -51,8 +52,9 @@ def collector_token() -> str:
 
 
 def child_env(environ) -> dict:
-    """The environment Codex gets: the caller's, without any credential or platform variable."""
-    return {k: v for k, v in environ.items() if not SECRET_NAME.search(k) and not k.startswith(PLATFORM_PREFIXES)}
+    """The caller's environment minus credential-shaped names and the coordinator's namespaces;
+    configuration (PLATFORM_HEARTBEAT_URL…) stays. Codex logs in from CODEX_HOME, not a variable."""
+    return {k: v for k, v in environ.items() if not SECRET_NAME.search(k) and not k.startswith(COORDINATOR_PREFIXES)}
 
 
 def process_start(pid: int) -> str:
@@ -263,10 +265,12 @@ def credentials(run_key: str):
 
 
 def run_directory(options, identity=None) -> Path:
-    # A collector's work is (host, codex, run key, 1) whatever --session says, so
-    # its lock and state are too: two callers cannot both launch it.
+    # A collector's work is (platform, codex, run key, 1) whatever --session says, so its lock
+    # and state are too: two callers cannot both launch it, nor two platforms share one.
     if identity:
-        key = "collector\0" + identity["vendor"] + "\0" + identity["session"] + "\0" + str(identity["epoch"])
+        u = urllib.parse.urlsplit(options.url.strip())
+        scope = f"{u.scheme.lower()}://{(u.hostname or '').lower()}:{u.port or {'https': 443}.get(u.scheme.lower(), 80)}"
+        key = "collector\0" + scope + "\0" + identity["vendor"] + "\0" + identity["session"] + "\0" + str(identity["epoch"])
     else:
         key = options.session + "\0" + options.run_key
     return Path(options.state_dir) / hashlib.sha256(key.encode()).hexdigest()

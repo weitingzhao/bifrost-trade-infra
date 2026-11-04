@@ -47,7 +47,8 @@ _spec.loader.exec_module(auth)
 LINKED_FIELDS = ("root", "node", "plan_version", "task", "repo", "branch", "acceptance_ref", "estimate_minutes")
 # Claude gets no coordinator credential. The hooks run in its environment, so the two
 # tokens they read stay when the caller gave them as variables (better as their files).
-SECRET_NAME = re.compile(r"TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL", re.I)
+SECRET_NAME = re.compile(
+    r"TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|COOKIE|PASSFILE|(^|_)(API_?)?KEY(_ID)?$|(^|_)AUTH($|_)|^KUBECONFIG$", re.I)
 COORDINATOR_PREFIXES = ("AGENTRT_", "HANDIN_", "BIFROST_DISPATCH_")
 HOOK_TOKENS = {"PLATFORM_COLLECTOR_TOKEN", "PLATFORM_REPORTER_TOKEN"}
 

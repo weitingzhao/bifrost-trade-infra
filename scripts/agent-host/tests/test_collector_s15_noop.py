@@ -7,10 +7,10 @@ X-Bifrost-Session, Content-Type, X-Artifact-Kind, body bytes), the files
 handin.sh leaves under .git/handin, the wrapper's state.json, and, run as the
 coordinator runs it (one file copied alone into an empty directory), --help, a
 whole run and a refused registration. Two differences are intended and
-checked as such, not as equal: the Codex child's environment lacks every
-credential-shaped and platform variable (review M5; the rest is equal), and
-the wrapper's run directory gains codex.json, child.json naming its version
-(review M1). Not compared: timing, register-claude-work.py's state files,
+checked as such, not as equal: the Codex child's environment lacks exactly
+the credentials the test gives the wrapper, every other variable equal with
+its value (review M5, R2-S2), and the wrapper's run directory gains
+codex.json (pid, start time, mode 600) and child.json names its version (M1). Not compared: timing, register-claude-work.py's state files,
 crash and resume paths. Requests go to a local fake platform or a fake curl;
 the baseline comes from git, and without the commit the test fails.
 """
@@ -56,9 +56,6 @@ def requests(platform):
     return [(c["method"], c["path"], c["headers"], c["raw"]) for c in platform.calls]
 
 
-SECRET = ("TOKEN", "SECRET", "PASSWORD", "CREDENTIAL")
-
-
 def single_copy(tmp_path, source: Path, tag) -> Path:
     """The coordinator's way: this one file, copied alone into an empty directory."""
     directory = tmp_path / ("copy-" + tag)
@@ -73,7 +70,7 @@ def run_wrapper(tmp_path, script, case, tag, refuse=0, extra_env=None):
     try:
         bin_dir = tmp_path / "bin"
         bin_dir.mkdir(exist_ok=True)
-        (bin_dir / "codex").write_text("#!" + sys.executable + "\nimport json, os\nopen(os.environ['LOG'], 'a').write(json.dumps(sorted(os.environ)) + '\\n')\n")
+        (bin_dir / "codex").write_text("#!" + sys.executable + "\nimport json, os\nopen(os.environ['LOG'], 'a').write(json.dumps(dict(os.environ)) + '\\n')\n")
         (bin_dir / "codex").chmod(0o755)
         (tmp_path / "description.json").write_text(json.dumps(DESCRIPTION, ensure_ascii=False))
         report = tmp_path / "REPORT.md"
@@ -92,19 +89,31 @@ def run_wrapper(tmp_path, script, case, tag, refuse=0, extra_env=None):
         runs = list(state.glob("*/state.json")) if state.exists() else []
         files = sorted(f.name for f in runs[0].parent.iterdir()) if runs else []
         saved = json.loads(runs[0].read_text()) if runs else None
+        codex = runs[0].parent / "codex.json" if runs else None
+        record = (json.loads(codex.read_text()), oct(codex.stat().st_mode & 0o777)) if codex and codex.exists() else None
+        if child is not None:  # the two runs differ only by their tag in paths and their fake platform's port
+            child = {k: v.replace("-" + tag, "-<tag>").replace(platform.url, "<platform>") for k, v in child.items()}
         return {"result": (proc.returncode, proc.stdout, proc.stderr.replace(str(tmp_path), "<tmp>")), "requests": requests(platform),
-                "child": child, "files": files, "state": saved}
+                "child": child, "files": files, "state": saved, "codex": record}
     finally:
         platform.close()
+
+
+# The credentials this test hands the wrapper, which the baseline passed on to Codex and the new one must not.
+REMOVED = ("PLATFORM_REPORTER_TOKEN", "AGENTRT_COORDINATOR_AGENTD_TOKEN", "PLATFORM_COLLECTOR_TOKEN")
 
 
 def assert_wrapper_equivalent(old, new):
     assert new["result"] == old["result"] and new["requests"] == old["requests"] and new["state"] == old["state"]
     if old["child"] is not None:
-        # Intended (M5): the new child lacks the credential-shaped and platform variables; all else is equal.
-        assert [k for k in old["child"] if not any(s in k for s in SECRET) and not k.startswith(("PLATFORM_", "AGENTRT_", "HANDIN_"))] == new["child"]
-        assert "PLATFORM_REPORTER_TOKEN" in old["child"] and not [k for k in new["child"] if any(s in k for s in SECRET)]
+        # Intended (M5): exactly those credentials are gone; every other variable is there with its value.
+        assert {"PLATFORM_REPORTER_TOKEN", "AGENTRT_COORDINATOR_AGENTD_TOKEN"} <= set(old["child"])
+        assert new["child"] == {k: v for k, v in old["child"].items() if k not in REMOVED}
+        assert new["child"]["PLATFORM_HEARTBEAT_URL"] == old["child"]["PLATFORM_HEARTBEAT_URL"], "review R2-M1: the beat's address stays"
     assert [f for f in new["files"] if f != "codex.json"] == old["files"], "intended (M1): codex.json only"
+    if new["files"] and old["child"] is not None:
+        (record, mode) = new["codex"]
+        assert isinstance(record["pid"], int) and record["started"].startswith(("ps:", "proc:")) and mode == "0o600"
 
 
 @pytest.mark.parametrize("case", NO_TOKEN, ids=["no-token", "blank-token", "unreadable-file"])

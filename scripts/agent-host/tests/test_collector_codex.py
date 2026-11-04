@@ -160,15 +160,16 @@ def test_two_callers_with_other_sessions_cannot_both_launch_one_collector_work(w
 @pytest.mark.parametrize("collector", [True, False])
 def test_codex_gets_no_credential_in_its_environment(world, collector):
     """Review M5: every credential-shaped and platform variable is removed; the executor's own stay."""
-    secrets = {"PLATFORM_REPORTER_TOKEN": "R", "AGENTRT_COORDINATOR_AGENTD_TOKEN": "A", "AGENTRT_COORDINATOR_PROPOSER_TOKEN": "P",
-               "HANDIN_AGENTD_TOKEN_FILE": "/x", "GITHUB_TOKEN": "G", "SOME_SECRET": "S", "DB_PASSWORD": "D", "BIFROST_DISPATCH_TOKEN": "DISPATCH",
-               "PLATFORM_AGENTRT_URL": "http://x.invalid"}
-    env = env_of(world, collector, FAKE_DUMP_ENV="1", OPENAI_BASE_URL="http://keep.invalid", LANG="C", **secrets)
+    from test_collector_env import CONFIG, CREDENTIALS
+    secrets = {name: "synthetic-" + name for name in CREDENTIALS}
+    config = {name: "synthetic-" + name for name in CONFIG if name not in ("PATH", "HOME", "BIFROST_HOME_OVERRIDE", "BIFROST_HOST_ID", "NODE_OPTIONS", "PLATFORM_HEARTBEAT_URL", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "TMPDIR")}
+    env = env_of(world, collector, FAKE_DUMP_ENV="1", **secrets, **config)
     proc = subprocess.run([sys.executable, str(WRAPPER), *wrapper_args(world), "--", "x"], env=env, capture_output=True, text=True, timeout=60)
     assert proc.returncode == 0, proc.stderr
     dumped = json.loads((world.tmp / "codex-env.json").read_text())
-    assert not [k for k in dumped if k in secrets or "TOKEN" in k or k == "PLATFORM_COLLECTOR_TOKEN"], sorted(dumped)
-    assert dumped["OPENAI_BASE_URL"] == "http://keep.invalid" and dumped["LANG"] == "C" and dumped["PATH"] == env["PATH"]
+    assert not [k for k in dumped if k in secrets or k in ("BIFROST_DISPATCH_TOKEN", "PLATFORM_COLLECTOR_TOKEN")], sorted(dumped)
+    for name in [*config, "PATH", "HOME", "PLATFORM_HEARTBEAT_URL"]:
+        assert dumped.get(name) == env[name], f"review R2-M1: {name} is configuration, kept with its value"
 
 
 def test_reconcile_refuses_a_run_whose_child_is_alive(world):
@@ -229,3 +230,21 @@ def test_writer_calls_that_arrive_out_of_order_converge(world):
     unknown = subprocess.run([sys.executable, str(REGISTER), "event", "--event", "start", "--session", "s-unknown", "--epoch", "1", "--url", world.platform.url],
                              env=env_of(world), capture_output=True, text=True, timeout=30)
     assert unknown.returncode == 0 and unknown.stdout == "", "a session with no launch and no bind has nothing to write"
+
+
+def test_two_platforms_with_one_run_key_never_share_a_run(world):
+    """Review R2-M3: the collector's run is scoped by its platform too; B never submits A's receipt."""
+    other = Platform()
+    try:
+        env = env_of(world)
+        for platform in (world.platform, other):
+            args = wrapper_args(world)
+            args[args.index("--url") + 1] = platform.url
+            proc = subprocess.run([sys.executable, str(WRAPPER), *args, "--", "x"], env=env, capture_output=True, text=True, timeout=60)
+            assert proc.returncode == 0, proc.stderr
+        assert len(world.log.read_text().splitlines()) == 2, "each platform's work ran its own Codex"
+        for platform in (world.platform, other):
+            assert [e["type"] for e in platform.events()] == ["started", "submitted"]
+        assert len(list((world.tmp / "state").glob("*/state.json"))) == 2
+    finally:
+        other.close()

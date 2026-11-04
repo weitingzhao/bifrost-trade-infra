@@ -34,7 +34,9 @@ function readJSON(file) {
 function registration(mode, state, kept) {
   if (state && state.id) return 'registered'
   if (state && state.failed) return 'refused'
-  // Cancelled before it was ever registered (a resume overtook its first writer): nothing is owed.
+  // A registration sent without a reply may exist on the platform: its cancel is still owed (R2-S1).
+  if (state && state.registration_sent) return 'unconfirmed'
+  // Cancelled before any registration was sent (a resume overtook its first writer): nothing is owed.
   if (kept && kept.event === 'cancel') return 'cancelled'
   return mode === 'linked' ? 'pending' : 'none'
 }
@@ -63,7 +65,7 @@ function audit() {
       const kept = readJSON(path.join(epochs.sessionDir(s.vendor, s.session) || '/nonexistent', String(s.epoch), 'terminal.json'))
       const ended = st.epochs.some(e => e.epoch === s.epoch && e.end) || Boolean(kept)
       // An end kept or seen by the hooks whose work is not Submitted or Cancelled on the server's last word.
-      const endNotDelivered = Boolean(state && state.id) && ended && !['Submitted', 'Cancelled'].includes(state.status)
+      const endNotDelivered = Boolean(state && (state.id || state.registration_sent)) && ended && !['Submitted', 'Cancelled'].includes(state.status)
       return { vendor: s.vendor, session: s.session, epoch: s.epoch, registration: registration(rec.mode, state, kept), end_gaps: endGaps, end_not_delivered: endNotDelivered }
     })
     if (rec.mode === 'linked' && works.some(w => !['registered', 'cancelled'].includes(w.registration))) gaps.push('work_not_registered')
