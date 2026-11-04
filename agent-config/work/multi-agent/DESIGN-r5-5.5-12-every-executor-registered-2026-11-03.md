@@ -279,7 +279,7 @@ Console：Work → Plan → Live，Finished today 之后加 `Unlinked sessions �
 
 审计脚本 `agent-config/scripts/collector-audit.js`（只读）。两个覆盖率分开：**启动覆盖率** = 有至少一条送达会话记录的 launch / 全部 `launch.json`（`sessions` 为空的算漏报，分母独立于钩子）；**演练转换覆盖率** = 目标列表里观测到的转换 / 驱动脚本预记的转换（startup、`/clear`、结束各算一条，只在 STG 演练有）。时延样本按 `sessions[]` 的每一条算。生产里没上报的后续 `/clear` 是未知范围，启动覆盖 100% 不等于会话覆盖 100%；时延 = 首次事件到**出现在目标列表**，两类各 100% ≤ 60 秒——从启动记录出现起每 5 秒轮询，记第一次出现，120 秒超时记失败；目标列表漏项、plan-view 读失败、Console 解析失败都算失败；渲染由 S1-3 的组件测试对同一响应断言，加 STG 浏览器人工核对；结束同样轮询；绑定率 = linked / (linked+unlinked+refused)，`unsupported`、`unknown` 单列；结束缺口 = 有结束意图无 ACK；缺口清单 = 入口 × 三钩子 × 有/无/未核实，加「无分母的入口」「未上报的 `/clear`」两行；阈值、窗口、零分母 N/A 在 S1-6 前冻结。
 
-**命令到测试**：Go `go -C api test ./internal/agentrt/... ./internal/agentthreads/... ./internal/server/... -run 'Collector|ForeignWork|HookAndMcp|BindingAtomicity|RouteReach' -count=1 -v`（设 `AGENTRT_TEST_PG`、`AGENTRT_TEST_REDIS`、`AGENTRT_TEST_REQUIRED=1`；核对每个 RUN、无 SKIP）；JS `node --test agent-config/scripts/thread-heartbeat.test.js agent-config/scripts/host-heartbeat.test.js agent-config/scripts/collector-audit.test.js`（含 `SourceCapabilityWitness` 夹具）；Python `python3 -m pytest -q scripts/agent-host/tests`；handin `bash agent-config/scripts/landing/test_handin.sh`；parity `bash scripts/check-agent-config-parity.sh`；Console `npm --prefix console run lint && npm --prefix console run build && npm --prefix console test`。
+**命令到测试**：Go `go -C api test ./internal/actuation/... ./internal/agentrt/... ./internal/agentthreads/... ./internal/server/... -run 'Collector|ForeignWork|HookAndMcp|BindingAtomicity|RouteReach|ConfineCollectors|IdentityOnly|CoverageCounts|PlanView(Collector|Carries|Session)|SideBeat|SessionKey|BindingProjection|BindingRuntime|ThreadFilters|AgentThreadsResponse|RecoveredKey|OlderEpoch|RollbackSideOnly' -count=1 -v`（P-a 到 P-c2 实现后补全：加 `actuation` 包和各片的测试名）（设 `AGENTRT_TEST_PG`、`AGENTRT_TEST_REDIS`、`AGENTRT_TEST_REQUIRED=1`；核对每个 RUN、无 SKIP）；JS `node --test agent-config/scripts/*.test.js`（含 `source-capability-witness.test.js` 的 `SourceCapabilityWitness` 夹具，以及 `collector-session.test.js`、`collector-hooks.test.js`、`collector-mutation.test.js`、`collector-noop.test.js`）；Python `python3 -m pytest -q scripts/agent-host/tests`；handin `bash agent-config/scripts/landing/test_handin.sh`；parity `bash scripts/check-agent-config-parity.sh`；Console `npm --prefix console run lint && npm --prefix console run build && npm --prefix console test`。
 
 **钩子装好**：STG 一个启动器起的 Claude 会话，启动、`/compact`、`/clear`、结束；`compactions==1`、`first_seen_at` 非空、Live 行 60 秒内出现、结束后 Finished today 出现、`launch.json.sessions` 两条；一个 `--unlinked` 会话 → Unlinked 节；一个 `dispatch-codex.py` 运行、一次 handin 交件、一个 agentd 尝试各验 Live 与 Finished today 行；Codex 钩子线程显示 `unsupported`。Cursor `sessionStart` 一次。
 **§11.4 第 3 条证据**：审计按分母逐会话输出入口、起点、首次事件、读面、秒数、统筹动作数（0）；存 `agent-config/work/multi-agent/EVIDENCE-s1-<日期>.md`，主机名、标题、会话号换占位符。
@@ -299,6 +299,39 @@ Console：Work → Plan → Live，Finished today 之后加 `Unlinked sessions �
 
 出门条与上传权（S2）；决定记录与注入（S3）；会话表 DDL 与正文采集（S11）；本机动作流（S5）；外部尝试与自动派复核、交付时「拦」（S4）；每会话密钥；放宽说明契约；`worktree-lease.py` 接线；Cursor/Codex 压缩钩子。
 **裁掉的**：收集员读写任何标题；Codex 会话逐个绑定（S1-0 之后定）；世代尾注、来源尾注、squash 与 amend 的来源保留；平台侧的交付 note 与 `coverage.handins`；非受管会话的分母；Status 页标题读面。
+
+## 12. S1-0 校准结果（2026-11-04，部分）
+
+在本机实际触发各来源后记下的事实，夹具按来源和版本分目录（`claude-2.1.302`、`codex-0.166.0-alpha.5.1`），已观测部分的夹具已随 S1-4 入库：`agent-config/scripts/testdata/source-capability/`（Claude 的 hooks 15 份、sequences 13 份、stream-json 4 份，Codex 的 exec-json 6 份），见证测试是 `source-capability-witness.test.js`，在 §9 的 `node --test` 里。**覆盖面**：Claude Code 2.1.302 只测到不需要模型回合的事件（本机 CLI 登录已过期）；Codex 只测到 `exec --json`（钩子要在用户级配置 trust，未做）；Cursor 本机未装，全部未核实。
+
+| # | 本稿原说法 | 校准后 |
+|---|---|---|
+| D1 | `:128`、`:292`、C4：钩子父进程号是否稳定未核实 | 简单命令的钩子，`ppid` 就是 CLI 进程，同一进程内稳定，`/clear` 前后不变；写成复合命令（`cd … && node …`）时每次是新起的 `sh`。每条钩子都带 `CLAUDE_PID`，两种写法下都等于 CLI 进程。世代解析改读 `CLAUDE_PID`，`ppid` 只作旁证 |
+| D2 | `:127`、`:182`：SessionStart 四种 source | 还有第五种 `fork`（`--fork-session`）：新会话号，不带来源会话号；按 startup 处理（新号、epoch 1），血缘拿不到 |
+| D3 | `:183`、`:186`、`:284`：按 PreCompact 计 `compactions` | PreCompact 在压缩被拒时也触发，计的是尝试。改按 SessionStart `compact` 或 PostCompact 计（两者待补测），或把字段改名 `compaction_attempts` |
+| D4 | §4.1 事件表、`thread-heartbeat.js` 的事件映射 | 加 StopFailure → `turn_end`（reason=error）：模型报错结束的回合今天没有结束拍；`-p` 单提示下它在进程退出前可能送不到，由 SessionEnd 兜底 |
+| D5 | `:127`：SessionStart 丢失时由第一个钩子事件分配世代 | `-p --resume` / `--continue` 在 SessionStart 之前有一条带临时新号的事件（InstructionsLoaded；流里首条 `hook_started` 同号），那个号从不开始也不结束。只由本稿接线的事件分配世代，不读 InstructionsLoaded；流读者以 `init` 的号为准 |
+| D6 | `:120`：保留 Desktop 给的 `CLAUDE_CODE_HOST_SESSION_ID` | 从 Desktop 会话里起的 `claude` 原样继承父会话的侧栏号，子会话会被算到父侧栏下；`CLAUDE_CODE_SESSION_ID` 与 `CLAUDE_PID` 则被子进程改写。启动器要区分「Desktop 直接起的」与「在 Desktop 会话的子进程里起的」，不能只看变量在不在 |
+| D7 | §0 第 11 条：Codex 用户级四事件已装 | 本机 Codex 的用户级钩子只有闸门一条，没有四条心跳；今天 Codex 会话不发线程心跳，Unlinked 节里连 `unsupported` 行都不会出现。§9 里「Codex 钩子线程显示 `unsupported`」的验收要先装上并 trust 四条心跳 |
+| D8 | C11、`:147`：包装器启动前不知道 Codex 的会话号 | 启动前确实不知道，但包装器读自己子进程的 stdout，约 0.2 秒内就拿到 `thread.started.thread_id`，它等于 rollout 的 `session_meta.id`。如果钩子的 `session_id` 也是这个号（二进制里的输入 schema 字段同名，**未核实**），逐会话绑定可以由包装器取号，不靠环境变量自报 |
+| D9 | `:136`：SessionEnd 任何 reason 都记 `submitted` | 可以照做；但 `other` 同时覆盖正常 `-p` 结束、SIGHUP 和 SIGTERM，信号退出无法从 reason 区分；SIGKILL 没有 SessionEnd |
+| D10 | `:256`：Codex `exec --json` 含 `--ephemeral` | `--ephemeral` 的会话不能 resume（退出码 1、stdout 空）；`resume` 的流不带恢复标记、`thread_id` 不变，世代必须由包装器按自己的调用方式记，不能从流推出 |
+| D11 | `:178`：SessionEnd 钩子要设 timeout | 成立：不设时 3 秒的钩子会被取消，设 10 秒能跑完；脱离的子进程在 CLI 退出后仍存活 |
+
+**仍未核实，等补测**：Claude 需要模型回合的事件（Stop、PostToolUseFailure、SubagentStart / SubagentStop、PostCompact、SessionStart `compact`、自动 PreCompact、权限通知、forked skill 与子线程文本），在本机 CLI 重新登录后补测；Codex 交互钩子实际收到的字段，要在用户级配置里 trust 钩子后补测；Cursor 全部。以上补测、对应夹具入库之后，S1-0 才算完成，S1-4 的事件表按本节改。
+
+## 13. 实施中改的说法（P-a 至 S1-4，2026-11-04）
+
+| # | 本稿原说法 | 实施后 |
+|---|---|---|
+| I1 | §2.3：进程对不上时取该会话当前世代 | 有了 `CLAUDE_PID`（§12 D1），对不上的非结束事件新开世代并记 `start_lost`；对不上或 PID 缺失的结束事件不关任何世代，只记 `end_unresolved`；例外是会话的第一条事件就是结束，这时开出并结束世代 1（`collector-session.test.js:111`）。当前世代回退只留给没有 PID 的厂商 |
+| I2 | §2.3：同一进程重复 SessionStart 的处理没写 | 同一进程在同一会话只有一个世代，重复的 SessionStart 复用原世代，不取代更新的世代；只有读到的进程启动时间与记下的不同，才认定 PID 被复用、开新世代，读不到就当同一进程 |
+| I3 | §8：S1-4 含结束协议与节流心跳 | S1-4 实现心跳路径上的结束协议：先存意图，再发，收到 ACK 才算完；拿不到锁时存成待发，下次并入并记 `end_deferred`；补发在拿到锁之后才计一次，每个钩子最多 2 条、总共 5 次。外部工作的登记与事件、`launch.json.sessions[]` 回填仍归 S1-5 |
+| I4 | §12 D6：嵌套会话继承 Desktop 侧栏号 | 钩子分辨不出继承来的侧栏号，照旧上报；服务端按侧栏号查询时返回该号下所有会话、各按自己的键判。只能由 S1-5 的启动器区分 |
+| I5 | §4.3：宿主心跳带 `host_id_source` | 平台的宿主心跳不存这个字段，宿主心跳不加；线程心跳照带 |
+| I6 | §3.1：五态 | `client_bind` 的 reason 集里没有「等待登记」，启动器上下文齐全、登记还没到的会话暂时不发 `client_bind`，S1-5 补 |
+| I7 | §7：推送顺序 | 新增目录遍历的文件，先单独推它们在 `agent-config/landing/doc-consumers.yaml` 的登记行，再推代码（consumers 阶段读推送前 main 上的登记表）。Cursor `sessionStart` 的字段未核实，未知 source 按 startup 处理 |
+| I8 | §6 第 5 行：`compactions` | 名字不改（O5）；它目前按 PreCompact 计，计的是尝试（§12 D3）；按哪种事件计由 S1-4 之后的补测定 |
 
 ## 要 Owner 定
 
