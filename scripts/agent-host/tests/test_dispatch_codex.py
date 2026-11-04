@@ -19,7 +19,7 @@ spec.loader.exec_module(mod)
 
 
 @pytest.fixture
-def world(tmp_path, monkeypatch):
+def dispatch_world(tmp_path, monkeypatch):
     calls = []
     data = {
         "seq": 0,
@@ -128,8 +128,8 @@ def world(tmp_path, monkeypatch):
     thread.join()
 
 
-def test_register_before_start_heartbeat_submit_and_privacy(world):
-    options, calls, data, marker = world
+def test_register_before_start_heartbeat_submit_and_privacy(dispatch_world):
+    options, calls, data, marker = dispatch_world
     assert mod.dispatch(options, ["PRIVATE_COMMAND"], interval=0.03, poll=0.01) == 0
     assert marker.read_text().splitlines() == ["launch"]
     events = list(data["events"].values())
@@ -153,8 +153,8 @@ def test_register_before_start_heartbeat_submit_and_privacy(world):
     assert marker.read_text().splitlines() == ["launch"]
 
 
-def test_registration_failure_never_starts(world):
-    options, _, data, marker = world
+def test_registration_failure_never_starts(dispatch_world):
+    options, _, data, marker = dispatch_world
     data["reject_register"] = True
     with pytest.raises(RuntimeError, match="503"):
         mod.dispatch(options, [])
@@ -162,8 +162,8 @@ def test_registration_failure_never_starts(world):
     assert not data["events"]
 
 
-def test_submit_failure_replays_same_durable_event(world):
-    options, calls, data, marker = world
+def test_submit_failure_replays_same_durable_event(dispatch_world):
+    options, calls, data, marker = dispatch_world
     data["fail_submit"] = 1
     with pytest.raises(RuntimeError, match="503"):
         mod.dispatch(options, [], interval=0.03, poll=0.01)
@@ -177,8 +177,8 @@ def test_submit_failure_replays_same_durable_event(world):
     assert marker.read_text().splitlines() == ["launch"]
 
 
-def test_crash_resume_same_child(world, monkeypatch):
-    options, _, data, marker = world
+def test_crash_resume_same_child(dispatch_world, monkeypatch):
+    options, _, data, marker = dispatch_world
     monkeypatch.setenv("FAKE_DURATION", "1")
     command = [sys.executable, str(SCRIPT)]
     for name, value in vars(options).items():
@@ -201,8 +201,8 @@ def test_crash_resume_same_child(world, monkeypatch):
         first.wait(timeout=2)
 
 
-def test_changed_registration_refused_locally(world):
-    options, _, _, marker = world
+def test_changed_registration_refused_locally(dispatch_world):
+    options, _, _, marker = dispatch_world
     assert mod.dispatch(options, [], interval=0.03, poll=0.01) == 0
     options.node = "another-step"
     with pytest.raises(ValueError, match="different content"):
@@ -211,8 +211,8 @@ def test_changed_registration_refused_locally(world):
 
 
 @pytest.mark.parametrize("startup_delay", [0, 0.15])
-def test_review596_dead_supervisor_before_receipt_does_not_keep_heartbeating(world, monkeypatch, startup_delay):
-    options, _, data, marker = world
+def test_review596_dead_supervisor_before_receipt_does_not_keep_heartbeating(dispatch_world, monkeypatch, startup_delay):
+    options, _, data, marker = dispatch_world
     launches = []
 
     def die_before_receipt(directory, args, repo):

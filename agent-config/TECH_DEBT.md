@@ -3894,12 +3894,13 @@
 
 ### TD-513
 
-**P2 · 发布 · push-main 推 infra 时不跑文档消费者检查，也不等 ci-infra，main 红了没人知道**
+**P2 · 发布 · push-main 推 infra 时不跑文档消费者检查和 code-health，也不等 ci-infra，main 红了没人知道**
 
 - **状态**：未开始（2026-11-04 记）。
 - **证据**：推 infra 时 push-main 打印「bifrost-trade-infra has no CI of its own; no CI checked」，可每次推 infra main 都会跑 `ci-infra` 流水线。11-03 晚从 80a8a4a 起它在 consumers 段连续失败（`unregistered_consumer k8s/storage/nfs-fast/render.py:96`，TD-444 第 5 步带上 11 个未登记的消费者），约 6 小时没人发现；期间在它之上的 infra 落地（R5:5.5-12 设计稿补充）落地 CI 也失败。consumers 段读的是推送前 main 上的登记表（`scripts/landing/doc_consumers.py` 的 `main`），所以登记行必须比消费者先上 main。
+- **再现**（2026-11-04）：R5:5.5-12 S1-5 那一推（0c841a4）push-main 测试 83/83 通过、打印「has no code-health task in CI; not scanned」后推上 main，ci-infra 在 code-health 段失败：`code.duplication.rocket.infra-py 40→42`。新加的测试辅助函数 `world`（`scripts/agent-host/tests/` 又多两份，共 5 份）和 `calls`（`agent-config/scripts/landing/test_handin_sessions.py`，共 4 份）超过「同名定义不超过 3 处」。推之前在本机只对 TD-444 那几推跑过 ci-infra 各段，没对 S1-4、S1-5 的提交跑。改名后回到 40（td/513-dup-names）。
 - **影响**：infra main 的 CI 一直红，所有 infra 落地都过不去，而推的人以为是绿的。
-- **修法**：push-main 推 infra 之前，和 ci-infra 一样以推送前的 main 作基点、候选作修订跑 `doc_consumers.py --purpose push`；有未登记的消费者就拒推，并提示先单独推登记行（登记行必须比消费者先上 main：检查只信基点的登记表）。基点 main 本身已经不一致时（例如 11-03 晚那 11 个），要有一个写明原因的放行开关，否则修复它的那一推也推不上去。推完像 CI_REPOS 一样等 `ci-infra` 的结果并打印出来。
+- **修法**：push-main 推 infra 之前，和 ci-infra 一样以推送前的 main 作基点、候选作修订跑 `doc_consumers.py --purpose push`；有未登记的消费者就拒推，并提示先单独推登记行（登记行必须比消费者先上 main：检查只信基点的登记表）。基点 main 本身已经不一致时（例如 11-03 晚那 11 个），要有一个写明原因的放行开关，否则修复它的那一推也推不上去。code-health 同理：以推送前的 main 作基点跑 `coverage_infra.py` 的 code-health 比较，指标涨了就拒推。推完像 CI_REPOS 一样等 `ci-infra` 的结果并打印出来。
 - **防线**：push-main 的测试：一个提交新加一个带 `rglob(` 的文件，不登记就被拒推。
 - **验收**：`bash scripts/release/test_push_main.sh` 通过，新用例在本条修复前失败。
 

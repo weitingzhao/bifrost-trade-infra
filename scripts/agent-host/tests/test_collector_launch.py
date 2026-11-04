@@ -27,7 +27,7 @@ S = "00000000-0000-4000-8000-0000000000a1"
 
 
 @pytest.fixture
-def world(tmp_path):
+def launch_world(tmp_path):
     platform = Platform()
     claude = fake_claude(tmp_path / "bin")
     yield SimpleNamespace(home=tmp_path / "home", platform=platform, bin=claude.parent, record=tmp_path / "claude.json")
@@ -51,16 +51,16 @@ def steps(*events, session=S):
     return [{"event": e, "session": session, "extra": extras.get(e, {})} for e in events]
 
 
-def test_launch_record_and_sessions_backfill_and_the_writer(world):
-    proc = launch(world, LINKED, steps("SessionStart", "UserPromptSubmit", "SessionEnd"))
+def test_launch_record_and_sessions_backfill_and_the_writer(launch_world):
+    proc = launch(launch_world, LINKED, steps("SessionStart", "UserPromptSubmit", "SessionEnd"))
     assert proc.returncode == 0, proc.stderr
-    [record] = launches(world)
-    child = json.loads(world.record.read_text())
+    [record] = launches(launch_world)
+    child = json.loads(launch_world.record.read_text())
     assert record["cli_pid"] == child["pid"], "exec keeps the pid: the record's cli_pid is the CLI's"
     assert record["sessions"] and [(s["vendor"], s["session"], s["epoch"]) for s in record["sessions"]] == [("claude", S, 1)]
     assert child["env"]["BIFROST_LAUNCH_ID"] == record["launch_id"] and child["env"]["BIFROST_PLAN_NODE"] == "R5:5.5-12"
     assert "PRIVATE_PROMPT" not in json.dumps(record)
-    p = world.platform
+    p = launch_world.platform
     assert p.wait(lambda p: [e["type"] for e in p.events()] == ["started", "heartbeat", "submitted"])
     [registration] = [c["body"] for c in p.calls if c["path"] == "/api/v1/agentrt/external-work"]
     assert {k: registration[k] for k in ("vendor", "session", "epoch", "source_run_key", "root", "plan_node_id")} == {
@@ -72,51 +72,51 @@ def test_launch_record_and_sessions_backfill_and_the_writer(world):
     assert "client_bind" not in beats[0] and beats[-1]["client_bind"]["state"] == "linked"
 
 
-def test_an_incomplete_description_refuses_to_launch(world):
+def test_an_incomplete_description_refuses_to_launch(launch_world):
     for missing in ("--branch", "--acceptance-ref", "--estimate-minutes"):
         at = LINKED.index(missing)
         args = LINKED[:at] + LINKED[at + (3 if missing == "--estimate-minutes" else 2):]
-        proc = launch(world, args, steps("SessionStart"))
+        proc = launch(launch_world, args, steps("SessionStart"))
         assert proc.returncode == 2 and missing in proc.stderr
     at = LINKED.index("--acceptance-ref") + 1
     for refs in (["--acceptance-ref", ""], ["--acceptance-ref", "   "], ["--acceptance-ref", "S1-5", "--acceptance-ref", " "]):
         args = LINKED[:at - 1] + refs + LINKED[at + 1:]
-        proc = launch(world, args, steps("SessionStart"))
+        proc = launch(launch_world, args, steps("SessionStart"))
         assert proc.returncode == 2 and "--acceptance-ref" in proc.stderr, f"review S1: a blank reference is no reference: {refs}"
-    assert launches(world) == [] and not world.record.exists(), "nothing is written and claude is not started"
-    assert launch(world, ["--unlinked", "--root", "R5"], []).returncode == 2, "--unlinked takes no plan context"
+    assert launches(launch_world) == [] and not launch_world.record.exists(), "nothing is written and claude is not started"
+    assert launch(launch_world, ["--unlinked", "--root", "R5"], []).returncode == 2, "--unlinked takes no plan context"
 
 
-def test_heartbeat_off_leaves_no_session_and_the_audit_reports_the_gap(world):
-    proc = launch(world, LINKED, steps("SessionStart", "SessionEnd"), BIFROST_HEARTBEAT="off")
+def test_heartbeat_off_leaves_no_session_and_the_audit_reports_the_gap(launch_world):
+    proc = launch(launch_world, LINKED, steps("SessionStart", "SessionEnd"), BIFROST_HEARTBEAT="off")
     assert proc.returncode == 0 and "collector mode is off" in proc.stderr
-    [record] = launches(world)
-    assert record["sessions"] == [] and world.platform.calls == []
-    out = subprocess.run(["node", str(AUDIT)], env=clean_env(world.home, world.platform.url), capture_output=True, text=True, check=True)
+    [record] = launches(launch_world)
+    assert record["sessions"] == [] and launch_world.platform.calls == []
+    out = subprocess.run(["node", str(AUDIT)], env=clean_env(launch_world.home, launch_world.platform.url), capture_output=True, text=True, check=True)
     report = json.loads(out.stdout)
     assert report["launches"][0]["gaps"] == ["launch_without_sessions"] and report["launches_with_gaps"] == 1
 
 
-def test_an_unlinked_launch_is_recorded_and_its_beats_say_unlinked(world):
-    proc = launch(world, ["--unlinked"], steps("SessionStart", "UserPromptSubmit", "SessionEnd"))
+def test_an_unlinked_launch_is_recorded_and_its_beats_say_unlinked(launch_world):
+    proc = launch(launch_world, ["--unlinked"], steps("SessionStart", "UserPromptSubmit", "SessionEnd"))
     assert proc.returncode == 0, proc.stderr
-    [record] = launches(world)
+    [record] = launches(launch_world)
     assert record["mode"] == "unlinked" and len(record["sessions"]) == 1 and "root" not in record
-    p = world.platform
+    p = launch_world.platform
     assert p.wait(lambda p: len(p.beats()) == 3)
     assert all((b["client_bind"]["state"], b["client_bind"]["reason"]) == ("unlinked", "no_context") for b in p.beats())
     assert not [c for c in p.calls if "/agentrt/" in c["path"]], "no external work for an unlinked launch"
-    report = json.loads(subprocess.run(["node", str(AUDIT)], env=clean_env(world.home, world.platform.url), capture_output=True, text=True, check=True).stdout)
+    report = json.loads(subprocess.run(["node", str(AUDIT)], env=clean_env(launch_world.home, launch_world.platform.url), capture_output=True, text=True, check=True).stdout)
     assert report["launches"][0]["gaps"] == [] and report["launches"][0]["works"][0]["registration"] == "none"
 
 
-def test_a_session_nested_in_the_launch_is_not_the_launch(world):
+def test_a_session_nested_in_the_launch_is_not_the_launch(launch_world):
     nested = "00000000-0000-4000-8000-0000000000a2"
     plan = steps("SessionStart") + [{"event": "SessionStart", "session": nested, "pid": 4242, "extra": {"source": "startup"}}]
-    assert launch(world, LINKED, plan).returncode == 0
-    [record] = launches(world)
+    assert launch(launch_world, LINKED, plan).returncode == 0
+    [record] = launches(launch_world)
     assert [s["session"] for s in record["sessions"]] == [S], "only the launch's own process is recorded"
-    p = world.platform
+    p = launch_world.platform
     assert p.wait(lambda p: len(p.beats()) == 2 and p.events())
     [nested_beat] = [b for b in p.beats() if b["session"] == nested]
     assert (nested_beat["client_bind"]["state"], nested_beat["client_bind"]["reason"]) == ("unlinked", "no_context")
@@ -138,32 +138,32 @@ def test_sidebar_inherited_from_a_running_session_is_not_the_launch_s(tmp_path, 
     assert oct((tmp_path / ".cache/bifrost/external-work/launches" / env["BIFROST_LAUNCH_ID"] / "launch.json").stat().st_mode & 0o777) == "0o600"
 
 
-def test_a_refused_registration_is_kept_and_the_beats_say_refused(world):
-    world.platform.refuse_registration = 1
-    assert launch(world, LINKED, steps("SessionStart", "UserPromptSubmit", "UserPromptSubmit")).returncode == 0
-    p = world.platform
+def test_a_refused_registration_is_kept_and_the_beats_say_refused(launch_world):
+    launch_world.platform.refuse_registration = 1
+    assert launch(launch_world, LINKED, steps("SessionStart", "UserPromptSubmit", "UserPromptSubmit")).returncode == 0
+    p = launch_world.platform
     assert p.wait(lambda p: len(p.beats()) == 3)
     assert p.wait(lambda p: p.beats()[-1].get("client_bind", {}).get("reason") == "register_failed")
     registrations = [c for c in p.calls if c["path"] == "/api/v1/agentrt/external-work"]
     assert len(registrations) == 1, "a refused registration is not retried by the hooks"
-    report = json.loads(subprocess.run(["node", str(AUDIT)], env=clean_env(world.home, p.url), capture_output=True, text=True, check=True).stdout)
+    report = json.loads(subprocess.run(["node", str(AUDIT)], env=clean_env(launch_world.home, p.url), capture_output=True, text=True, check=True).stdout)
     assert report["launches"][0]["works"][0]["registration"] == "refused" and "work_not_registered" in report["launches"][0]["gaps"]
 
 
-def test_a_resume_cancels_the_epoch_it_superseded(world):
+def test_a_resume_cancels_the_epoch_it_superseded(launch_world):
     plan = steps("SessionStart") + [{"event": "SessionStart", "session": S, "pid": 5151, "extra": {"source": "resume"}, "sleep": 0.8}]
-    assert launch(world, LINKED, plan).returncode == 0
-    p = world.platform
+    assert launch(launch_world, LINKED, plan).returncode == 0
+    p = launch_world.platform
     assert p.wait(lambda p: any(e["type"] == "cancelled" for e in p.events()))
     cancelled = [e for e in p.events() if e["type"] == "cancelled"]
     assert [e["epoch"] for e in cancelled] == [1], "only the launch's epoch 1 had a work; the resume's other process is not the launch's"
 
 
-def test_claude_gets_no_coordinator_credential_but_the_hooks_keep_theirs(world):
+def test_claude_gets_no_coordinator_credential_but_the_hooks_keep_theirs(launch_world):
     """Self-check after review M5: the launched CLI does not inherit the coordinator's tokens."""
-    proc = launch(world, LINKED, [], AGENTRT_COORDINATOR_AGENTD_TOKEN="A", BIFROST_DISPATCH_TOKEN="D", HANDIN_AGENTD_TOKEN_FILE="/x",
+    proc = launch(launch_world, LINKED, [], AGENTRT_COORDINATOR_AGENTD_TOKEN="A", BIFROST_DISPATCH_TOKEN="D", HANDIN_AGENTD_TOKEN_FILE="/x",
                   GITHUB_TOKEN="G", PLATFORM_REPORTER_TOKEN="R", LANG="C")
     assert proc.returncode == 0, proc.stderr
-    names = json.loads(world.record.read_text())["names"]
+    names = json.loads(launch_world.record.read_text())["names"]
     assert not [n for n in names if n in ("AGENTRT_COORDINATOR_AGENTD_TOKEN", "BIFROST_DISPATCH_TOKEN", "HANDIN_AGENTD_TOKEN_FILE", "GITHUB_TOKEN")]
     assert {"PLATFORM_COLLECTOR_TOKEN", "PLATFORM_REPORTER_TOKEN", "PLATFORM_HEARTBEAT_URL", "LANG"} <= set(names), "what the hooks read stays"

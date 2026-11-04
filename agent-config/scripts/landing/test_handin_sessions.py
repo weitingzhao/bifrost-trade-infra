@@ -87,7 +87,7 @@ def squash(r, *extra, collector=True):
     return handin(r, "squash", "--task", TASK, "--base", r.base, *selected, *extra, collector=collector)
 
 
-def calls(r):
+def curl_calls(r):
     path = r.root / "calls"
     return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
 
@@ -101,17 +101,17 @@ def test_squash_says_registered_unregistered_uncertain_and_no_trailer_unknown(re
         f"handin: session {UNREG}: unregistered",
         f"handin: session {ODD}: uncertain",
     ]
-    queried = [c["url"].split("/api/v1/agent/threads?")[1] for c in calls(repo)]
+    queried = [c["url"].split("/api/v1/agent/threads?")[1] for c in curl_calls(repo)]
     assert queried == ["sidebar=" + LINKED, "sidebar=" + UNREG, "session=" + UNREG, "sidebar=" + ODD], "sidebar first, the session id only when nothing matched"
-    assert all(c["header"] == "Authorization: Bearer SENTINEL_COLLECTOR\n" for c in calls(repo)), "the token goes in a header file, never argv"
+    assert all(c["header"] == "Authorization: Bearer SENTINEL_COLLECTOR\n" for c in curl_calls(repo)), "the token goes in a header file, never argv"
     result = proc.stdout.strip()
     saved = json.loads((repo.work / ".git/handin/squash" / TASK / "sessions.json").read_text())
     assert saved["commit"] == result and saved["commits_without_trailer"] == [repo.commits[2]]
     assert [(s["session"], s["conclusion"]) for s in saved["sessions"]] == [(LINKED, "registered"), (UNREG, "unregistered"), (ODD, "uncertain")]
     # The same squash again is an idempotent retry: the same words, no new query.
-    before = len(calls(repo))
+    before = len(curl_calls(repo))
     again = handin(repo, "squash", "--task", TASK, "--base", repo.base)
-    assert again.stdout.strip() == result and len(calls(repo)) == before and f"handin: session {UNREG}: unregistered" in again.stderr
+    assert again.stdout.strip() == result and len(curl_calls(repo)) == before and f"handin: session {UNREG}: unregistered" in again.stderr
 
 
 def test_a_squashed_commit_has_no_trailer_so_squashing_it_again_says_unknown(repo):
@@ -129,10 +129,10 @@ def test_a_squashed_commit_has_no_trailer_so_squashing_it_again_says_unknown(rep
 def test_run_replays_the_squash_result_into_unregistered_sessions_json(repo):
     result = squash(repo).stdout.strip()
     (repo.root / "report").write_text("report\n")
-    before = len(calls(repo))
+    before = len(curl_calls(repo))
     proc = handin(repo, "run", "--task", TASK, "--report", str(repo.root / "report"), "--remote", "x", "--key", "k", check=False)
     assert f"handin: session {UNREG}: unregistered" in proc.stderr and f"handin: session {LINKED}: registered" in proc.stderr
-    threads = [c for c in calls(repo)[before:] if "/agent/threads" in c["url"]]
+    threads = [c for c in curl_calls(repo)[before:] if "/agent/threads" in c["url"]]
     assert threads == [], "run only replays; it asks nothing"
     [out] = list((repo.work / ".git/handin/runs").glob("*.unregistered_sessions.json"))
     assert json.loads(out.read_text())["commit"] == result
@@ -141,7 +141,7 @@ def test_run_replays_the_squash_result_into_unregistered_sessions_json(repo):
 def test_without_a_collector_token_nothing_is_asked_or_written(repo):
     proc = squash(repo, collector=False)
     assert "handin: session" not in proc.stderr and "Claude-Session" not in proc.stderr
-    assert calls(repo) == [] and not (repo.work / ".git/handin/squash" / TASK / "sessions.json").exists()
+    assert curl_calls(repo) == [] and not (repo.work / ".git/handin/squash" / TASK / "sessions.json").exists()
 
 
 def test_a_failed_read_is_unknown(repo):
