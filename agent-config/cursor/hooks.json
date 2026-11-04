@@ -1,6 +1,11 @@
 {
   "version": 1,
   "hooks": {
+    "sessionStart": [
+      {
+        "command": "node ./scripts/thread-heartbeat.js hook cursor"
+      }
+    ],
     "beforeSubmitPrompt": [
       {
         "command": "node ./scripts/thread-heartbeat.js hook cursor"

@@ -50,6 +50,7 @@ Codex 的配置在用户级 `~/.codex/`，不进仓库。本文件记录它的�
 ```
 
 四条心跳也要 trust（安装第 4 步），没 trust 的会被 Codex 静默跳过，线程在 Console 上就看不见。闸门那条的 key 和哈希不变，不用重新 trust。
+R5:5.5-12 S1-4 给 Claude 加了 SessionStart、PreCompact、SessionEnd、StopFailure，给 Cursor 加了 `sessionStart`；Codex 这里**不加**：Codex 钩子的实际字段尚未核实（S1-0 校准只测到 `exec --json`），Codex 线程在 Unlinked 里显示 `unsupported`，会话由派活包装器登记。S1-0 发现本机 `~/.codex/hooks.json` 只有闸门一条、没有上面四条心跳，所以 `unsupported` 行要先装上并 trust 这四条才会出现（设计 §12 D7）。
 心跳钩子在宿主进程里跑、不在沙箱里，所以沙箱「默认不联网」不挡它；这一点要在 W-54 验收第 5 条时实测（Codex 跑一轮，看 `GET /api/v1/agent/threads` 有没有这条线程）。
 
 Codex 经 shell 跑这条命令，所以 `${BIFROST_WORKSPACE:-$HOME/Desktop/stocks}` 会展开：工作区在别处时设 `BIFROST_WORKSPACE`，否则取 `~/Desktop/stocks`。路径解析不到时 Codex 把这条 hook 当出错、照样放行工具调用，所以 `check-codex-guard.py` 会用同一条命令真跑一次 `git add -A`（要 deny）和 `git status`（要放行）。W-36（10-10）由写死的路径改成这一版，重新 trust 后 `codex exec` 实测 `git add -A` 被拦、`git status --short` exit 0。

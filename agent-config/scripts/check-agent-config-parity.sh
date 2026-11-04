@@ -6,7 +6,7 @@
 #   2. skill 名称集合一致
 #   3. 活跃治理文件不引用已退役实体
 #   4. D10 表述与 spine 一致
-#   5. 硬边界 hook 两侧都已接线（Cursor 另查用户级 ~/.cursor/hooks.json 是否与源一致，只警告）
+#   5. 硬边界 hook 两侧都已接线，会话心跳钩子也接上（Cursor 另查用户级 ~/.cursor/hooks.json 是否与源一致，只警告）
 #   6. 各 repo 本地 HEAD 相对 origin/main 的新鲜度（Agent 认知是否过期）
 #   7. 家目录路径棘轮：各仓库 origin/main 不新增写死的 /Users/<name>/（基线内放行）
 #
@@ -189,6 +189,25 @@ else:
             warns.append(".claude/settings.json 的 preflight 未覆盖 mcp__* 工具")
     else:
         fails.append("缺少 .claude/settings.json")
+
+    # 会话钩子接心跳（R5:5.5-12 §4.3）：Claude 的 SessionStart、PreCompact、SessionEnd，加 §12 D4 的
+    # StopFailure；SessionEnd 必须自带 timeout（§12 D11）。Cursor 的 sessionStart、sessionEnd。
+    # 没有收集员令牌时这些钩子什么都不发。
+    def heartbeat_hooks(entries, nested):
+        return [hh for e in (entries or []) for hh in (e.get('hooks', []) if nested else [e])
+                if 'thread-heartbeat.js' in hh.get('command', '')]
+    if cs.exists():
+        ch_hooks = json.loads(cs.read_text()).get('hooks', {})
+        for ev in ('SessionStart', 'PreCompact', 'SessionEnd', 'StopFailure'):
+            if not heartbeat_hooks(ch_hooks.get(ev), True):
+                fails.append(f".claude/settings.json 未接线 thread-heartbeat.js 到 {ev}")
+        if any(not isinstance(hh.get('timeout'), (int, float)) for hh in heartbeat_hooks(ch_hooks.get('SessionEnd'), True)):
+            fails.append(".claude/settings.json 的 SessionEnd 心跳缺 timeout（§12 D11）")
+    if ch.exists():
+        cu_hooks = json.loads(ch.read_text()).get('hooks', {})
+        for ev in ('sessionStart', 'sessionEnd'):
+            if not heartbeat_hooks(cu_hooks.get(ev), False):
+                fails.append(f".cursor/hooks.json 未接线 thread-heartbeat.js 到 {ev}")
 
     # Codex 的接线在用户级 ~/.codex，不进仓库；本机装了 codex 才查（W-35）。
     # 没有 trust 的 hook 会被 Codex 无声跳过，所以问 Codex 自己，不只看文件在不在。
