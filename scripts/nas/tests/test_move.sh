@@ -90,6 +90,8 @@ check "no-ACL rsync: final stopped before copying anything" test ! -e /volume2/k
 rm -f /tmp/fake/rsync_no_acls
 expect_ok "control: an rsync with ACL support copies with -A, pre passes" bash "$PMOVE" "${G[@]}" --confirm daily pre daily
 rm -f /tmp/fake/extended_acl "$B1/drills/acl-marker" /volume2/k3s-fast/data-logical-backup-hot/drills/acl-marker
+# ratchet: no condition reads a pipe into grep -q or head under pipefail (the writer dies of SIGPIPE, pipefail says false)
+check "no pipe into grep -q or head -1 | grep in the NAS scripts" bash -c '! grep -nE "(^|[^|])\| *grep -[a-zA-Z]*q|\| *head -1 *\| *grep" "$SRC"/*.sh "$SRC"/backup-rollup/*.sh'
 T3=/volume2/k3s-fast/kube-system-cluster-state-backup
 sed -i '/^file /d' "$T3/monthly/2026-11/MANIFEST" && sed -i '/^file /d' "$B3/monthly/2026-11/MANIFEST"
 touch -r "$B3/monthly/2026-11/MANIFEST" "$T3/monthly/2026-11/MANIFEST"

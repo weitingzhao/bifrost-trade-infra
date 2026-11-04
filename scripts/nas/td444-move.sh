@@ -225,14 +225,22 @@ identity_check() { # every path of the group: same mount identity as recorded, 1
 }
 
 RSYNC_ACLS=""
-rsync_opts() { # -A only when this rsync has ACL support (UGOS 1.18's says "no ACLs"; no_extended_acls guards that)
-  [[ -n $RSYNC_ACLS ]] || { if rsync -V | grep -q 'no ACLs'; then RSYNC_ACLS=0; else RSYNC_ACLS=1; fi; }
+rsync_caps() { # once, in the calling shell: "no ACLs" in rsync -V (UGOS 1.18) means copies leave -A out
+  local v
+  [[ -n $RSYNC_ACLS ]] && return 0
+  # Read it whole: rsync writes -V line by line, so a pipe into grep -q ends it by SIGPIPE and
+  # pipefail reads that as "no match" (the NAS's first pre kept -A that way).
+  v=$(rsync -V) || die "rsync -V failed"
+  if [[ $v == *'no ACLs'* ]]; then RSYNC_ACLS=0; log "this rsync has no ACL support (rsync -V)"; else RSYNC_ACLS=1; log "this rsync has ACL support: copies keep -A"; fi
+}
+rsync_opts() { # -A only when this rsync has ACL support (no_extended_acls guards the copies without it)
+  [[ -n $RSYNC_ACLS ]] || rsync_caps > /dev/null 2>&1
   if ((RSYNC_ACLS)); then printf '%s\n' -aHAX; else printf '%s\n' -aHX; fi
   printf '%s\n' --numeric-ids ${BWLIMIT:+--bwlimit="$BWLIMIT"}
 }
 no_extended_acls() { # no_extended_acls <key> <dir>: without -A, any extended POSIX ACL under dir would be lost: stop (§2)
   local out
-  rsync_opts > /dev/null
+  rsync_caps
   ((RSYNC_ACLS)) && return 0
   out=$(mktemp)
   getfacl -R --skip-base -p "$2" > "$out" \
@@ -265,6 +273,7 @@ make_snapshot() { # read-only snapshot of the snapshot root, recorded with its U
 }
 content_verify() { # exit 0 and an empty itemize list, or failure (§3.3)
   local out rc=0 t0=$SECONDS
+  rsync_caps
   out="$STATE/logs/verify-$1-$(date -u +%Y%m%dT%H%M%SZ).list"
   # shellcheck disable=SC2046  # option words, none with spaces
   guarded rsync $(rsync_opts) -c -n --delete --itemize-changes "$2/" "$3/" > "$out" || rc=$?

@@ -110,7 +110,7 @@ while read -r name kind src root prune extra; do
 done < "$CONF"
 ((${#N[@]})) || die "no sources in $CONF"
 [[ $(findmnt -no TARGET -T "$DEST") == "$DEST_MOUNT" ]] || die "$DEST is not on $DEST_MOUNT"
-if printf '%s\n' "${K[@]}" | grep -qx minio; then minio_config_ok; fi
+for _k in "${K[@]}"; do if [[ $_k == minio ]]; then minio_config_ok; break; fi; done
 touch "$STATE/expected.list"
 for n in "${N[@]}"; do grep -Fxq "$n" "$STATE/expected.list" || echo "$n" >> "$STATE/expected.list"; done
 

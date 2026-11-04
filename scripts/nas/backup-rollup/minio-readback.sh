@@ -49,6 +49,11 @@ case "$MINIO_ROOT_USER$MINIO_ROOT_PASSWORD" in *\"*|*\\*) exit 3 ;; esac
 mkdir -p /tmp/rollup-mc || exit 1
 printf "{\"version\":\"10\",\"aliases\":{\"rb\":{\"url\":\"http://127.0.0.1:9000\",\"accessKey\":\"%s\",\"secretKey\":\"%s\",\"api\":\"S3v4\",\"path\":\"auto\"}}}\n" "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" > /tmp/rollup-mc/config.json'
 
+rb_in_list() { # rb_in_list <word> <list…>: no pipe into grep -q (pipefail reads its writer's SIGPIPE as false)
+  local w=$1 x; shift
+  for x in "$@"; do [[ $x == "$w" ]] && return 0; done
+  return 1
+}
 rb_docker() { local t=$1; shift; timeout "$t" docker "$@" < /dev/null; }
 
 minio_config_ok() { # before any snapshot: the pinned image is here, the credentials file is root-only
@@ -62,7 +67,8 @@ minio_config_ok() { # before any snapshot: the pinned image is here, the credent
   [[ $(grep -cE '^MINIO_ROOT_(USER|PASSWORD)=.' "$MINIO_CREDENTIALS") == 2 ]] \
     || die "$MINIO_CREDENTIALS needs exactly one MINIO_ROOT_USER= and one MINIO_ROOT_PASSWORD= line"
   command -v docker > /dev/null || die "docker is needed for the MinIO read-back"
-  tar --version 2> /dev/null | head -1 | grep -q 'GNU tar' || die "GNU tar is needed: its --block-number output proves each data part ends with its end-of-archive marker"
+  local tv; tv=$(tar --version 2> /dev/null) || tv=""  # read whole: no pipe into head/grep under pipefail
+  [[ ${tv%%$'\n'*} == *'GNU tar'* ]] || die "GNU tar is needed: its --block-number output proves each data part ends with its end-of-archive marker"
   rb_docker 60 image inspect "$MINIO_IMAGE" > /dev/null 2>&1 || die "the image $MINIO_IMAGE is not on this host (the roll-up never pulls)"
 }
 
@@ -182,7 +188,7 @@ rb_prefix() { # rb_prefix <view> <tmp> <bucket/server>: appends "<prefix> <newes
   parts=("data.tar$ext"); k=1
   while grep -Fxq "$(printf 'data_%04d.tar%s' "$k" "$ext")" "$tmp/objs"; do parts+=("$(printf 'data_%04d.tar%s' "$k" "$ext")"); k=$((k + 1)); done
   while read -r o; do
-    [[ $o == backup.info ]] || printf '%s\n' "${parts[@]}" | grep -Fxq "$o" \
+    [[ $o == backup.info ]] || rb_in_list "$o" "${parts[@]}" \
       || { log "$p: base backup $chosen holds $o, which is no part of the gap-free data tar sequence"; bad=1; }
   done < "$tmp/objs"
   : > "$tmp/members.all"

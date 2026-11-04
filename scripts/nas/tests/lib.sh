@@ -43,7 +43,8 @@ cat > /shim/rsync <<'EOF'
 #!/bin/bash
 # with /tmp/fake/rsync_no_acls: an rsync built without ACLs (UGOS 1.18): -V says "no ACLs", -A is refused
 if [[ -f /tmp/fake/rsync_no_acls ]]; then
-  if [[ $1 == -V ]]; then /usr/bin/rsync -V | sed 's/ACLs,/no ACLs,/'; exit 0; fi
+  # -V line by line, as the real rsync writes it: a reader that stops early (grep -q) ends it by SIGPIPE
+  if [[ $1 == -V ]]; then /usr/bin/rsync -V > /tmp/fake/rsync-V.txt; while IFS= read -r l; do printf '%s\n' "${l/ACLs,/no ACLs,}"; done < /tmp/fake/rsync-V.txt; exit 0; fi
   for a in "$@"; do
     if [[ $a == -A || $a =~ ^-[a-zA-Z]*A[a-zA-Z]*$ ]]; then echo 'rsync: ACLs are not supported on this client' >&2; exit 1; fi
   done
