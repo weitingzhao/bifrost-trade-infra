@@ -3935,6 +3935,7 @@
 
 - **状态**：未开始（2026-11-02 夜，R5:5.11-1 落地 CI 红时记）。
 - **证据**：infra 的 `scripts/landing/doc_consumers.py:69` 在 infra 的落地 CI 里也扫 platform main（`--platform-revision`），platform 文件只按 S1 字样匹配（`:26`）。platform 自己的落地 CI 不跑这一步。11-02 白天 platform 落了两件（`0865f2c0` R5:5.8-3a、`277363a4` R5:5.5-10），带进四处没登记的消费者：`api/internal/agentrt/migrations/0011_debts.sql:2`、`api/internal/agentrt/rules/debt.go:14`、`api/internal/agentrt/store/debts.go:22` 是注释引用设计文档；`console/src/pages/shell/agents/planModuleModel.tsx:367`、`:433` 是界面文字里的英文名词。当晚 R5:5.11-1（只加一份设计文档）的落地 CI `landing-ci-infra-bcd298e0…` 在 consumers 阶段红：`unregistered_consumer api/internal/agentrt/migrations/0011_debts.sql:2`。之后每一件 infra 落地都会同样红，直到登记行上 main。登记表是硬底线，只能你推。
+- **第三例**（2026-11-04）：P-a（platform `749823ef`，11:28 CST 落地）带进 `api/internal/agentthreads/collector_test.go:258`（`"work":"W-765"`，夹具里的工作号）。本机按 infra 的落地检查核对时先发现，那时还没有 infra CI 跑到它。同时核对了排队中的 platform 版本：P-c1 还会带进 `console/src/api/__fixtures__/plan-view-collector.generated.json:26`，P-c2 还会带进 `console/src/api/__tests__/pc2MixedVersions.test.ts:18`。三处都只是单词 `work`（TD-466），一次登记，没等它们落地。已经交上去的 R5:5.7-6 设计稿那件交付先停了，免得落地失败出卡。
 - **影响**：platform 一落地，infra 的落地就被挡住，要等你推登记行；挡住的是与之无关的改动；登记表只能在事后补。
 - **修法**（架构级，先问你）：A. platform 的落地检查对候选提交跑同一个 `verify`，用 infra main 的登记表，有没登记或指纹变了的消费者就拒，并说清要先登记哪一行；B. infra 的 consumers 阶段对 platform 文件只警告、不拒，由每日巡检出单；C. 维持现状，每次事后补登记。推荐 A：在 platform main 前进之前就挡住，和「先登记、再出现消费者」的设计一致。
 - **防线**：platform 落地检查的测试：候选提交加一行带 S1 字样的注释，落地被拒，拒绝原因写明文件和行；登记后放行。
