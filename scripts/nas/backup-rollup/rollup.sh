@@ -4,8 +4,8 @@
 # Runs on the NAS as root from bifrost-backup-rollup.timer (Sunday 12:30 UTC), or by hand:
 #   sudo /volume1/@bifrost/backup-rollup/rollup.sh [--conf FILE] [--dest DIR] [--now]
 # minio-readback.sh (the MinIO read-back), backup-checks.sh (the completion checks shared
-# with td444-move.sh) and registry-check.py (its registry graph check, needs python3) sit
-# next to it.
+# with td444-move.sh), registry-check.py (its registry graph check) and td444-attrs.py (owner
+# and mode after each copy) sit next to it; both .py need python3.
 # Config (rollup.conf, template rollup.conf.example): one source per line
 #   <name> <kind> <source dir> <snapshot root (a btrfs subvolume)> <prune on|off>
 # A registry source also needs <config dir>/<name>.digests: the digests that must stay
@@ -21,8 +21,13 @@
 #   3. completion is judged from the data in the snapshot (backup-checks.sh; MinIO by reading
 #      its objects back, minio-readback.sh), positive evidence only; a backup in progress
 #      waits 15 minutes until --deadline-utc;
-#   4. rsync -aHAX -c --link-dest=<previous generation> into <name>/.partial-<stamp>, then a
-#      full check (rsync -c -n --delete --itemize-changes: exit 0 and an empty list);
+#   4. rsync -aHAX -c --link-dest=<previous generation> into <name>/.partial-<stamp>, owner
+#      and mode set from the snapshot (td444-attrs.py), then a full check (rsync -c -n
+#      --delete --itemize-changes: exit 0 and an empty list). UGOS's rsync (runbook §3.3) has
+#      no ACL support, so -A is left out after getfacl proved the source has no extended
+#      ACL, and it sets neither owner nor mode, hence the fix-up; ug.* xattrs (UGOS's own)
+#      are left out of every copy and check, so unchanged files still link to the previous
+#      generation;
 #   5. only when every source passed: GENERATION.json, every .partial renamed, then the
 #      commit marker .committed/<stamp>; a generation without it is not published. Then
 #      every source's last-success time moves together;
@@ -67,6 +72,30 @@ if [[ -f $HERE/backup-checks.sh ]]; then CHECKS=$HERE/backup-checks.sh; else CHE
 # shellcheck source=minio-readback.sh
 . "$HERE/minio-readback.sh"
 MINIO_START_TIMEOUT=$MINIO_START_TIMEOUT_ARG
+if [[ -f $HERE/td444-attrs.py ]]; then ATTRS=$HERE/td444-attrs.py; else ATTRS=$HERE/../td444-attrs.py; fi
+RS_ACLS=1 RS_OPTS=()
+rsync_caps() { # the options of every rsync here: -A only with ACL support; ug.* never copied or compared
+  local v
+  # read whole: rsync writes -V line by line, and a pipe into grep -q kills it with SIGPIPE,
+  # which pipefail reads as "no match"
+  v=$(rsync -V) || die "rsync -V failed"
+  if [[ $v == *'no ACLs'* ]]; then RS_ACLS=0; RS_OPTS=(-aHX); log "this rsync has no ACL support: copies leave -A out"
+  else RS_ACLS=1; RS_OPTS=(-aHAX); fi
+  # ug.* are UGOS's own xattrs (ug.archive_bit ...), which it sets itself on what a copy
+  # creates: no data of ours, and comparing them would keep --link-dest from linking anything
+  RS_OPTS+=("--filter=-x ug.*" --numeric-ids)
+}
+no_extended_acls() { # no_extended_acls <name> <dir>: without -A an extended POSIX ACL would be lost
+  local out
+  ((RS_ACLS)) && return 0
+  out=$(mktemp)
+  getfacl -R --skip-base -p "$2" > "$out" 2> "$out.err" || { log "$1: cannot read the POSIX ACLs under $2: $(head -1 "$out.err")"; rm -f "$out" "$out.err"; return 1; }
+  if grep -q '^# file' "$out"; then
+    log "$1: these carry extended POSIX ACLs, which this rsync cannot copy:"; grep '^# file' "$out" | head -5 >&2
+    rm -f "$out" "$out.err"; return 1
+  fi
+  rm -f "$out" "$out.err"
+}
 mkdir -p "$STATE" "$DEST/.committed" "$(dirname "$TEXTFILE")"
 chmod 700 "$STATE"
 exec 9> "$STATE/lock"
@@ -109,6 +138,8 @@ while read -r name kind src root prune extra; do
   N+=("$name") K+=("$kind") SRC+=("$src") ROOT+=("$root") PRUNE+=("$prune")
 done < "$CONF"
 ((${#N[@]})) || die "no sources in $CONF"
+if ! command -v python3 > /dev/null || [[ ! -f $ATTRS ]]; then die "python3 and td444-attrs.py are needed: owner and mode are set after each copy"; fi
+rsync_caps
 [[ $(findmnt -no TARGET -T "$DEST") == "$DEST_MOUNT" ]] || die "$DEST is not on $DEST_MOUNT"
 for _k in "${K[@]}"; do if [[ $_k == minio ]]; then minio_config_ok; break; fi; done
 touch "$STATE/expected.list"
@@ -273,7 +304,7 @@ need=0
 for i in "${!N[@]}"; do
   prev=$(published "${N[$i]}" | tail -1)
   if [[ -n $prev ]]; then
-    stats=$(rsync -aHAXn --numeric-ids --stats --link-dest="$DEST/${N[$i]}/$prev" "${SRC[$i]}/" "$STATE/empty-target/") \
+    stats=$(rsync "${RS_OPTS[@]}" -n --stats --link-dest="$DEST/${N[$i]}/$prev" "${SRC[$i]}/" "$STATE/empty-target/") \
       || die "${N[$i]}: the size estimate (rsync --stats) failed"
     est=$(printf '%s\n' "$stats" | awk -F': ' '/Total transferred file size/ { gsub(/[^0-9]/, "", $2); print $2 }')
   else
@@ -308,6 +339,7 @@ for i in "${!N[@]}"; do
     BC_REG_DIGESTS="$CONFDIR/${N[$i]}.digests"
     check_kind "${K[$i]}" "$view" || { FAILED_SOURCE=${N[$i]}; die "${N[$i]}: completion evidence missing or not verified"; }
   fi
+  no_extended_acls "${N[$i]}" "$view" || { FAILED_SOURCE=${N[$i]}; die "${N[$i]}: extended POSIX ACLs this rsync cannot copy (stop and check, runbook §2)"; }
   VIEW[i]=$view
 done
 
@@ -316,10 +348,12 @@ for i in "${!N[@]}"; do
   part="$d/.partial-$STAMP"; prev=$(published "${N[$i]}" | tail -1)
   record partial "$part"
   rc=0
-  rsync -aHAX --numeric-ids -c ${prev:+--link-dest="$d/$prev"} "${VIEW[$i]}/" "$part/" || rc=$?
+  rsync "${RS_OPTS[@]}" -c ${prev:+--link-dest="$d/$prev"} "${VIEW[$i]}/" "$part/" || rc=$?
   ((rc == 0)) || { FAILED_SOURCE=${N[$i]}; die "${N[$i]}: copy exited $rc"; }
+  rc=0; python3 -I "$ATTRS" --src "${VIEW[$i]}" --dst "$part" >&2 || rc=$?
+  ((rc == 0)) || { FAILED_SOURCE=${N[$i]}; die "${N[$i]}: setting owner and mode from the snapshot exited $rc"; }
   list="$STATE/verify-${N[$i]}-$STAMP.list"; rc=0
-  rsync -aHAXc -n --delete --numeric-ids --itemize-changes "${VIEW[$i]}/" "$part/" > "$list" || rc=$?
+  rsync "${RS_OPTS[@]}" -c -n --delete --itemize-changes "${VIEW[$i]}/" "$part/" > "$list" || rc=$?
   ((rc == 0)) || { FAILED_SOURCE=${N[$i]}; die "${N[$i]}: verification exited $rc"; }
   [[ ! -s $list ]] || { FAILED_SOURCE=${N[$i]}; die "${N[$i]}: generation differs from the snapshot ($list)"; }
   rm -f "$list"; log "${N[$i]}: copied and verified (link-dest ${prev:-none})"

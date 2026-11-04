@@ -73,7 +73,8 @@ sleep 1
 expect_ok "a second generation" bash "$ROLL" "${R[@]}"
 check "prune off keeps both generations" test "$(gens cluster-state-backup)" = 2
 mapfile -t c < <(committed cluster-state-backup | sed 's#^#/volume1/backup-weekly/cluster-state-backup/#')
-check "unchanged files are hard links (--link-dest)" test "$(stat -c %i "${c[0]}/daily/2026-11-01/MANIFEST")" = "$(stat -c %i "${c[1]}/daily/2026-11-01/MANIFEST")"
+linked() { [[ $1 != "$2" && -f $1 && -f $2 && $(stat -c %i "$1") == "$(stat -c %i "$2")" ]]; }   # two existing names, one inode
+check "unchanged files are hard links (--link-dest)" linked "${c[0]:-none}/daily/2026-11-01/MANIFEST" "${c[1]:-none}/daily/2026-11-01/MANIFEST"
 check "prune on with --keep 1 keeps only the newest" test "$(gens logical-backup-hot)" = 1
 
 # ---- M5: incomplete sources are never published and never trigger retention

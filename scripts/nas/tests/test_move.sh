@@ -34,7 +34,6 @@ daily B2 gitea /volume1/k3s-cold/old-b2 /volume2/k3s-fast/cicd-gitea-backup
 daily B3 cluster-state /volume1/k3s-cold/old-b3 /volume2/k3s-fast/kube-system-cluster-state-backup /volume1/k3s-cold
 EOF
 G=(--state /state --map /map --pkg /pkg --sums /sums)
-YES3=$'yes\nyes\nyes\n'
 
 # ---- map guards
 printf 'daily B9 plain /etc /volume2/k3s-fast/x\n' > /badmap
@@ -67,8 +66,8 @@ expect_ok "identity-record" bash "$PMOVE" "${G[@]}" --confirm daily identity-rec
 expect_ok "identity-check matches" bash "$PMOVE" "${G[@]}" identity-check daily
 expect_ok "pre copies (add only)" bash "$PMOVE" "${G[@]}" --confirm daily pre daily
 echo extra > /volume2/k3s-fast/data-logical-backup-hot/stale-file
-expect_fail "final without a typed yes stops" script -qec "bash $PMOVE ${G[*]} --confirm daily final daily" /dev/null < <(echo no)
-expect_ok "final with yes deletes, copies and verifies" script -qec "bash $PMOVE ${G[*]} --confirm daily final daily" /dev/null < <(printf '%s' "$YES3")
+expect_fail "final without a typed yes stops" tty_run $'no\n' bash "$PMOVE" "${G[@]}" --confirm daily final daily
+expect_ok "final with yes deletes, copies and verifies" tty_run $'yes\n' bash "$PMOVE" "${G[@]}" --confirm daily final daily
 check "final removed the file the source does not have" test ! -e /volume2/k3s-fast/data-logical-backup-hot/stale-file
 expect_ok "verify passes on identical trees" bash "$PMOVE" "${G[@]}" verify daily
 f=/volume2/k3s-fast/data-logical-backup-hot/drills/x
@@ -85,7 +84,7 @@ echo "$B1/drills/x" > /tmp/fake/extended_acl
 echo marker > "$B1/drills/acl-marker"
 expect_fail "no-ACL rsync: an extended POSIX ACL under a source stops pre" bash "$PMOVE" "${G[@]}" --confirm daily pre daily
 check "no-ACL rsync: pre stopped before copying anything" test ! -e /volume2/k3s-fast/data-logical-backup-hot/drills/acl-marker
-expect_fail "no-ACL rsync: an extended POSIX ACL under a source stops final" script -qec "bash $PMOVE ${G[*]} --confirm daily final daily" /dev/null < <(printf '%s' "$YES3")
+expect_fail "no-ACL rsync: an extended POSIX ACL under a source stops final" tty_run $'yes\n' bash "$PMOVE" "${G[@]}" --confirm daily final daily
 check "no-ACL rsync: final stopped before copying anything" test ! -e /volume2/k3s-fast/data-logical-backup-hot/drills/acl-marker
 rm -f /tmp/fake/rsync_no_acls
 expect_ok "control: an rsync with ACL support copies with -A, pre passes" bash "$PMOVE" "${G[@]}" --confirm daily pre daily

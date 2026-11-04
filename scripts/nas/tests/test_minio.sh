@@ -30,7 +30,7 @@ minio MINIO minio /volume1/k3s-hot/old-minio /volume2/minio-backup/data /volume1
 EOF
 mkdir -p /volume1/k3s-hot/old-minio/bifrost-postgres-backup/obj && echo x > /volume1/k3s-hot/old-minio/bifrost-postgres-backup/obj/xl.meta
 bash "$PMOVE" --state /state --map /mmap --pkg /pkg --sums /sums --confirm minio identity-record minio > /dev/null 2>&1 || true
-expect_fail "M4: m2 refuses when the container runs again after m1" script -qec "bash $PMOVE ${M[*]} --map /mmap --run-id $RUN --confirm minio minio-m2" /dev/null < <(printf 'yes\n')
+expect_fail "M4: m2 refuses when the container runs again after m1" tty_run $'yes\n' bash "$PMOVE" "${M[@]}" --map /mmap --run-id "$RUN" --confirm minio minio-m2
 check "M4: m2 did not write minio.base" test ! -e "/state/minio-$RUN.base"
 
 # ---- M3: one M4a per run; isolation proofs bind to that attempt

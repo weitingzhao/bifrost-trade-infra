@@ -69,22 +69,27 @@ if [[ -f /tmp/fake/rsync_no_acls ]]; then
   done
 fi
 # with /tmp/fake/rsync_ugos: UGOS 1.18's rsync as the NAS showed it (11-04): a copy leaves owner
-# and mode unset (everything under the target ends up 0:0, mode 000, no error), and UGOS's own
-# ug.* xattrs differ on the target, so a comparison with -X lists the target directory unless
-# the ug.* xattr filter is given. Every call is logged to /tmp/fake/rsync.log.
+# and mode unset (what it writes under the target ends up 0:0, mode 000, no error; inodes of a
+# --link-dest directory it links to keep theirs), and UGOS's own ug.* xattrs differ on the
+# target, so a comparison with -X lists the target directory unless the ug.* xattr filter is
+# given. Every call is logged to /tmp/fake/rsync.log.
 if [[ -f /tmp/fake/rsync_ugos && $1 != -V ]]; then
   echo "$*" >> /tmp/fake/rsync.log
-  dry=0 xat=0 filt=0
+  dry=0 xat=0 filt=0 ld=""
   for a in "$@"; do
-    case $a in -n|--dry-run) dry=1 ;; --filter='-x ug.*') filt=1 ;; esac
+    case $a in -n|--dry-run) dry=1 ;; --filter='-x ug.*') filt=1 ;; --link-dest=*) ld=${a#--link-dest=} ;; esac
     if [[ $a =~ ^-[a-zA-Z]*X[a-zA-Z]*$ ]]; then xat=1; fi
   done
+  : > /tmp/fake/ld.inodes; if [[ -n $ld && -d $ld ]]; then find "$ld" -printf '%i\n' | sort -u > /tmp/fake/ld.inodes; fi
   rc=0; /usr/bin/rsync "$@" || rc=$?
   if ((dry)); then
     if ((rc == 0 && xat && !filt)); then echo '.d........x ./'; fi
   else
     t=${!#}; t=${t%/}
-    find "$t" -depth -exec chown -h 0:0 {} + && find "$t" ! -type l -exec chmod 000 {} +
+    find "$t" -depth -printf '%i %p\n' | while read -r ino q; do
+      grep -qx "$ino" /tmp/fake/ld.inodes && continue
+      chown -h 0:0 "$q"; [[ -L $q ]] || chmod 000 "$q"
+    done
   fi
   exit "$rc"
 fi
@@ -112,8 +117,11 @@ for a in "$@"; do [[ $a == /* ]] && p=$a; done
 if [[ -f /tmp/fake/getfacl_fail ]] && { grep -Fxq '*' /tmp/fake/getfacl_fail || grep -Fxq "$p" /tmp/fake/getfacl_fail; }; then
   echo "getfacl: $p: Operation not supported" >&2; exit 1
 fi
-if [[ -f /tmp/fake/extended_acl && " $* " == *' --skip-base '* ]]; then
-  while read -r q; do [[ $q == "$p"* ]] && printf '# file: %s\nuser:4242:rwx\n\n' "$q"; done < /tmp/fake/extended_acl; exit 0
+if [[ -f /tmp/fake/extended_acl && " $* " == *' --skip-base '* ]]; then   # a line "*": one under any path
+  while read -r q; do
+    if [[ $q == '*' ]]; then q=$p/acl-file; fi
+    [[ $q == "$p"* ]] && printf '# file: %s\nuser:4242:rwx\n\n' "$q"
+  done < /tmp/fake/extended_acl; exit 0
 fi
 exec /usr/bin/getfacl "$@"
 EOF
