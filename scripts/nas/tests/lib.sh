@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 # Shared setup for the NAS script tests (runs inside debian:12, see run.sh): packages, shims
-# for btrfs / exportfs / docker / curl / getfacl / stat / mv, a kill double for BASH_ENV,
+# for btrfs / exportfs / docker / curl / getfacl / stat / mv / rsync / python3, a kill double for BASH_ENV,
 # the fake SSD hwmon tree, and assertions. Shims read their behaviour from files under
 # /tmp/fake so a test can switch a failure on; the scripts under test carry no test hooks.
 export DEBIAN_FRONTEND=noninteractive
@@ -17,6 +17,25 @@ expect_ok() { local d=$1; shift; if "$@" > /tmp/out 2>&1; then ok "$d"; else bad
 expect_fail() { local d=$1; shift; if "$@" > /tmp/out 2>&1; then bad "$d (succeeded)"; tail -15 /tmp/out; else ok "$d"; fi; }
 check() { local d=$1; shift; if "$@"; then ok "$d"; else bad "$d"; fi; }
 finish() { echo; echo "passed $pass, failed $fail"; ((fail == 0)); }
+tty_run() { # tty_run <answer> <command...>: on a pty, typing <answer> each time the command asks
+  # "Type yes to continue"; returns the command's own exit code. Typed only after the prompt shows:
+  # input sent earlier can be lost before the command opens /dev/tty, and script -e reports 0
+  # once its stdin ends first, so the command writes its own status.
+  local a=$1 n=0 c sp w; shift
+  rm -f /tmp/tty.rc /tmp/tty.in /tmp/tty.out; mkfifo /tmp/tty.in
+  script -qc "$(printf '%q ' "$@"); echo \$? > /tmp/tty.rc" /dev/null < /tmp/tty.in > /tmp/tty.out 2>&1 &
+  sp=$!
+  exec {w}> /tmp/tty.in
+  while kill -0 "$sp" 2> /dev/null; do
+    c=$(grep -c 'Type yes to continue' /tmp/tty.out || true)
+    if ((c > n)); then printf '%s' "$a" >&"$w"; n=$c; fi
+    sleep 0.2
+  done
+  exec {w}>&-
+  wait "$sp" || true
+  cat /tmp/tty.out
+  return "$(cat /tmp/tty.rc 2> /dev/null || echo 99)"
+}
 
 mkdir -p /shim /tmp/fake
 cat > /shim/btrfs <<'EOF'
@@ -49,7 +68,34 @@ if [[ -f /tmp/fake/rsync_no_acls ]]; then
     if [[ $a == -A || $a =~ ^-[a-zA-Z]*A[a-zA-Z]*$ ]]; then echo 'rsync: ACLs are not supported on this client' >&2; exit 1; fi
   done
 fi
+# with /tmp/fake/rsync_ugos: UGOS 1.18's rsync as the NAS showed it (11-04): a copy leaves owner
+# and mode unset (everything under the target ends up 0:0, mode 000, no error), and UGOS's own
+# ug.* xattrs differ on the target, so a comparison with -X lists the target directory unless
+# the ug.* xattr filter is given. Every call is logged to /tmp/fake/rsync.log.
+if [[ -f /tmp/fake/rsync_ugos && $1 != -V ]]; then
+  echo "$*" >> /tmp/fake/rsync.log
+  dry=0 xat=0 filt=0
+  for a in "$@"; do
+    case $a in -n|--dry-run) dry=1 ;; --filter='-x ug.*') filt=1 ;; esac
+    if [[ $a =~ ^-[a-zA-Z]*X[a-zA-Z]*$ ]]; then xat=1; fi
+  done
+  rc=0; /usr/bin/rsync "$@" || rc=$?
+  if ((dry)); then
+    if ((rc == 0 && xat && !filt)); then echo '.d........x ./'; fi
+  else
+    t=${!#}; t=${t%/}
+    find "$t" -depth -exec chown -h 0:0 {} + && find "$t" ! -type l -exec chmod 000 {} +
+  fi
+  exit "$rc"
+fi
 exec /usr/bin/rsync "$@"
+EOF
+# python3: with /tmp/fake/python_no_chown it runs without CAP_CHOWN, so every chown that changes
+# an owner fails as a refused chown would
+cat > /shim/python3 <<'EOF'
+#!/bin/bash
+if [[ -f /tmp/fake/python_no_chown ]]; then exec setpriv --bounding-set -chown --inh-caps -chown /usr/bin/python3 "$@"; fi
+exec /usr/bin/python3 "$@"
 EOF
 cat > /shim/getfattr <<'EOF'
 #!/bin/bash

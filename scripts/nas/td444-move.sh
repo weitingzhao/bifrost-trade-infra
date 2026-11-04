@@ -5,7 +5,8 @@
 # run only from the package's own copy (<pkg>/scripts/nas/td444-move.sh), after the package
 # matched SHA256SUMS. Helpers next to it: td444-guard.sh (copy guard, abort traps),
 # td444-minio.sh (MinIO stages), backup-checks.sh (integrity checks shared with the roll-up)
-# and registry-check.py (its registry graph check, needs python3).
+# registry-check.py (its registry graph check) and td444-attrs.py (owner and mode after each
+# copy: UGOS's rsync leaves them unset, §3.3); both need python3.
 #   sudo bash <pkg>/scripts/nas/td444-move.sh --pkg <pkg> --sums <pkg>/../SHA256SUMS --map <private map> <command> ...
 # The map (private; template td444-map.example) lists every copy as
 #   <group> <key> <kind> <source dir> <target dir> [<snapshot root>]
@@ -41,7 +42,7 @@ SRC_ROOTS=(/volume1/k3s-hot /volume1/k3s-cold /volume2/k3s-fast /volume2/minio-b
 DST_ROOTS=(/volume2/k3s-fast /volume2/minio-backup /volume1/k3s-cold/td444-recovery /volume1/minio-recovery-td444)
 EXPORT_REF=/volume1/k3s-hot
 EXPORT_NEW=(/volume2/k3s-fast /volume2/market-archive-backup)
-HELPERS=(td444-move.sh td444-guard.sh td444-minio.sh backup-checks.sh registry-check.py)
+HELPERS=(td444-move.sh td444-guard.sh td444-minio.sh backup-checks.sh registry-check.py td444-attrs.py)
 
 log() { printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
 die() { log "FAIL: $*"; exit 1; }
@@ -224,19 +225,30 @@ identity_check() { # every path of the group: same mount identity as recorded, 1
   log "mount identity and free space of $1 match the record"
 }
 
-RSYNC_ACLS=""
-rsync_caps() { # once, in the calling shell: "no ACLs" in rsync -V (UGOS 1.18) means copies leave -A out
+RSYNC_ACLS="" RSYNC_OPTS=()
+rsync_caps() { # once, in the calling shell: sets RSYNC_OPTS, the options of every copy and verification
   local v
   [[ -n $RSYNC_ACLS ]] && return 0
   # Read it whole: rsync writes -V line by line, so a pipe into grep -q ends it by SIGPIPE and
   # pipefail reads that as "no match" (the NAS's first pre kept -A that way).
   v=$(rsync -V) || die "rsync -V failed"
-  if [[ $v == *'no ACLs'* ]]; then RSYNC_ACLS=0; log "this rsync has no ACL support (rsync -V)"; else RSYNC_ACLS=1; log "this rsync has ACL support: copies keep -A"; fi
+  # -A only when this rsync has ACL support; "no ACLs" (UGOS 1.18) leaves it out, and
+  # no_extended_acls guards those copies
+  if [[ $v == *'no ACLs'* ]]; then RSYNC_ACLS=0; RSYNC_OPTS=(-aHX); log "this rsync has no ACL support (rsync -V)"
+  else RSYNC_ACLS=1; RSYNC_OPTS=(-aHAX); log "this rsync has ACL support: copies keep -A"; fi
+  # ug.* are UGOS's own xattrs (ug.archive_bit and others): UGOS keeps them on every file and
+  # sets them itself on what a copy creates (the NAS showed ug.archive_bit QAIAAA== on a target
+  # directory whose source has AAAAAA==). They are no data of ours, so copies and the
+  # verification leave them out (rsync 3.4.1 xattr filter rule); user.* is copied and compared.
+  RSYNC_OPTS+=("--filter=-x ug.*" --numeric-ids)
+  if [[ -n $BWLIMIT ]]; then RSYNC_OPTS+=("--bwlimit=$BWLIMIT"); fi
 }
-rsync_opts() { # -A only when this rsync has ACL support (no_extended_acls guards the copies without it)
-  [[ -n $RSYNC_ACLS ]] || rsync_caps > /dev/null 2>&1
-  if ((RSYNC_ACLS)); then printf '%s\n' -aHAX; else printf '%s\n' -aHX; fi
-  printf '%s\n' --numeric-ids ${BWLIMIT:+--bwlimit="$BWLIMIT"}
+fix_attrs() { # fix_attrs <group> <stage> <source> <target>: owner and mode from the source (§3.3)
+  # UGOS's rsync leaves owner and mode unset without an error (what it creates is 0:0 mode 000),
+  # so every copy is followed by td444-attrs.py; content_verify then checks them with the rest
+  local rc=0
+  guarded python3 -I "$SCRIPT_DIR/td444-attrs.py" --src "$3" --dst "$4" || rc=$?
+  ((rc == 0)) || { phase "$1" fail "$2" "owner/mode fix-up $rc"; die "${2#*:}: setting owner and mode on $4 from $3 exited $rc"; }
 }
 no_extended_acls() { # no_extended_acls <key> <dir>: without -A, any extended POSIX ACL under dir would be lost: stop (§2)
   local out
@@ -275,8 +287,7 @@ content_verify() { # exit 0 and an empty itemize list, or failure (§3.3)
   local out rc=0 t0=$SECONDS
   rsync_caps
   out="$STATE/logs/verify-$1-$(date -u +%Y%m%dT%H%M%SZ).list"
-  # shellcheck disable=SC2046  # option words, none with spaces
-  guarded rsync $(rsync_opts) -c -n --delete --itemize-changes "$2/" "$3/" > "$out" || rc=$?
+  guarded rsync "${RSYNC_OPTS[@]}" -c -n --delete --itemize-changes "$2/" "$3/" > "$out" || rc=$?
   ((rc == 0)) || die "$1: verification rsync exited $rc (list $out)"
   if [[ -s $out ]]; then
     log "$1: $(wc -l < "$out") differences, first ones:"; head -20 "$out"
@@ -306,7 +317,8 @@ kind_inputs_ok() { # what the own checks of a group need, before any copy
 cmd_pre() { # every check of the whole group passes before the first directory or copy
   local g=$1 i view rc
   require_confirm "$g"; check_pkg; no_active_copy; group_ok "$g"
-  identity_check "$g"
+  command -v python3 > /dev/null || die "python3 is needed to set owner and mode after each copy (td444-attrs.py)"
+  identity_check "$g"; rsync_caps
   while read -r i; do
     check_real_paths "$i"
     no_extended_acls "${M_KEY[$i]}" "${M_SRC[$i]}"
@@ -321,9 +333,9 @@ cmd_pre() { # every check of the whole group passes before the first directory o
     phase "$g" attempt "pre:${M_KEY[$i]}"
     if ((FROM_SNAPSHOT)); then view=$(make_snapshot "$i"); fi
     rc=0
-    # shellcheck disable=SC2046
-    guarded rsync $(rsync_opts) --log-file="$STATE/logs/rsync-pre-${M_KEY[$i]}.log" "$view/" "${M_DST[$i]}/" || rc=$?
+    guarded rsync "${RSYNC_OPTS[@]}" --log-file="$STATE/logs/rsync-pre-${M_KEY[$i]}.log" "$view/" "${M_DST[$i]}/" || rc=$?
     if ((rc != 0)); then phase "$g" fail "pre:${M_KEY[$i]}" "rsync $rc"; die "${M_KEY[$i]}: pre copy exited $rc"; fi
+    fix_attrs "$g" "pre:${M_KEY[$i]}" "$view" "${M_DST[$i]}"
     if ((FROM_SNAPSHOT)); then content_verify "${M_KEY[$i]}" "$view" "${M_DST[$i]}"; fi
     phase "$g" "done" "pre:${M_KEY[$i]}"
   done < <(entries "$g")
@@ -331,7 +343,8 @@ cmd_pre() { # every check of the whole group passes before the first directory o
 cmd_final() {
   local g=$1 i dl n rc
   require_confirm "$g"; check_pkg; no_active_copy; group_ok "$g"; kind_inputs_ok "$g"
-  identity_check "$g"
+  command -v python3 > /dev/null || die "python3 is needed to set owner and mode after each copy (td444-attrs.py)"
+  identity_check "$g"; rsync_caps
   while read -r i; do
     [[ -d ${M_DST[$i]} ]] || die "${M_KEY[$i]}: target ${M_DST[$i]} missing; run pre first"
     no_extended_acls "${M_KEY[$i]}" "${M_SRC[$i]}"
@@ -342,8 +355,7 @@ cmd_final() {
     phase "$g" attempt "final:${M_KEY[$i]}"
     dl="$STATE/logs/delete-${M_KEY[$i]}-$(date -u +%Y%m%dT%H%M%SZ).list"
     rc=0
-    # shellcheck disable=SC2046
-    rsync $(rsync_opts) -n --delete --itemize-changes "${M_SRC[$i]}/" "${M_DST[$i]}/" > "$dl.all" || rc=$?
+    rsync "${RSYNC_OPTS[@]}" -n --delete --itemize-changes "${M_SRC[$i]}/" "${M_DST[$i]}/" > "$dl.all" || rc=$?
     ((rc == 0)) || { phase "$g" fail "final:${M_KEY[$i]}" "dry-run $rc"; die "${M_KEY[$i]}: delete-list dry run exited $rc"; }
     grep '^\*deleting' "$dl.all" > "$dl" || true
     n=$(wc -l < "$dl")
@@ -351,9 +363,9 @@ cmd_final() {
     head -50 "$dl"
     ask_yes "${M_KEY[$i]}: $n files will be deleted from ${M_DST[$i]}."
     rc=0
-    # shellcheck disable=SC2046
-    guarded rsync $(rsync_opts) --delete --log-file="$STATE/logs/rsync-final-${M_KEY[$i]}.log" "${M_SRC[$i]}/" "${M_DST[$i]}/" || rc=$?
+    guarded rsync "${RSYNC_OPTS[@]}" --delete --log-file="$STATE/logs/rsync-final-${M_KEY[$i]}.log" "${M_SRC[$i]}/" "${M_DST[$i]}/" || rc=$?
     ((rc == 0)) || { phase "$g" fail "final:${M_KEY[$i]}" "rsync $rc"; die "${M_KEY[$i]}: final copy exited $rc"; }
+    fix_attrs "$g" "final:${M_KEY[$i]}" "${M_SRC[$i]}" "${M_DST[$i]}"
     content_verify "${M_KEY[$i]}" "${M_SRC[$i]}" "${M_DST[$i]}"
     manifest_check "${M_KEY[$i]}" "${M_KIND[$i]}" "${M_DST[$i]}"
     phase "$g" "done" "final:${M_KEY[$i]}"
