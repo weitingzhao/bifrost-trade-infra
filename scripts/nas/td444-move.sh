@@ -379,7 +379,10 @@ dir_attrs() { # dir_attrs <dir> <out>: mode/owner, ACL, xattrs; fails when any o
   xat=$(getfattr -d -m - --absolute-names "$1") || { log "cannot read the xattrs of $1"; return 1; }
   { printf 'mode-owner %s\n' "$mo"
     printf '%s\n' "$acl" | sed 's/^/acl /'
-    printf '%s\n' "$xat" | grep -v '^# file' | sed '/^$/d; s/^/xattr /' || true
+    # system.* (POSIX ACLs, UGOS's own ACL system.ugacl_self) decide access and are compared;
+    # user.* and ug.* are UGOS's settings and bookkeeping (hide in Network, quota version,
+    # archive bit): kept as meta lines, shown but not compared.
+    printf '%s\n' "$xat" | grep -v '^# file' | sed '/^$/d; s/^system\./xattr system./; /^xattr /!s/^/meta /' || true
   } > "$2"
 }
 cmd_exports() {
@@ -397,8 +400,11 @@ cmd_exports() {
       log "export $p differs from $EXPORT_REF:"; diff <(printf '%s\n' "$ref") <(norm_exports "$p") || true; bad=1
     fi
     if ! dir_attrs "$p" "$b"; then log "share root $p: attributes unreadable"; bad=1
-    elif diff "$a" "$b" > /dev/null; then log "share root $p: mode, owner, ACL and xattrs match"
-    else log "share root $p differs:"; diff "$a" "$b" || true; bad=1
+    elif diff <(grep -v '^meta ' "$a") <(grep -v '^meta ' "$b") > /dev/null; then
+      log "share root $p: mode, owner, ACL and xattrs match"
+      diff <(grep '^meta ' "$a") <(grep '^meta ' "$b") > /dev/null \
+        || { log "share root $p: UGOS settings differ from $EXPORT_REF (not access; noted):"; diff <(grep '^meta ' "$a") <(grep '^meta ' "$b") || true; }
+    else log "share root $p differs:"; diff <(grep -v '^meta ' "$a") <(grep -v '^meta ' "$b") || true; bad=1
     fi
     namei -l "$p" || true
   done

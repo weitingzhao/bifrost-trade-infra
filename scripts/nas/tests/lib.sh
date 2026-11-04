@@ -39,6 +39,14 @@ cat > /shim/exportfs <<'EOF'
 #!/bin/bash
 cat /tmp/exports.txt
 EOF
+cat > /shim/getfattr <<'EOF'
+#!/bin/bash
+# prints /tmp/fake/xattr/<path with / as _> as the path's xattrs when that file exists
+for a in "$@"; do [[ $a == /* ]] && p=$a; done
+f=/tmp/fake/xattr/${p//\//_}
+if [[ -n $p && -f $f ]]; then printf '# file: %s\n' "$p"; cat "$f"; echo; exit 0; fi
+exec /usr/bin/getfattr "$@"
+EOF
 cat > /shim/getfacl <<'EOF'
 #!/bin/bash
 # fails for every path listed in /tmp/fake/getfacl_fail ("*" = all)

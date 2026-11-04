@@ -189,6 +189,16 @@ check "mode 000 share roots are reported as matching" grep -q "share root /volum
 chmod 755 /volume2/k3s-fast
 expect_fail "a share root of another mode than the reference is caught" bash "$PMOVE" --state /state exports
 chmod 755 /volume1/k3s-hot /volume2/market-archive-backup
+mkdir -p /tmp/fake/xattr
+printf '%s\n' 'system.ugacl_self=0sAQAAAAoAAADPNwAABgAAAAoAAAAAAAAA' 'user.no_permission_hide.status="false"' 'user.quota.v="2"' > /tmp/fake/xattr/_volume1_k3s-hot
+printf '%s\n' 'system.ugacl_self=0sAQAAAAoAAADPNwAABgAAAAoAAAAAAAAA' 'user.no_permission_hide.status="true"' > /tmp/fake/xattr/_volume2_k3s-fast
+cp /tmp/fake/xattr/_volume2_k3s-fast /tmp/fake/xattr/_volume2_market-archive-backup
+expect_ok "UGOS settings (user.*) that differ are noted, not failed" bash "$PMOVE" --state /state exports
+check "the differing UGOS settings are shown" grep -q "UGOS settings differ from /volume1/k3s-hot (not access; noted)" /tmp/out
+printf '%s\n' 'system.ugacl_self=0sAQAAAAoAAADPNwAABgAAAAoAAAAAAAAABgAAAM83AAAGAAAA6QMAAAAAAAA=' 'user.no_permission_hide.status="true"' > /tmp/fake/xattr/_volume2_market-archive-backup
+expect_fail "a UGOS ACL (system.ugacl_self) that differs fails exports" bash "$PMOVE" --state /state exports
+check "the differing share root is named" grep -q "share root /volume2/market-archive-backup differs" /tmp/out
+rm -rf /tmp/fake/xattr
 sed -i 's/,all_squash)$/,root_squash)/' /tmp/exports.txt
 expect_fail "a different squash option is caught" bash "$PMOVE" --state /state exports
 
