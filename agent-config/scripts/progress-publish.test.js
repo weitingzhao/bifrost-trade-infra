@@ -99,6 +99,9 @@ const HEARTBEAT_EXPORTS = [
   'reduceThrottle',
   'saveIssuedKey',
   'shouldSkip',
+  // Sends only after_tool beats to the heartbeat route; the caller gives
+  // the beat's fields, never its path (TD-515).
+  'startProgressBeats',
   'supersedeActive',
   'toolTimeoutSeconds',
   'withThreadLock',

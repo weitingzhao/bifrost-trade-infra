@@ -3899,7 +3899,7 @@
 - **状态**：未开始（2026-11-04 记）。
 - **证据**：推 infra 时 push-main 打印「bifrost-trade-infra has no CI of its own; no CI checked」，可每次推 infra main 都会跑 `ci-infra` 流水线。11-03 晚从 80a8a4a 起它在 consumers 段连续失败（`unregistered_consumer k8s/storage/nfs-fast/render.py:96`，TD-444 第 5 步带上 11 个未登记的消费者），约 6 小时没人发现；期间在它之上的 infra 落地（R5:5.5-12 设计稿补充）落地 CI 也失败。consumers 段读的是推送前 main 上的登记表（`scripts/landing/doc_consumers.py` 的 `main`），所以登记行必须比消费者先上 main。
 - **影响**：infra main 的 CI 一直红，所有 infra 落地都过不去，而推的人以为是绿的。
-- **修法**：push-main 推 infra 之前，用候选提交同时作基点和修订跑 `doc_consumers.py --purpose push`，发现未登记的消费者就拒推，并提示先单独推登记行；推完像 CI_REPOS 一样等 `ci-infra` 的结果。
+- **修法**：push-main 推 infra 之前，和 ci-infra 一样以推送前的 main 作基点、候选作修订跑 `doc_consumers.py --purpose push`；有未登记的消费者就拒推，并提示先单独推登记行（登记行必须比消费者先上 main：检查只信基点的登记表）。基点 main 本身已经不一致时（例如 11-03 晚那 11 个），要有一个写明原因的放行开关，否则修复它的那一推也推不上去。推完像 CI_REPOS 一样等 `ci-infra` 的结果并打印出来。
 - **防线**：push-main 的测试：一个提交新加一个带 `rglob(` 的文件，不登记就被拒推。
 - **验收**：`bash scripts/release/test_push_main.sh` 通过，新用例在本条修复前失败。
 
@@ -3919,25 +3919,25 @@
 
 ### TD-515
 
-**P3 · 测试 · `progress-publish.test.js` 的导出清单漏了 `startProgressBeats`，在 main 上一直是红的**
+**P3 · 门禁 · `agent-config/scripts` 下的 node 测试不在任何门禁里，红了也没人知道**
 
 - **状态**：未开始（2026-11-04 记，R5:5.5-12 S1-4 开发时发现）。
-- **证据**：`agent-config/scripts/progress-publish.test.js` 里「nothing exported can send a request to a caller-chosen path」一条，在 infra `4508170` 及更早的提交上都失败：它列出的导出清单缺 `startProgressBeats`。
-- **影响**：node 测试段总有一条红，真的新失败会被它掩盖。
-- **修法**：把它加进清单，或者让测试从模块本身读出导出清单。
-- **防线**：这条测试转绿后，留在 node 测试段里。
-- **验收**：`node --test agent-config/scripts/progress-publish.test.js` 全部通过。
+- **证据**：`agent-config/scripts/progress-publish.test.js` 里「nothing exported can send a request to a caller-chosen path」一条，在 infra `4508170` 及更早的提交上一直失败：它列出的 `thread-heartbeat.js` 导出清单缺 `startProgressBeats`（那个函数只往心跳路由发 after_tool，调用方给的是字段不是路径）。这一条已在 S1-5 之后的提交里修好，但它能红这么久是因为没有门禁跑它：ci-infra 的 quick 段只跑 platform `api/cmd/infracheck --print-check` 给出的 pytest 清单；`scripts/release/push-main.sh` 推 infra 时只跑 `scripts/release`、`scripts/agentrt`、`scripts/agent-host`（改了落地脚本时加 `agent-config/scripts/landing`）的 pytest 与 .sh。`agent-config/scripts/*.test.js` 共 8 个文件（其中 5 个是 R5:5.5-12 新加的），都只在改它的人手动跑时才跑。另：`host-heartbeat.test.js` 的安装器用例要从脚本目录往上找到工作区根，在没有工作区布局的独立检出里必失败（工作区里 14/14 通过）。
+- **影响**：钩子脚本（每个会话都会执行）的测试坏了不会挡住任何推送；真的新失败会被已有的红掩盖。
+- **修法**：push-main 推 infra 时，凡改到 `agent-config/scripts/*.js`，就在干净检出上跑 `node --test agent-config/scripts/*.test.js`（检出要像 push-main 现在给 platform 那样摆出工作区布局，安装器用例才找得到工作区根）；ci-infra 的 quick 段同样加上（先确认 ci-infra-tools 镜像里有 node）。
+- **防线**：push-main 的测试加一个用例：一个改了 `agent-config/scripts/` 下 .js 的提交，其 node 测试失败时拒推。
+- **验收**：`bash scripts/release/test_push_main.sh` 通过，新用例在本条修复前失败；`node --test agent-config/scripts/*.test.js` 在 main 上全部通过。
 
 ### TD-516
 
 **P3 · 运行时 · 外部工作重放：同一个幂等键换了三元组，回的是 `key_conflict` 而不是 `identity_mismatch`**
 
-- **状态**：未开始（2026-11-04 记，R5:5.5-12 P-b 复核第 1 轮的应该改，按复核停止线延后）。
+- **状态**：在做（2026-11-04 记，R5:5.5-12 P-b 复核第 1 轮的应该改；修复已并进 P-b 分支 `r5/5.5-12-p-b`，随 P-b 落地）。
 - **证据**：R5:5.5-12 P-b（platform `a79c3475`，未落地）：同一个幂等键、换了 vendor / session / epoch 的重放，先被幂等摘要拦下，回 409 `key_conflict`；设计 §1.4 写的是身份错误 `identity_mismatch`。两者都是 409，也不会重复写入。
 - **影响**：收集员分不清是自己重用了键，还是身份变了。
-- **修法**：在比对幂等摘要之前先比三元组；或者摘要冲突里唯一的差别是三元组时，改回 `identity_mismatch`。
-- **防线**：`TestBindingAtomicity` 加一个子例：同一个键、换了三元组，断言错误码。
-- **验收**：`go -C api test ./internal/agentrt/... -run TestBindingAtomicity -count=1` 通过，新子例在本条修复前失败。
+- **修法**：登记后三元组不再变，所以在查幂等键之前先比一次收集员事件的三元组和它那件工作的；会话不是被持有的那个、工作不存在或不是自己的，都交回原路径照旧回答；锁内的检查仍是最终判断。
+- **防线**：`TestForeignWork_ReplayOtherIdentity` 对每种换了身份的重放断言 `identity_mismatch`（修复前得到 `key_conflict`），对自己的身份、同一个键、换了内容的断言仍是 `key_conflict`。
+- **验收**：`go -C api test ./internal/agentrt/agentrtapi/ -run TestForeignWork_ReplayOtherIdentity -count=1` 在设好 `AGENTRT_TEST_PG` 和 `AGENTRT_TEST_REQUIRED=1` 时通过。
 
 ### TD-490
 
