@@ -61,6 +61,38 @@ class Platform:
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
 
+    @classmethod
+    def memory(cls):
+        """The same answers with no socket: for writers driven in-process through a fake Client."""
+        platform = cls.__new__(cls)
+        platform.calls, platform.works, platform.refuse_registration, platform.lock = [], {}, 0, threading.Lock()
+        return platform
+
+    def client(self, faults):
+        """A dispatch.Client stand-in on this platform; faults: {"get": n, "lose": type} to fail n GETs or lose one reply."""
+        platform = self
+
+        class Client:
+            def __init__(self, url, session, token):
+                self.session, self.token = session, token
+
+            def request(self, method, path, body=None, *, raw=False):
+                if method == "GET" and faults.get("get"):
+                    faults["get"] -= 1
+                    raise RuntimeError("platform unavailable")
+                data = body if raw else (json.dumps(body).encode() if body is not None else b"")
+                with platform.lock:
+                    code, reply = platform.answer(method, "/api/v1/agentrt" + path, data, {"Authorization": "Bearer " + self.token})
+                if code >= 400:
+                    raise RuntimeError(f"platform refused {method} with HTTP {code}")
+                lose = faults.get("lose")
+                if lose and not raw and isinstance(body, dict) and lose == ("register" if path == "/external-work" else body.get("type")):
+                    faults["lose"] = None
+                    raise RuntimeError("platform unavailable")
+                return reply
+
+        return Client
+
     def answer(self, method, path, raw, headers):
         body = json.loads(raw) if raw and path != "" and not path.startswith("/api/v1/agentrt/artifacts/") else None
         kept = {k: headers.get(k, "") for k in ("Authorization", "X-Bifrost-Session", "Content-Type", "X-Artifact-Kind")}
@@ -131,10 +163,13 @@ FAKE_CLAUDE = r'''#!{python}
 """A fake claude: it runs the wired hooks as the CLI would, with CLAUDE_PID its own pid."""
 import json, os, subprocess, sys, time
 plan = json.loads(os.environ["FAKE_CLAUDE_PLAN"])
-record = {{"pid": os.getpid(), "argv": sys.argv[1:], "env": {{k: os.environ.get(k, "") for k in ("BIFROST_LAUNCH_ID", "BIFROST_PLAN_ROOT", "BIFROST_PLAN_NODE", "BIFROST_WORK_DESCRIPTION", "CLAUDE_CODE_HOST_SESSION_ID")}}}}
+record = {{"pid": os.getpid(), "argv": sys.argv[1:], "names": sorted(os.environ), "env": {{k: os.environ.get(k, "") for k in ("BIFROST_LAUNCH_ID", "BIFROST_PLAN_ROOT", "BIFROST_PLAN_NODE", "BIFROST_WORK_DESCRIPTION", "CLAUDE_CODE_HOST_SESSION_ID")}}}}
 open(os.environ["FAKE_CLAUDE_RECORD"], "w").write(json.dumps(record))
 for step in plan:
     env = dict(os.environ, CLAUDE_PID=str(step.get("pid") or os.getpid()))
+    if step.get("plain"):  # a process started outside the launch: none of its environment
+        for name in ("BIFROST_LAUNCH_ID", "BIFROST_PLAN_ROOT", "BIFROST_PLAN_NODE", "BIFROST_WORK_DESCRIPTION"):
+            env.pop(name, None)
     payload = {{"session_id": step["session"], "hook_event_name": step["event"], **step.get("extra", {{}})}}
     subprocess.run(["node", {heartbeat!r}, "hook", "claude"], input=json.dumps(payload), text=True, env=env, timeout=10)
     time.sleep(step.get("sleep", 0.4))

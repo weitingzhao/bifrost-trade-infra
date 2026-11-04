@@ -162,6 +162,12 @@ at most every 30 seconds on tool events, `submitted` at SessionEnd, and
 `~/.cache/bifrost/external-work/claude/<session>/<epoch>/`; `wrapper.lock`
 makes that call its only writer, and every call converges (register and start
 first, then its own event), so calls arriving out of order are harmless.
+An end or a cancel is kept in `terminal.json` before any lock or request, by
+the hook itself and again by the writer; the first one kept stands. Every
+later call for the work, `bind` included, delivers it; a cancelled epoch is
+never registered or started afterwards (a registration whose reply was lost
+is registered again, idempotently, to be cancelled). The audit reports a kept
+end the platform has not taken as `work_end_not_delivered`.
 
 **Bind after the fact.** A session that was not launched (desktop, hand-started
 CLI) is registered with its CLI session id and epoch:

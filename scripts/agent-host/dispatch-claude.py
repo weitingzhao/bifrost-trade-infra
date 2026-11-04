@@ -34,6 +34,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 import sys
 import uuid
 from datetime import datetime, timezone
@@ -44,6 +45,15 @@ auth = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(auth)
 
 LINKED_FIELDS = ("root", "node", "plan_version", "task", "repo", "branch", "acceptance_ref", "estimate_minutes")
+# Claude gets no coordinator credential. The hooks run in its environment, so the two
+# tokens they read stay when the caller gave them as variables (better as their files).
+SECRET_NAME = re.compile(r"TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL", re.I)
+COORDINATOR_PREFIXES = ("AGENTRT_", "HANDIN_", "BIFROST_DISPATCH_")
+HOOK_TOKENS = {"PLATFORM_COLLECTOR_TOKEN", "PLATFORM_REPORTER_TOKEN"}
+
+
+def child_env(env) -> dict:
+    return {k: v for k, v in env.items() if k in HOOK_TOKENS or not (SECRET_NAME.search(k) or k.startswith(COORDINATOR_PREFIXES))}
 
 
 def write_private(path: Path, data: bytes) -> None:
@@ -77,6 +87,8 @@ def description_of(options) -> bytes:
     for name in ("task", "repo", "branch", "root", "node", "plan_version"):
         if not str(getattr(options, name)).strip():
             raise ValueError(f"--{name.replace('_', '-')} is empty")
+    if any(not ref.strip() for ref in options.acceptance_ref):
+        raise ValueError("--acceptance-ref is empty")
     return json.dumps(body, ensure_ascii=False, sort_keys=True).encode()
 
 
@@ -115,7 +127,7 @@ def prepare(options, env, pid: int):
     }
     if parent and auth.ID_RE.fullmatch(parent):
         record["parent_session"] = parent
-    child = dict(env)
+    child = child_env(env)
     child["BIFROST_LAUNCH_ID"] = launch_id
     child["CLAUDE_CODE_HOST_SESSION_ID"] = sidebar
     for name in ("BIFROST_PLAN_ROOT", "BIFROST_PLAN_NODE", "BIFROST_WORK_DESCRIPTION"):

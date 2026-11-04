@@ -14,7 +14,8 @@
  * record's `sessions`, and for a linked launch the work's single writer
  * (register-claude-work.py event) is started, detached, per event:
  * SessionStart → start; an epoch a resume superseded has its work cancelled,
- * whichever process resumed;
+ * whichever process resumed (its cancel kept first: a late start of it
+ * registers nothing);
  * UserPromptSubmit, Stop and StopFailure → heartbeat each time, other events
  * → heartbeat at most once in TOOL_BEAT_MS, SessionEnd → submit. A session
  * bound after the fact (`register-claude-work.py bind`) has a work directory,
@@ -110,6 +111,30 @@ function writerEvents(r) {
   return [['heartbeat', r.epoch, 'tool']]
 }
 
+/**
+ * Keep a work's end or cancel before the writer starts: the writer may never run
+ * (no python3, a busy lock, a failed read), and the next call for the work, bind
+ * included, delivers what is kept. The first one kept stands; the writer
+ * (collector_work.note_terminal) writes the same file the same way.
+ */
+function noteTerminal(dir, event) {
+  const target = path.join(dir, 'terminal.json')
+  try {
+    if (fs.existsSync(target)) return
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
+    const tmp = path.join(dir, `.terminal.json.${process.pid}.tmp`)
+    fs.writeFileSync(tmp, JSON.stringify({ event, at: new Date().toISOString() }), { mode: 0o600 })
+    try {
+      fs.linkSync(tmp, target)
+    } catch {
+      // another writer kept one first
+    }
+    fs.unlinkSync(tmp)
+  } catch {
+    // not kept: the audit reports the end as not delivered
+  }
+}
+
 /** Tool events start the writer at most once in TOOL_BEAT_MS per epoch (§2.3). */
 function toolThrottled(dir, now) {
   const file = path.join(dir, 'hook-beat')
@@ -162,11 +187,23 @@ function afterResolve(vendor, payload, body, r, deps, env, url) {
     else delete id.client_bind
   }
   const writes = (linkedLaunch && whole) || Boolean(state)
+  if (linkedLaunch && whole) {
+    // The work directory exists from this hook on, before any writer runs: a resume from any
+    // process, launched or not, then finds it and keeps its cancel (review M3).
+    try {
+      fs.mkdirSync(workDir(vendor, session, r.epoch), { recursive: true, mode: 0o700 })
+    } catch {
+      // the writer creates it too
+    }
+  }
   const now = Date.parse(at)
   for (const [event, epoch, tool] of writerEvents(r)) {
-    // A superseded epoch's work is cancelled whoever superseded it; the rest only for the launch's or a bound work.
-    if (event === 'cancel' ? !workState(vendor, session, epoch) : !writes) continue
-    if (tool && toolThrottled(workDir(vendor, session, epoch), now)) continue
+    // A superseded epoch's work is cancelled whoever superseded it: one that has a work directory,
+    // or any epoch of the launch's (its writer may not have started yet; it then registers nothing).
+    const dir = workDir(vendor, session, epoch)
+    if (event === 'cancel' ? !(fs.existsSync(dir) || writes) : !writes) continue
+    if (tool && toolThrottled(dir, now)) continue
+    if (event === 'cancel' || event === 'submit') noteTerminal(dir, event)
     const args = ['--event', event, '--vendor', vendor, '--session', session, '--epoch', String(epoch), '--url', url]
     if (linkedLaunch && event !== 'cancel') args.push('--launch', found.id)
     spawnWriter(args, env)

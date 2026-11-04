@@ -78,6 +78,11 @@ def test_an_incomplete_description_refuses_to_launch(world):
         args = LINKED[:at] + LINKED[at + (3 if missing == "--estimate-minutes" else 2):]
         proc = launch(world, args, steps("SessionStart"))
         assert proc.returncode == 2 and missing in proc.stderr
+    at = LINKED.index("--acceptance-ref") + 1
+    for refs in (["--acceptance-ref", ""], ["--acceptance-ref", "   "], ["--acceptance-ref", "S1-5", "--acceptance-ref", " "]):
+        args = LINKED[:at - 1] + refs + LINKED[at + 1:]
+        proc = launch(world, args, steps("SessionStart"))
+        assert proc.returncode == 2 and "--acceptance-ref" in proc.stderr, f"review S1: a blank reference is no reference: {refs}"
     assert launches(world) == [] and not world.record.exists(), "nothing is written and claude is not started"
     assert launch(world, ["--unlinked", "--root", "R5"], []).returncode == 2, "--unlinked takes no plan context"
 
@@ -152,3 +157,13 @@ def test_a_resume_cancels_the_epoch_it_superseded(world):
     assert p.wait(lambda p: any(e["type"] == "cancelled" for e in p.events()))
     cancelled = [e for e in p.events() if e["type"] == "cancelled"]
     assert [e["epoch"] for e in cancelled] == [1], "only the launch's epoch 1 had a work; the resume's other process is not the launch's"
+
+
+def test_claude_gets_no_coordinator_credential_but_the_hooks_keep_theirs(world):
+    """Self-check after review M5: the launched CLI does not inherit the coordinator's tokens."""
+    proc = launch(world, LINKED, [], AGENTRT_COORDINATOR_AGENTD_TOKEN="A", BIFROST_DISPATCH_TOKEN="D", HANDIN_AGENTD_TOKEN_FILE="/x",
+                  GITHUB_TOKEN="G", PLATFORM_REPORTER_TOKEN="R", LANG="C")
+    assert proc.returncode == 0, proc.stderr
+    names = json.loads(world.record.read_text())["names"]
+    assert not [n for n in names if n in ("AGENTRT_COORDINATOR_AGENTD_TOKEN", "BIFROST_DISPATCH_TOKEN", "HANDIN_AGENTD_TOKEN_FILE", "GITHUB_TOKEN")]
+    assert {"PLATFORM_COLLECTOR_TOKEN", "PLATFORM_REPORTER_TOKEN", "PLATFORM_HEARTBEAT_URL", "LANG"} <= set(names), "what the hooks read stays"

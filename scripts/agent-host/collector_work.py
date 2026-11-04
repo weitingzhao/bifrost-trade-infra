@@ -26,6 +26,7 @@ from __future__ import annotations
 import fcntl
 import importlib.util
 import json
+import os
 import time
 import urllib.parse
 from datetime import datetime, timezone
@@ -47,6 +48,8 @@ EVENTS = ("start", "heartbeat", "submit", "cancel")
 DESCRIPTION_FIELDS = {"v", "kind", "task", "executor", "provider", "repo", "branch", "acceptance_refs", "estimate_minutes"}
 TERMINAL = ("Submitted", "Cancelled")
 LOCK_WAIT = 10.0
+TERMINAL_FILE = "terminal.json"
+RETRY_SECONDS = (2.0, 5.0)
 
 
 def now_text() -> str:
@@ -140,47 +143,101 @@ class Locked:
         self.stream.close()
 
 
-def _deliver(state, path, directory, event, token, retry_failed=False):
-    client = dispatch.Client(state["url"], state["identity"]["session"], token)
-    registration = state["registration"]
-    if "id" not in state and (event == "cancel" or (state.get("failed") and not retry_failed)):
-        # Nothing registered to cancel; a refused registration is retried by bind only.
+def note_terminal(directory: Path, event: str) -> None:
+    """Keep a work's end (submit) or cancel before any lock or request; the first one kept stands.
+
+    Written as a temporary file linked into place, so it is whole or absent, and
+    an existing one is never replaced. The hooks write the same file (collector-launch.js).
+    """
+    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    target = directory / TERMINAL_FILE
+    if target.exists():
+        return
+    tmp = directory / f".{TERMINAL_FILE}.{os.getpid()}.tmp"
+    tmp.write_text(json.dumps({"event": event, "at": now_text()}))
+    tmp.chmod(0o600)
+    try:
+        os.link(tmp, target)
+    except FileExistsError:
+        pass
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def read_terminal(directory: Path):
+    try:
+        event = json.loads((directory / TERMINAL_FILE).read_text()).get("event")
+    except (OSError, ValueError, AttributeError):
         return None
+    return event if event in ("submit", "cancel") else None
+
+
+def _register(state, path, directory, client):
+    registration = state["registration"]
+    # Marked before the POST: a lost reply may still have registered the work.
+    state["registration_sent"] = True
+    dispatch.atomic(path, state)
+    description = (directory / "description.json").read_bytes()
+    try:
+        client.request("PUT", "/artifacts/" + registration["artifact_id"], description, raw=True)
+        reply = check_reply(client.request("POST", "/external-work", registration))
+    except RuntimeError as exc:
+        if " HTTP 4" in str(exc):
+            state["failed"] = {"why": str(exc)[:120], "at": now_text()}
+            dispatch.atomic(path, state)
+        raise
+    state["id"] = reply["external_work_id"]
+    state.pop("failed", None)
+    if reply.get("registered_at"):
+        state["registered_at"] = reply["registered_at"]
+    dispatch.atomic(path, state)
+
+
+def _deliver(state, path, directory, event, token, retry_failed=False):
+    """Bring the work to what is kept for it: registered and started, then its end or cancel
+    once one is kept (terminal.json), else this call's heartbeat. A cancelled epoch never
+    becomes Running: nothing is registered for it unless a registration may already exist."""
+    client = dispatch.Client(state["url"], state["identity"]["session"], token)
+    terminal = read_terminal(directory)
     if "id" not in state:
-        description = (directory / "description.json").read_bytes()
-        try:
-            client.request("PUT", "/artifacts/" + registration["artifact_id"], description, raw=True)
-            reply = check_reply(client.request("POST", "/external-work", registration))
-        except RuntimeError as exc:
-            if " HTTP 4" in str(exc):
-                state["failed"] = {"why": str(exc)[:120], "at": now_text()}
-                dispatch.atomic(path, state)
-            raise
-        state["id"] = reply["external_work_id"]
-        state.pop("failed", None)
-        if reply.get("registered_at"):
-            state["registered_at"] = reply["registered_at"]
-        dispatch.atomic(path, state)
-    journal = dispatch.EventJournal(client, path, state, registration["source_run_key"], state["identity"])
+        if terminal == "cancel" and not state.get("registration_sent"):
+            return None
+        if state.get("failed") and not retry_failed:
+            return None
+        _register(state, path, directory, client)
+    journal = dispatch.EventJournal(client, path, state, state["registration"]["source_run_key"], state["identity"])
     journal.deliver_pending()
     current = check_reply(client.request("GET", journal.route))
-    state["seq"] = current["seq"]
-    dispatch.atomic(path, state)
-    status = current["state"]
-    if event == "cancel":
-        return check_reply(journal.event("cancelled")) if status not in TERMINAL else current
-    if status == "Registered":
-        current = check_reply(journal.event("started"))
+    for _ in range(2):  # once more if an end was kept while this call ran
+        state["seq"], state["status"] = current["seq"], current["state"]
+        dispatch.atomic(path, state)
         status = current["state"]
-    if event == "heartbeat" and status == "Running":
-        return check_reply(journal.event("heartbeat"))
-    if event == "submit" and status == "Running":
-        return check_reply(journal.event("submitted"))
+        if status in TERMINAL:
+            return current
+        if terminal == "cancel":
+            current = check_reply(journal.event("cancelled"))
+        else:
+            if status == "Registered":
+                current = check_reply(journal.event("started"))
+            if terminal == "submit":
+                current = check_reply(journal.event("submitted"))
+            elif event == "heartbeat" and current["state"] == "Running":
+                current = check_reply(journal.event("heartbeat"))
+                event = "start"
+        state["seq"], state["status"] = current["seq"], current["state"]
+        dispatch.atomic(path, state)
+        later = read_terminal(directory)
+        if later == terminal:
+            return current
+        terminal = later
     return current
 
 
-def run_event(event, vendor, session, epoch, url="", launch_id="", *, wait=LOCK_WAIT):
-    """One hook event for one external work. Returns the work's reply, or None when there is nothing to write."""
+def run_event(event, vendor, session, epoch, url="", launch_id="", *, wait=LOCK_WAIT, tries=None):
+    """One hook event for one external work. Returns the work's reply, or None when there is nothing to write.
+
+    An end or a cancel is kept before anything else, and its delivery is tried a few times;
+    whatever is still undelivered is delivered by the next call for this work, bind included."""
     if event not in EVENTS:
         raise ValueError("event is start, heartbeat, submit or cancel")
     token = auth.collector_token()
@@ -188,6 +245,19 @@ def run_event(event, vendor, session, epoch, url="", launch_id="", *, wait=LOCK_
         raise ValueError("collector mode is off: no collector token")
     directory = auth.epoch_dir(vendor, session, epoch)
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if event in ("submit", "cancel"):
+        note_terminal(directory, event)
+    tries = tries or (3 if event in ("submit", "cancel") else 1)
+    for attempt in range(tries):
+        try:
+            return _run_once(event, vendor, session, epoch, url, launch_id, directory, token, wait)
+        except RuntimeError:
+            if attempt + 1 >= tries:
+                raise
+            time.sleep(RETRY_SECONDS[attempt])
+
+
+def _run_once(event, vendor, session, epoch, url, launch_id, directory, token, wait):
     path = directory / "state.json"
     with Locked(directory / "wrapper.lock", wait):
         if path.exists():
@@ -195,7 +265,7 @@ def run_event(event, vendor, session, epoch, url="", launch_id="", *, wait=LOCK_
             if state.get("schema") != SCHEMA:
                 raise ValueError("not a collector work directory")
         else:
-            found = read_launch(launch_id) if launch_id and event != "cancel" else None
+            found = read_launch(launch_id) if launch_id and read_terminal(directory) != "cancel" else None
             if not found:
                 return None
             launch, description = found

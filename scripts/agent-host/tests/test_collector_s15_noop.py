@@ -3,10 +3,16 @@ handin.sh behave as the scripts of 46d1a32 do (R5:5.5-12 S1-5).
 
 python3 -m pytest -q scripts/agent-host/tests/test_collector_s15_noop.py
 Compared: exit code, stdout, stderr, every request (method, path, Authorization,
-X-Bifrost-Session, Content-Type, X-Artifact-Kind, body bytes), what the child
-was given (the Codex wrapper), and the files handin.sh leaves under .git/handin.
-Not compared: timing. Requests go to a local fake platform or a fake curl. The
-baseline scripts come from git; without the commit the test fails.
+X-Bifrost-Session, Content-Type, X-Artifact-Kind, body bytes), the files
+handin.sh leaves under .git/handin, the wrapper's state.json, and, run as the
+coordinator runs it (one file copied alone into an empty directory), --help, a
+whole run and a refused registration. Two differences are intended and
+checked as such, not as equal: the Codex child's environment lacks every
+credential-shaped and platform variable (review M5; the rest is equal), and
+the wrapper's run directory gains codex.json, child.json naming its version
+(review M1). Not compared: timing, register-claude-work.py's state files,
+crash and resume paths. Requests go to a local fake platform or a fake curl;
+the baseline comes from git, and without the commit the test fails.
 """
 
 import json
@@ -50,35 +56,83 @@ def requests(platform):
     return [(c["method"], c["path"], c["headers"], c["raw"]) for c in platform.calls]
 
 
-def run_wrapper(tmp_path, script_dir, case, tag):
+SECRET = ("TOKEN", "SECRET", "PASSWORD", "CREDENTIAL")
+
+
+def single_copy(tmp_path, source: Path, tag) -> Path:
+    """The coordinator's way: this one file, copied alone into an empty directory."""
+    directory = tmp_path / ("copy-" + tag)
+    directory.mkdir()
+    (directory / ".dispatch-codex.py").write_bytes(source.read_bytes())
+    return directory / ".dispatch-codex.py"
+
+
+def run_wrapper(tmp_path, script, case, tag, refuse=0, extra_env=None):
     platform = Platform()
+    platform.refuse_registration = refuse
     try:
         bin_dir = tmp_path / "bin"
         bin_dir.mkdir(exist_ok=True)
-        (bin_dir / "codex").write_text("#!" + sys.executable + "\nimport os\nopen(os.environ['LOG'], 'a').write(repr(sorted(k for k in os.environ if 'TOKEN' in k)) + '\\n')\n")
+        (bin_dir / "codex").write_text("#!" + sys.executable + "\nimport json, os\nopen(os.environ['LOG'], 'a').write(json.dumps(sorted(os.environ)) + '\\n')\n")
         (bin_dir / "codex").chmod(0o755)
         (tmp_path / "description.json").write_text(json.dumps(DESCRIPTION, ensure_ascii=False))
         report = tmp_path / "REPORT.md"
         report.unlink(missing_ok=True)
         home = tmp_path / ("home-" + tag)
         setup_home(home, case)
-        env = clean_env(home, platform.url, BIFROST_DISPATCH_TOKEN="DISPATCH", LOG=tmp_path / f"child-{tag}.log",
-                        **{k: v for k, v in case.items() if k != "unreadable"})
+        env = clean_env(home, platform.url, BIFROST_DISPATCH_TOKEN="DISPATCH", LOG=tmp_path / f"child-{tag}.log", PLATFORM_REPORTER_TOKEN="R",
+                        AGENTRT_COORDINATOR_AGENTD_TOKEN="A", LANG="C", **(extra_env or {}), **{k: v for k, v in case.items() if k != "unreadable"})
         env["PATH"] = str(bin_dir) + os.pathsep + env["PATH"]
+        state = tmp_path / ("state-" + tag)
         args = ["--url", platform.url, "--session", "local_s", "--run-key", "rk-1", "--root", "R4", "--node", "R4:4.5-1",
-                "--description", str(tmp_path / "description.json"), "--report", str(report), "--state-dir", str(tmp_path / ("state-" + tag)), "--repo", str(tmp_path)]
-        proc = subprocess.run([sys.executable, str(script_dir / "dispatch-codex.py"), *args, "--", "PRIVATE"], env=env, capture_output=True, text=True, timeout=60)
-        return proc.returncode, proc.stdout, proc.stderr, requests(platform), (tmp_path / f"child-{tag}.log").read_text()
+                "--description", str(tmp_path / "description.json"), "--report", str(report), "--state-dir", str(state), "--repo", str(tmp_path)]
+        proc = subprocess.run([sys.executable, str(script), *args, "--", "PRIVATE"], env=env, capture_output=True, text=True, timeout=60)
+        log = tmp_path / f"child-{tag}.log"
+        child = json.loads(log.read_text()) if log.exists() else None
+        runs = list(state.glob("*/state.json")) if state.exists() else []
+        files = sorted(f.name for f in runs[0].parent.iterdir()) if runs else []
+        saved = json.loads(runs[0].read_text()) if runs else None
+        return {"result": (proc.returncode, proc.stdout, proc.stderr.replace(str(tmp_path), "<tmp>")), "requests": requests(platform),
+                "child": child, "files": files, "state": saved}
     finally:
         platform.close()
 
 
+def assert_wrapper_equivalent(old, new):
+    assert new["result"] == old["result"] and new["requests"] == old["requests"] and new["state"] == old["state"]
+    if old["child"] is not None:
+        # Intended (M5): the new child lacks the credential-shaped and platform variables; all else is equal.
+        assert [k for k in old["child"] if not any(s in k for s in SECRET) and not k.startswith(("PLATFORM_", "AGENTRT_", "HANDIN_"))] == new["child"]
+        assert "PLATFORM_REPORTER_TOKEN" in old["child"] and not [k for k in new["child"] if any(s in k for s in SECRET)]
+    assert [f for f in new["files"] if f != "codex.json"] == old["files"], "intended (M1): codex.json only"
+
+
 @pytest.mark.parametrize("case", NO_TOKEN, ids=["no-token", "blank-token", "unreadable-file"])
-def test_the_codex_wrapper_sends_what_the_baseline_sends(tmp_path, case):
-    old = run_wrapper(tmp_path, baseline(tmp_path, "scripts/agent-host/dispatch-codex.py"), case, "old")
-    new = run_wrapper(tmp_path, AGENT_HOST, case, "new")
-    assert old[0] == 0 and len(old[3]) >= 5, "the baseline ran the whole flow: the comparison proves something"
-    assert new == old
+def test_the_codex_wrapper_copied_alone_runs_as_the_baseline(tmp_path, case):
+    """Review M6: run exactly as dispatch.sh runs it, one copied file in an empty directory."""
+    old_script = single_copy(tmp_path, baseline(tmp_path, "scripts/agent-host/dispatch-codex.py") / "dispatch-codex.py", "old")
+    new_script = single_copy(tmp_path, AGENT_HOST / "dispatch-codex.py", "new")
+    old = run_wrapper(tmp_path, old_script, case, "old")
+    new = run_wrapper(tmp_path, new_script, case, "new")
+    assert old["result"][0] == 0 and len(old["requests"]) >= 5, "the baseline ran the whole flow: the comparison proves something"
+    assert_wrapper_equivalent(old, new)
+    env = clean_env(tmp_path / "h", "http://offline.invalid")
+    helps = [subprocess.run([sys.executable, str(s), "--help"], env=env, capture_output=True, text=True) for s in (old_script, new_script)]
+    assert helps[0].returncode == helps[1].returncode == 0 and helps[0].stderr == helps[1].stderr == ""
+
+
+def test_the_codex_wrapper_copied_alone_fails_a_refused_registration_as_the_baseline(tmp_path):
+    old = run_wrapper(tmp_path, single_copy(tmp_path, baseline(tmp_path, "scripts/agent-host/dispatch-codex.py") / "dispatch-codex.py", "old"), {}, "old", refuse=1)
+    new = run_wrapper(tmp_path, single_copy(tmp_path, AGENT_HOST / "dispatch-codex.py", "new"), {}, "new", refuse=1)
+    assert old["result"][0] == 1 and "HTTP 400" in old["result"][2] and old["child"] is None
+    assert_wrapper_equivalent(old, new)
+
+
+def test_the_codex_wrapper_copied_alone_also_runs_as_a_collector(tmp_path):
+    new = run_wrapper(tmp_path, single_copy(tmp_path, AGENT_HOST / "dispatch-codex.py", "new"), {}, "new", extra_env={"PLATFORM_COLLECTOR_TOKEN": "C"})
+    assert new["result"][0] == 0, new["result"]
+    [registration] = [json.loads(r[3]) for r in new["requests"] if r[1] == "/api/v1/agentrt/external-work"]
+    assert (registration["vendor"], registration["session"], registration["epoch"]) == ("codex", "rk-1", 1)
 
 
 def run_register(tmp_path, script_dir, case, tag):

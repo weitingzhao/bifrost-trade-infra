@@ -9,10 +9,11 @@ child and replay a durable pending event. A lost child is never relaunched
 implicitly: its run remains Unconfirmed until explicitly reconciled with
 `reconcile` and the same --url, --session, --run-key and --state-dir.
 
-Collector mode (R5:5.5-12 S1-5): when a collector token is configured
-(PLATFORM_COLLECTOR_TOKEN or ~/.config/bifrost/collector.token) the run is
-registered with it instead, as vendor codex, session <run key>, epoch 1, and
-every event names that identity. Without one nothing changes.
+Collector mode (R5:5.5-12 S1-5; PLATFORM_COLLECTOR_TOKEN or
+~/.config/bifrost/collector.token): registered as codex / <run key> / epoch 1,
+every event naming it; local state keyed by that identity, not --session.
+This file stays self-contained: it is copied and run alone. The child gets no
+credential (child_env); Codex holds the child lock and is recorded in codex.json.
 """
 
 from __future__ import annotations
@@ -20,9 +21,9 @@ from __future__ import annotations
 import argparse
 import fcntl
 import hashlib
-import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -31,11 +32,40 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-_auth_spec = importlib.util.spec_from_file_location(
-    "collector_auth", Path(__file__).with_name("collector_auth.py")
-)
-auth = importlib.util.module_from_spec(_auth_spec)
-_auth_spec.loader.exec_module(auth)
+# Kept here, not imported, as this file runs alone: the platform's session
+# shape; credential-shaped names and platform namespaces never reach the child.
+SESSION_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
+SECRET_NAME = re.compile(r"TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL", re.I)
+PLATFORM_PREFIXES = ("PLATFORM_", "AGENTRT_", "HANDIN_", "BIFROST_DISPATCH_")
+
+
+def collector_token() -> str:
+    """The collector token (collector_auth.collector_token, repeated so this file stands alone)."""
+    if os.environ.get("PLATFORM_COLLECTOR_TOKEN", "").strip():
+        return os.environ["PLATFORM_COLLECTOR_TOKEN"].strip()
+    home = Path(os.environ.get("BIFROST_HOME_OVERRIDE") or Path.home())
+    try:
+        return (home / ".config" / "bifrost" / "collector.token").read_text(encoding="utf-8").split("\n")[0].strip()
+    except (OSError, UnicodeDecodeError):
+        return ""
+
+
+def child_env(environ) -> dict:
+    """The environment Codex gets: the caller's, without any credential or platform variable."""
+    return {k: v for k, v in environ.items() if not SECRET_NAME.search(k) and not k.startswith(PLATFORM_PREFIXES)}
+
+
+def process_start(pid: int) -> str:
+    """Start time of the process under pid: /proc field 22, else ps; '' when none can be read."""
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text()
+        return "proc:" + stat[stat.rindex(")") + 2:].split()[19]
+    except (OSError, ValueError, IndexError):
+        try:
+            out = subprocess.run(["/bin/ps", "-o", "lstart=", "-p", str(pid)], capture_output=True, text=True, timeout=2)
+        except (OSError, subprocess.TimeoutExpired):
+            return ""
+        return "ps:" + " ".join(out.stdout.split()) if out.returncode == 0 and out.stdout.strip() else ""
 
 
 def digest(data: bytes) -> str:
@@ -157,24 +187,52 @@ def supervise(directory: Path, lock_fd: int, repo: str, args: list[str]) -> int:
     # The lock is acquired by the parent and inherited across exec. No
     # resumed wrapper can race the launch before this durable receipt.
     try:
-        atomic(directory / "child.json", {"pid": os.getpid()})
+        # v 2: codex.json follows, its "pid" null until Codex is running.
+        atomic(directory / "child.json", {"pid": os.getpid(), "v": 2})
+        atomic(directory / "codex.json", {"pid": None})
         try:
-            code = subprocess.call(["codex", "exec", *args], cwd=repo)
+            # Codex inherits the child lock: it stays held while Codex lives,
+            # even if this supervisor is killed (reconcile reads it).
+            child = subprocess.Popen(["codex", "exec", *args], cwd=repo, pass_fds=(lock_fd,))
         except OSError:
             code = 127
+        else:
+            atomic(directory / "codex.json", {"pid": child.pid, "started": process_start(child.pid)})
+            code = child.wait()
         atomic(directory / "exit.json", {"exit_code": code})
         return code
     finally:
         os.close(lock_fd)
 
 
-def launch(directory: Path, args: list[str], repo: str, strip=()) -> subprocess.Popen:
+def codex_gone(directory: Path) -> tuple[bool, str]:
+    """Whether the run's Codex process is provably gone, and why not when it is not."""
+    if not (directory / "child.json").exists():
+        return True, ""  # the supervisor never started, so neither did Codex
+    if json.loads((directory / "child.json").read_text()).get("v") != 2:
+        return False, "an older wrapper started the run and recorded no Codex process"
+    if not (directory / "codex.json").exists():
+        return True, ""  # written before Codex is started
+    codex = json.loads((directory / "codex.json").read_text())
+    pid, started = codex.get("pid"), codex.get("started", "")
+    if not isinstance(pid, int):
+        return False, "the supervisor died while starting Codex; whether it started cannot be told"
+    now = process_start(pid)
+    if started and now:
+        return now != started, "Codex is still running"
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return True, ""
+    except PermissionError:  # alive under another user: not provably gone
+        pass
+    return False, "a process has Codex's pid and its start time cannot be compared"
+
+
+def launch(directory: Path, args: list[str], repo: str) -> subprocess.Popen:
     with (directory / "child.lock").open("a") as child_lock:
         fcntl.flock(child_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        env = dict(os.environ)
-        env.pop("BIFROST_DISPATCH_TOKEN", None)
-        for name in strip:
-            env.pop(name, None)
+        env = child_env(os.environ)  # no token reaches Codex, in either mode
         return subprocess.Popen(
             [
                 sys.executable,
@@ -193,9 +251,9 @@ def launch(directory: Path, args: list[str], repo: str, strip=()) -> subprocess.
 
 def credentials(run_key: str):
     """The token and, in collector mode, the identity every write names."""
-    collector = auth.collector_token()
+    collector = collector_token()
     if collector:
-        if not auth.ID_RE.fullmatch(run_key):
+        if not SESSION_RE.fullmatch(run_key):
             raise ValueError("in collector mode the run key is the session: 1-128 of [A-Za-z0-9._:-]")
         return collector, {"vendor": "codex", "session": run_key, "epoch": 1}
     token = os.environ.get("BIFROST_DISPATCH_TOKEN", "")
@@ -204,19 +262,20 @@ def credentials(run_key: str):
     return token, None
 
 
-def run_directory(options) -> Path:
-    return (
-        Path(options.state_dir)
-        / hashlib.sha256(
-            (options.session + "\0" + options.run_key).encode()
-        ).hexdigest()
-    )
+def run_directory(options, identity=None) -> Path:
+    # A collector's work is (host, codex, run key, 1) whatever --session says, so
+    # its lock and state are too: two callers cannot both launch it.
+    if identity:
+        key = "collector\0" + identity["vendor"] + "\0" + identity["session"] + "\0" + str(identity["epoch"])
+    else:
+        key = options.session + "\0" + options.run_key
+    return Path(options.state_dir) / hashlib.sha256(key.encode()).hexdigest()
 
 
 def dispatch(options, args: list[str], *, interval=30.0, poll=0.2) -> int:
     token, identity = credentials(options.run_key)
     client = Client(options.url, options.session, token)
-    run_dir = run_directory(options)
+    run_dir = run_directory(options, identity)
     run_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     with (run_dir / "wrapper.lock").open("a") as wrapper_lock:
         try:
@@ -301,11 +360,7 @@ def dispatch(options, args: list[str], *, interval=30.0, poll=0.2) -> int:
             # receipt must not permit an implicit second launch on resume.
             state["launch_attempted"] = True
             atomic(path, state)
-            if identity:
-                # The child gets no collector token either; hooks read it from its file.
-                child = launch(run_dir, args, repo, ("PLATFORM_COLLECTOR_TOKEN",))
-            else:
-                child = launch(run_dir, args, repo)
+            child = launch(run_dir, args, repo)
         next_heartbeat = time.monotonic() + interval
         while not (run_dir / "exit.json").exists():
             if (
@@ -348,13 +403,12 @@ def dispatch(options, args: list[str], *, interval=30.0, poll=0.2) -> int:
 
 
 def reconcile(options) -> int:
-    """End a run whose child vanished without an exit receipt: cancelled, once.
-
-    Only when no wrapper holds the run, no supervisor holds the child lock and
-    no exit.json exists. The token is the one the run was registered with. A
-    run reconciled before, or already ended on the server, sends nothing more.
-    """
-    run_dir = run_directory(options)
+    """End, as cancelled and once, a run whose child vanished without exit.json: only when
+    no wrapper holds it, nothing holds the child lock and its Codex is provably gone
+    (codex_gone). Anything undecidable stays Unconfirmed. Uses the registration's token."""
+    mine = {"vendor": "codex", "session": options.run_key, "epoch": 1}
+    run_dir = run_directory(options, mine) if collector_token() and SESSION_RE.fullmatch(options.run_key) else None
+    run_dir = run_dir if run_dir and (run_dir / "state.json").is_file() else run_directory(options)
     path = run_dir / "state.json"
     if not path.is_file():
         raise ValueError("no run with this session, run key and state dir")
@@ -373,9 +427,12 @@ def reconcile(options) -> int:
             raise ValueError("the run has an exit receipt; re-run the wrapper to submit it")
         if child_active(run_dir):
             raise RuntimeError("the child still holds its lock; it is running")
+        gone, why = codex_gone(run_dir)
+        if not gone:
+            raise RuntimeError(why + "; the run stays Unconfirmed")
         registration = state["registration"]
         identity = {k: registration[k] for k in ("vendor", "session", "epoch") if k in registration} or None
-        token = auth.collector_token() if identity else os.environ.get("BIFROST_DISPATCH_TOKEN", "")
+        token = collector_token() if identity else os.environ.get("BIFROST_DISPATCH_TOKEN", "")
         if not token:
             raise ValueError("the token this run was registered with is not configured")
         client = Client(options.url, options.session, token)

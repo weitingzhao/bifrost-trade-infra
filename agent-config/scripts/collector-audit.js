@@ -31,9 +31,11 @@ function readJSON(file) {
   }
 }
 
-function registration(mode, state) {
+function registration(mode, state, kept) {
   if (state && state.id) return 'registered'
   if (state && state.failed) return 'refused'
+  // Cancelled before it was ever registered (a resume overtook its first writer): nothing is owed.
+  if (kept && kept.event === 'cancel') return 'cancelled'
   return mode === 'linked' ? 'pending' : 'none'
 }
 
@@ -57,9 +59,15 @@ function audit() {
     const works = sessions.map(s => {
       const st = epochs.loadEpochs(path.join(epochs.sessionDir(s.vendor, s.session) || '/nonexistent', 'epochs.json'))
       const endGaps = epochs.endGaps(st).filter(g => g.epoch === s.epoch).map(g => g.kind)
-      return { vendor: s.vendor, session: s.session, epoch: s.epoch, registration: registration(rec.mode, workState(s.vendor, s.session, s.epoch)), end_gaps: endGaps }
+      const state = workState(s.vendor, s.session, s.epoch)
+      const kept = readJSON(path.join(epochs.sessionDir(s.vendor, s.session) || '/nonexistent', String(s.epoch), 'terminal.json'))
+      const ended = st.epochs.some(e => e.epoch === s.epoch && e.end) || Boolean(kept)
+      // An end kept or seen by the hooks whose work is not Submitted or Cancelled on the server's last word.
+      const endNotDelivered = Boolean(state && state.id) && ended && !['Submitted', 'Cancelled'].includes(state.status)
+      return { vendor: s.vendor, session: s.session, epoch: s.epoch, registration: registration(rec.mode, state, kept), end_gaps: endGaps, end_not_delivered: endNotDelivered }
     })
-    if (rec.mode === 'linked' && works.some(w => w.registration !== 'registered')) gaps.push('work_not_registered')
+    if (rec.mode === 'linked' && works.some(w => !['registered', 'cancelled'].includes(w.registration))) gaps.push('work_not_registered')
+    if (works.some(w => w.end_not_delivered)) gaps.push('work_end_not_delivered')
     if (works.some(w => w.end_gaps.length)) gaps.push('session_end_gap')
     launches.push({ launch_id: id, mode: rec.mode, started_at: rec.started_at, sessions: sessions.length, gaps, works })
   }

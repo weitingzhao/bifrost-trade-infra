@@ -91,13 +91,32 @@ line of `~/.config/bifrost/collector.token`) the wrapper registers with it
 instead of `BIFROST_DISPATCH_TOKEN`: vendor `codex`, session = the run key
 (1–128 of `[A-Za-z0-9._:-]`), epoch 1, run key `codex:<run key>:1`; every event
 names that identity, the server writes the host, and `registered_at` is kept
-in `state.json`. The child gets neither token. Without a collector token the
-wrapper is byte for byte what it was (`tests/test_collector_s15_noop.py`).
+in `state.json`. Its local state and lock are keyed by that identity, not by
+`--session`, so two callers cannot both launch one work. The file stays
+self-contained: it is copied and run alone, in either mode.
+
+In both modes the child gets no credential: every variable whose name holds
+TOKEN, SECRET, PASSWORD or CREDENTIAL, and every `PLATFORM_*`, `AGENTRT_*`,
+`HANDIN_*` and `BIFROST_DISPATCH_*` variable, is removed. A denylist, not an
+allowlist: Codex needs the rest of the caller's environment (its own
+`OPENAI_*`/`CODEX_*` settings, locale, proxies), which no list can foresee.
+
+Without a collector token, `tests/test_collector_s15_noop.py` runs the wrapper
+copied alone into an empty directory, as the coordinator does, next to the
+46d1a32 one: the same requests (bytes), stdout, stderr, exit code and
+`state.json`, for a whole run, `--help` and a refused registration. Intended
+differences: the child's environment above, and `codex.json` in the run
+directory. Crash and resume paths are not compared.
 
 **Reconcile.** A run whose supervisor vanished without `exit.json` stays
-Running. When no wrapper holds the run, no supervisor holds `child.lock` and
-there is no exit receipt, end it as cancelled with the token it was
-registered with; a second reconcile sends nothing:
+Running. The supervisor records the real Codex process (`codex.json`: pid and
+start time) and passes it `child.lock`, so the lock lasts as long as Codex.
+`reconcile` ends the run as cancelled, with the token it was registered with,
+only when no wrapper holds it, nothing holds `child.lock`, there is no exit
+receipt and the recorded Codex is provably gone (no process under its pid, or
+another start time). A run whose Codex cannot be told (an older wrapper's, or
+one whose supervisor died while starting Codex) stays Unconfirmed. A second
+reconcile sends nothing:
 
 ```sh
 python3 scripts/agent-host/dispatch-codex.py reconcile --url … \
