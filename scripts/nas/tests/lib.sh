@@ -26,9 +26,11 @@ is_sub() { grep -Fxq "$1" /tmp/fake/subvols 2>/dev/null; }
 case "$1 $2" in
   "subvolume show") if [[ -d $3 ]] && { is_sub "$3" || [[ $3 == */td444-snap/* || $3 == */rollup-snap/* ]]; }; then
                       echo "$3"; echo "	UUID: 	$(cat "$3/.fake-uuid" 2>/dev/null || echo uuid-"$(basename "$3")")"; else exit 1; fi ;;
-  "subvolume snapshot") shift 2; [[ $1 == -r ]] && shift; cp -a "$1" "$2" && echo "uuid-$(basename "$2")" > "$2/.fake-uuid" ;;
+  "subvolume snapshot") shift 2; rw=1; [[ $1 == -r ]] && { rw=0; shift; }
+                        cp -a "$1" "$2" && echo "uuid-$(basename "$2")" > "$2/.fake-uuid" || exit 1
+                        if ((rw)); then echo "$2" >> /tmp/fake/rw_snaps; fi ;;
   "subvolume delete") [[ -e /tmp/fake/btrfs_delete_fail ]] && exit 1; rm -rf "$3" ;;
-  "property get") [[ -e /tmp/fake/snap_rw ]] && echo "ro=false" || echo "ro=true" ;;
+  "property get") if [[ -e /tmp/fake/snap_rw ]] || grep -Fxq "$4" /tmp/fake/rw_snaps 2>/dev/null; then echo "ro=false"; else echo "ro=true"; fi ;;
   "inspect-internal rootid") echo 5 ;;
   *) echo "shim btrfs: $*" >&2; exit 1 ;;
 esac
@@ -46,12 +48,45 @@ if [[ -f /tmp/fake/getfacl_fail ]] && { grep -Fxq '*' /tmp/fake/getfacl_fail || 
 fi
 exec /usr/bin/getfacl "$@"
 EOF
-# docker: a container record under /tmp/fake/dk (exists, running, id, netmode, ports, networks)
+# docker: the td444 container record under /tmp/fake/dk (exists, running, id, netmode, ports,
+# networks); containers named bifrost-rollup-* (the roll-up's throwaway MinIO) live under
+# /tmp/fake/run/<name>/ with their own filesystem fs/, and docker exec runs the command here
+# with the --env-file loaded, FAKE_DATA = the mounted directory, /tmp/rollup-mc mapped into fs/
 cat > /shim/docker <<'EOF'
 #!/bin/bash
-S=/tmp/fake/dk; mkdir -p "$S"
+S=/tmp/fake/dk; R=/tmp/fake/run; mkdir -p "$S" "$R"
 echo "docker $*" >> "$S/log"
 get() { cat "$S/$1" 2>/dev/null; }
+target() { local a; for a in "$@"; do [[ $a == bifrost-rollup-* ]] && { echo "$a"; return; }; done; }
+n=$(target "${@:2}")
+if [[ $1 == run || $1 == image || $1 == ps || -n $n ]]; then
+  case $1 in
+    run) shift; nv=0; pub=0; net=""; envf=""; mnt=""; name=""
+      while (($#)); do case $1 in
+        -d) shift ;; --name) name=$2; shift 2 ;; --network) net=$2; shift 2 ;; --env-file) envf=$2; shift 2 ;;
+        -v|--volume) mnt=${2%%:*}; nv=$((nv + 1)); shift 2 ;; -p|--publish) pub=1; shift 2 ;; -P) pub=1; shift ;;
+        --pull|--label|--memory) shift 2 ;; -*) echo "shim docker run: $1" >&2; exit 125 ;; *) break ;; esac; done
+      [[ -e /tmp/fake/no_image ]] && { echo "Unable to find image" >&2; exit 125; }
+      [[ -n $name && ! -e $R/$name ]] || { echo "Conflict" >&2; exit 125; }
+      mkdir -p "$R/$name/fs"; echo true > "$R/$name/running"
+      printf '%s\n' "$net" > "$R/$name/net"; echo "$pub" > "$R/$name/pub"; echo "$nv" > "$R/$name/nvol"
+      printf '%s\n' "$mnt" > "$R/$name/mount"; printf '%s\n' "$envf" > "$R/$name/envfile"; printf '%s\n' "$*" > "$R/$name/cmd"
+      echo "fakeid-$name" ;;
+    image) [[ $2 == inspect && ! -e /tmp/fake/no_image ]] ;;
+    ps) for a in "$@"; do if [[ $a == name=* ]]; then a=${a#name=^}; a=${a%\$}; [[ -d $R/$a ]] && echo "$a"; fi; done; exit 0 ;;
+    stop) [[ -d $R/$n ]] || exit 1; [[ -e /tmp/fake/run_stop_fail ]] && exit 1; echo false > "$R/$n/running" ;;
+    rm) [[ -d $R/$n && ! -e /tmp/fake/run_rm_fail && $(cat "$R/$n/running") == false ]] || exit 1; rm -rf "${R:?}/$n" ;;
+    inspect) [[ -d $R/$n ]] || { echo "Error: No such object" >&2; exit 1; }; cat "$R/$n/running" ;;
+    exec) [[ -d $R/$n && $(cat "$R/$n/running") == true ]] || { echo "container not running" >&2; exit 1; }
+      shift; while [[ $1 == -* ]]; do shift; done; shift
+      args=(); for a in "$@"; do args+=("${a//\/tmp\/rollup-mc/$R/$n/fs/tmp/rollup-mc}"); done
+      # --env-file as docker reads it: KEY=VALUE taken literally, quotes included
+      ( while IFS= read -r l; do if [[ $l == [A-Za-z_]*=* ]]; then export "$l"; fi; done < "$(cat "$R/$n/envfile")"
+        FAKE_DATA=$(cat "$R/$n/mount"); export FAKE_DATA; exec "${args[@]}" ) ;;
+    *) echo "shim docker: $*" >&2; exit 1 ;;
+  esac
+  exit
+fi
 newc() { # newc <compose file>
   echo 1 > "$S/exists"; echo "cid-$RANDOM$RANDOM" > "$S/id"
   if grep -q 'network_mode: none' "$1" && [[ ! -e $S/force_network ]]; then
@@ -93,7 +128,20 @@ esac
 EOF
 cat > /shim/curl <<'EOF'
 #!/bin/bash
+if [[ -n ${FAKE_DATA:-} ]]; then [[ ! -e /tmp/fake/run_unhealthy ]]; exit; fi
 [[ -e /tmp/fake/dk/healthy ]]
+EOF
+# mc (inside a throwaway container): cat rb/<object> prints <FAKE_DATA>/<object>/xl.meta (plain
+# text in the fixtures); an object listed in /tmp/fake/unreadable fails as a bitrot error would
+cat > /shim/mc <<'EOF'
+#!/bin/bash
+cfg=""; while [[ $1 == --config-dir || $1 == -C ]]; do cfg=$2; shift 2; done
+[[ $1 == cat ]] || { echo "shim mc: $*" >&2; exit 1; }
+grep -q '"secretKey":"..*"' "$cfg/config.json" 2>/dev/null || { echo "mc: alias rb has no credentials" >&2; exit 1; }
+obj=${2#rb/}
+if [[ -f /tmp/fake/unreadable ]] && grep -Fxq "$obj" /tmp/fake/unreadable; then echo "mc: <ERROR> bitrot hash mismatch: $obj" >&2; exit 1; fi
+[[ -f $FAKE_DATA/$obj/xl.meta ]] || { echo "mc: <ERROR> Object does not exist: $obj" >&2; exit 1; }
+cat "$FAKE_DATA/$obj/xl.meta"
 EOF
 # stat: fails for every path listed in /tmp/fake/stat_fail
 cat > /shim/stat <<'EOF'

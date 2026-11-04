@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # backup-rollup/rollup.sh (runbook §5.1): publish, link-dest, retention, failures.
-# Regression tests of the implementation review: M5, S2, S4, S5; of the fix review: R3, R4,
-# S2 (the publish failure comes from the mv shim of lib.sh, not from a switch in rollup.sh).
-# Run through run.sh.
+# Regression tests of the implementation review: M5, S2, S4, S5; of the fix review: R4, S2
+# (the publish failure comes from the mv shim of lib.sh, not from a switch in rollup.sh).
+# MinIO sources (the read-back, R3) are in test_rollup_minio.sh. Run through run.sh.
 set -euo pipefail
 . "$(dirname "$0")/lib.sh"
 K=/volume2/k3s-fast
@@ -51,11 +51,6 @@ IDX=$(blob "{\"schemaVersion\":2,\"mediaType\":\"$OI\",\"manifests\":[$(desc "$O
 KEEP=$(image keep "$DM" k)
 printf '%s\n' "# digests that must stay restorable" "app@$APP" "multi@$IDX" "keep@$KEEP" > /rconf/registry-data.digests
 dg() { printf 'sha256:%s' "$(printf '%s' "$1" | sha256sum | cut -d' ' -f1)"; }
-# MinIO: the fix review's counterexample, DONE text in backup.info and an empty WAL directory
-MIN=/volume2/minio-backup/rs-data; W=$MIN/bifrost-postgres-backup/bifrost-postgres
-mkdir -p "$W/base/20261101T030000/backup.info" && printf 'begin_wal=0000000100000005000000FE\nstatus=DONE\n' > "$W/base/20261101T030000/backup.info/xl.meta"
-touch -d '2 days ago' "$W/base/20261101T030000"
-mkdir -p "$W/wals/0000000100000005/0000000100000005000000FE.gz"
 
 conf() { printf '%s\n' "$@" > /rconf/rollup.conf; }
 BASE=("logical-backup-hot logical $B1 $K on" "cluster-state-backup cluster-state $B3 $K off" "registry-data registry $REG $K off")
@@ -127,20 +122,6 @@ mv /rconf/registry-data.digests /tmp/digests.keep
 neg "R4: a registry source without its expected digest list" registry-data
 mv /tmp/digests.keep /rconf/registry-data.digests
 expect_ok "R4 control: the index, its child and the untagged expected image publish" bash "$ROLL" "${R[@]}"
-
-# ---- R3: no offline evidence proves MinIO objects complete, so a MinIO source never publishes
-conf "${BASE[@]}" "minio minio $MIN /volume2/minio-backup off"
-neg "R3: a MinIO source with only DONE text and an empty WAL directory" minio
-for s in 0000000100000005000000FE 0000000100000005000000FF; do
-  mkdir -p "$W/wals/${s:0:16}/$s.gz" && echo x > "$W/wals/${s:0:16}/$s.gz/xl.meta"
-done
-neg "R3: a MinIO source with WAL xl.meta files (still no object evidence)" minio
-check "R3: the log names the missing object check" grep -q 'cannot be proven complete offline' /tmp/out
-check "R3: the failed run kept the MinIO snapshot for diagnosis" grep -q ' snapshot .*/rollup-snap/minio-' /rstate/diag.list
-conf "${BASE[@]}"
-bash "$ROLL" "${R[@]}" --retire-source minio > /dev/null 2>&1
-sleep 1
-expect_ok "R3 control: without the MinIO source the others publish" bash "$ROLL" "${R[@]}"
 
 # ---- in progress / not OK (unchanged rules)
 mkdir "$B1/daily/.partial-2026-11-08T043000Z"

@@ -1,7 +1,8 @@
 # TD-444 step 5 runbook §5.1: weekly roll-up of the SSD backups onto RAID5.
-# Install rollup.sh, scripts/nas/backup-checks.sh and scripts/nas/registry-check.py side by side in
-# /volume1/@bifrost/backup-rollup/ (root-only), with rollup.conf and registry-data.digests; there is
-# no install script yet (runbook: precondition of §5.1). The NAS needs python3 for the registry check.
+# Install rollup.sh, minio-readback.sh, scripts/nas/backup-checks.sh and scripts/nas/registry-check.py
+# side by side in /volume1/@bifrost/backup-rollup/ (root-only), with rollup.conf, registry-data.digests
+# and the MinIO credentials file (root, 600); there is no install script yet (runbook: precondition of
+# §5.1). The NAS needs python3 (registry check) and docker with the live MinIO image (MinIO read-back).
 [Unit]
 Description=Bifrost weekly backup roll-up (SSD -> RAID5)
 After=local-fs.target

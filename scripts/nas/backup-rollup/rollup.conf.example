@@ -6,11 +6,17 @@
 # together with their absent() alerts.
 # registry-data needs registry-data.digests next to this file: the digests that must stay
 # restorable, one <repository>@sha256:<hex> per line (runbook §3.8 item 1).
-# minio stays out until a check reads its objects back: kind minio always fails its
-# completion check, and one failing source stops the whole generation (runbook §3.8 item 2).
+# minio is read back through a throwaway MinIO (minio-readback.sh, runbook §3.8 item 2). It
+# needs docker and these two settings; replace both placeholders, the roll-up refuses them:
+#   MINIO_IMAGE        the live MinIO's image, pinned: sha256:<image id>, as printed by
+#                      `docker inspect -f '{{.Image}}' <live MinIO container>`, or <repo>@sha256:<digest>
+#   MINIO_CREDENTIALS  a root-only file (chmod 600) with MINIO_ROOT_USER=... and
+#                      MINIO_ROOT_PASSWORD=... lines, no quotes; it never goes into git or a log
+MINIO_IMAGE=sha256:<image-id-of-the-live-minio>
+MINIO_CREDENTIALS=<root-only-credentials-file>
 #
 # name                   kind           source dir                                      snapshot root         prune
-#minio                   minio          /volume2/minio-backup/data                      /volume2/minio-backup off
+minio                    minio          /volume2/minio-backup/data                      /volume2/minio-backup off
 registry-data            registry       /volume2/k3s-fast/cicd-registry-data            /volume2/k3s-fast     off
 logical-backup-hot       logical        /volume2/k3s-fast/data-logical-backup-hot       /volume2/k3s-fast     off
 gitea-backup             gitea          /volume2/k3s-fast/cicd-gitea-backup             /volume2/k3s-fast     off

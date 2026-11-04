@@ -9,7 +9,8 @@
 # cluster-state (B3 daily + monthly), registry (registry-check.py next to this file: blob
 # hashes and the manifest graph from every expected digest and tag; the caller names the
 # expected list in BC_REG_DIGESTS), minio (fails closed: no offline evidence proves MinIO
-# objects complete, runbook §3.8 item 2).
+# objects complete; the roll-up reads them back through a throwaway MinIO instead,
+# backup-rollup/minio-readback.sh, runbook §3.8 item 2).
 
 BC_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 BC_REG_DIGESTS=${BC_REG_DIGESTS:-}
@@ -105,9 +106,9 @@ wal_walk() { # wal_walk <first> <last> <segment size>: every segment name from f
 
 check_minio() { # fails closed (runbook §3.8 item 2)
   # backup.info text and WAL directory names are no evidence that the objects of the base
-  # backup and of each WAL segment are complete; until a check reads them back (or decodes
-  # and verifies them), a MinIO source is never a valid generation
-  log "$1: MinIO objects cannot be proven complete offline (no object read-back); not a valid generation (runbook §3.8 item 2)"
+  # backup and of each WAL segment are complete; only reading them back through MinIO is
+  # (backup-rollup/minio-readback.sh; the move uses its M stages)
+  log "$1: MinIO objects cannot be proven complete offline; only a read-back through MinIO counts (runbook §3.8 item 2)"
   return 1
 }
 
