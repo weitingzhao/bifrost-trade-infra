@@ -3733,6 +3733,164 @@
 - **防线**：`test_handin.sh` 加一个 501 行 md 的用例，交付被拒。
 - **验收**：交付一份超长 infra 文档时，`handin.sh` 在推分支前就拒绝。
 
+### TD-500
+
+**P3 · MCP · `get_plan_view` 在响应顶层加了 `note` 键，Console 的封闭解析 `parsePlanSnapshot` 不收**
+
+- **状态**：未开始（2026-11-02 记）。
+- **证据**（platform main `bb6af68b`）：
+  - `mcp/platform/src/runtimeTools.ts:56-58` 的 `note()` 把 `note: RUNTIME_DATA_NOTE` 并进对象响应的顶层；`:546-547` 的 `getPlanView` 用它包住 `/plan-view` 的原样响应。
+  - `console/src/api/planSnapshotSchema.ts:12-14` 的 `object()` 遇到不认识的键就报错，`:73` 起的 `snapshot` 里没有 `note`，所以 `:101` 的 `parsePlanSnapshot` 对 MCP 的输出直接报 `Plan view: unsupported or incomplete response at snapshot`。`console/src/api/planSnapshot.ts:22-26` 只先拿掉 `explain`。
+- **影响**：把 MCP 的计划视图输出交给 Console 代码的工具（做夹具、核对、复核脚本）都得自己先删掉 `note`，忘了就整份解析失败。Console 直接从 API 读不受影响。
+- **修法**（改 MCP 工具的输出形状，随下一次 MCP 改动做）：A. `get_plan_view` 改成 `{ note, body }`，`body` 是 API 的原样响应（`runtimeTools.ts:57` 对非对象响应已经这么做）；B. Console 导出一个入口，只拿掉 MCP 的信封键 `note`，再交给 `parsePlanSnapshot`。推荐 A：响应本身不被改写。TD-445 第 6 项（plan-view 响应和 Console 封闭解析没有共用夹具）是同一类问题。
+- **防线**：MCP 测试：`getPlanView` 的输出按约定取出的 API 响应，与 stub 返回的一致；Console 测试拿这份输出过 `parsePlanSnapshot`。
+- **验收**：`npm --prefix mcp/platform test` 通过，含新用例；MCP 的 `get_plan_view` 输出按约定交给 `parsePlanSnapshot` 不报错。
+
+### TD-501
+
+**P2 · 落地 · 步骤求值和落地流的写入不串行：读完折叠、提交 done 之前进来的撤销看不见**
+
+- **状态**：未开始（2026-11-03 11:5x CST，R5:5.5-18 设计复核第 2 轮 M1 记）。
+- **证据**（platform main `bb6af68b`）：
+  - `api/internal/agentrt/store/facts.go:379` 的 `EvaluateStep` 在一个 READ COMMITTED 事务里（`store/write.go:24`）只锁步骤这一行（`facts.go:393-394` `FOR UPDATE`）。`step_landed` 在这个事务里读仓库的落地折叠（`store/stepevidence.go:117-119` `landingFold` → `store/landing.go:15` `LandingState`），不取流锁。
+  - 撤销那一侧，`store/landing_reconcile.go:200` 的 `reconcileMainOne` 只锁仓库的落地流（`:211` `lockStream`，`store/event.go:251`），不碰步骤行。
+  - 撤销在求值读完折叠之后、提交 done 之前提交，求值就看不见；没有常设条件的 done 步骤以后不再读（`facts.go:401-404`）。
+- **影响**：所有已落地的 root 都可能碰上，不只 R5:5.5-18 的豁免：步骤停在 done，它的落地其实已被撤销。
+- **修法**：锁住步骤行之后，按固定顺序锁规则要读的各仓库落地流，在锁下读证据，持锁到提交。同时核对没有哪个写入方先取流锁、再取步骤锁（否则死锁）。
+- **防线**：两个连接的 PostgreSQL 测试 `TestStepEvaluationSeesARevertedLanding`：在读折叠和提交状态之间推进一次撤销，步骤不得变 done。
+- **在此之前**：靠 R5:5.5-17 的漂移巡检报出「done 了但落地已不生效」的步骤；它还没上 platform main。
+- **验收**：`go -C api test ./internal/agentrt/store/ -run TestStepEvaluationSeesARevertedLanding -count=20`（设隔离的 `AGENTRT_TEST_PG`、`AGENTRT_TEST_REDIS`、`AGENTRT_TEST_REQUIRED=1`）全过，在 `bb6af68b` 上失败。
+
+### TD-502
+
+**P2 · NAS 备份 · NAS 重启后，备份用的 MinIO 不会自己回来，WAL 归档跟着停（第二次）**
+
+- **状态**：未开始（2026-11-03 13:4x CST，TD-444 关机装第二块 SSD 之后记）。
+- **证据**：
+  - 11-03 为装第二块 SSD，NAS 13:29 CST 关机，13:36 回来。minio-backup 没有自己起来；13:39 Owner 手动启动后它也只听本机回环：容器没有网络（UGOS Docker 的网络页是空的；`minio-backup_default` 网络还在，但没有容器接在上面），NAS 的 9000/9001 端口拒绝连接，Prometheus 读到 `up{job="scrapeConfig/monitoring/bifrost-minio-nas"}=0`。CNPG 的 WAL 归档约从 13:25 CST 起停了。上一次 NAS 升级之后也出过同样的事（Owner 告知）。
+  - 容器是在 NAS 命令行起的 docker compose 项目（`k8s/data/minio/nas/compose.yaml:42` `restart: unless-stopped`），所以 UGOS 的「项目」列表是空的；从 UGOS 的容器页启动或编辑它，会丢掉 compose 的网络。`compose.yaml:16-17` 写了只从命令行起，`k8s/data/minio/nas/README.md` 没写。关机时容器被停下、开机后 `unless-stopped` 不再拉起，可能是原因（推断，未核实）。
+  - `BifrostMinIONasDown`（`k8s/monitoring/bifrost-alerting-rules.yaml:282-289`，critical，5 分钟）在 13:36–14:00 CST 之间没有到达统筹。
+- **影响**：每次 NAS 重启（装盘、UGOS 升级）之后，WAL 归档和每晚备份都会停，直到有人发现；告警也没送到人。
+- **修法**：①NAS 上加一个开机任务：Docker 和数据卷都起来之后，对 README 里那份 compose 文件执行一次 `docker compose … up -d --force-recreate`（或者把项目导入 UGOS，由它的界面来管）；②README 写一行操作规矩：不要从 UGOS 的容器页启动或编辑它；③查清这次 critical 告警为什么没到统筹。
+- **防线**：TD-444 第 3 步「开机后核对」落成脚本，NAS 每次重启后跑：断言 `up{job="scrapeConfig/monitoring/bifrost-minio-nas"}` 为 1，`cnpg_pg_stat_archiver_archived_count` 在增长。
+- **验收**：下一次 NAS 重启后不做任何手工操作，10 分钟内 `up{job="scrapeConfig/monitoring/bifrost-minio-nas"}` 回到 1，WAL 归档计数继续增长；停机超过 5 分钟时 `BifrostMinIONasDown` 送到统筹。
+
+### TD-503
+
+**P2 · 落地 · landing 和 B5 的折叠耗时随一条流的操作数平方增长**
+
+- **状态**：未开始（2026-11-03，R5:5.5-19 的测量发现）。
+- **证据**（platform main `bb6af68b`）：
+  - `api/internal/agentrt/store/stepexplain_measure_test.go:32` 的 `TestExplainFoldsAtTheBound`（设 `AGENTRT_EXPLAIN_MEASURE=1` 手动跑）：`landing:bifrost-platform` 30 万行（37,499 个操作，每个 8 条记录），`landing.FoldWithGrants` 用了 214 秒，`StgFold` 217 秒，堆峰值 549 MB / 1,034 MB；2 万行时是 0.57 秒 / 0.60 秒。
+  - 可能原因：`landing/protocol.go:750` 的 `State.LatestOperation` 每次调用都扫全部操作，折叠和它的检查按记录调用它（`protocol.go:318`、`:548`、`:582`、`:585`、`:738`、`:745`），即 O(记录 × 操作)。B5 的 `StgFold` 把落地记录交给同一个 `Apply`（`store/stg_release.go:134`）。
+- **影响**：每个按请求折叠落地流的读者都受影响：计划视图的基础快照（每个查看者每 15 秒一次，`console/src/pages/shell/agents/usePlanSnapshot.ts:41`）、控制器各轮、卡片引擎、R5:5.5-19 的解释。PROD 的 platform 流 11-03 约 8,400 行（现在约 0.1 秒），会随着落地次数越来越慢。
+- **现在的挡板**：R5:5.5-19 的解释遇到流超过 2 万行的 root 就不算（`store/explainroot.go:25-33` `DefaultExplainBounds`），显示「not computed (too much to read: rows)」。
+- **修法**：折叠里按任务索引操作，应用记录时顺手维护每个任务按 claim 号最新的那个操作，`LatestOperation` 变成 O(1)。
+- **防线**：保留这个测量测试作棘轮：上界大小的折叠每个 ≤ 1.5 秒。
+- **验收**：`AGENTRT_EXPLAIN_MEASURE=1 go -C api test ./internal/agentrt/store/ -run TestExplainFoldsAtTheBound -v` 在 30 万行时两个折叠各 ≤ 1.5 秒，堆峰值 ≤ 300 MB；之后才能放宽 `DefaultExplainBounds` 的行数上界。
+
+### TD-504
+
+**P3 · 计划视图 · R5:5.5-19 整页解释的测量不数折叠次数**
+
+- **状态**：未开始（2026-11-03，R5:5.5-19 复核第 13 轮 S1）。
+- **证据**（platform main `bb6af68b`）：`api/internal/agentrt/store/stepexplain_measure_test.go:190` 的 `TestExplainWholeAtScale` 记下时间、语句数和堆峰值，只断言解释的步数、时间和堆（`:318-328`）；没有断言一次解释里，每个仓库的落地折叠和 B5 折叠各只跑一次。
+- **影响**：以后哪条路径绕过共享的 `repoExplain`（`store/stepexplain.go:339`、`:488`）又折叠了一次，语句数不会变，只会表现为变慢，测量指不出原因。
+- **修法**：在解释路径的 `LandingState` / `StgReleaseState` 外面套一个只在测试里用的读取计数，断言每个事务里每个仓库各一次，并和测量结果一起打印。
+- **现在的挡板**：语句数（多 17,000 行与否都是 793）和每个仓库共享一个 `repoExplain`。折叠重复了会显在时间上，不会显在语句数上。
+- **防线**：上面的计数断言留在测量测试里。
+- **验收**：`AGENTRT_EXPLAIN_MEASURE=1 go -C api test ./internal/agentrt/store/ -run TestExplainWholeAtScale -v` 打印每个仓库的折叠次数为 1 并断言；故意多折叠一次时测试失败。
+
+### TD-505
+
+**P3 · 计划视图 · R5:5.5-19 逐项查取消的几处没有各自的回归测试**
+
+- **状态**：未开始（2026-11-03，R5:5.5-19 复核第 14 轮 S1）。
+- **证据**（platform main `bb6af68b`）：`api/internal/agentrt/store/stepexplain.go:255` `explainRework` 的三个循环（`:281`、`:296`、`:315`）和 `store/explainroot.go:54` `ExplainRootWithin` 的第一遍（`:99`）都逐项查 context；`store/stepexplain_internal_test.go:322` 的 `TestExplainRootCardsStopOnCancel` 只覆盖 `addRootCards`（`stepexplain.go:190`）和 `indexCards`（`:386`）。
+- **影响**：删掉其中任何一处检查，测试照样绿；取消或超时之后，解释可能还要扫很多项才停。
+- **修法**：每个循环一条测试，在它之前取消，断言它带着取消错误停下（rework 用预先建好的 `repoExplain` 和 `stepLanding`；第一遍用已取消的 context 加很多步骤）。
+- **防线**：这几条测试本身；每条在删掉对应检查时失败（阴性对照）。
+- **验收**：`go -C api test ./internal/agentrt/store/ -run StopOnCancel -count=1` 全过；逐一去掉这四处检查，各有一条测试失败。
+
+### TD-506
+
+**P3 · 卡片 · 重提的任务不挂到它替代的那个，旧的一直 ready；预算卡不看同 mission 里已接受的同步骤、同任务书的实现，写「No recommendation」（卡 #99）**
+
+- **状态**：未开始（2026-11-03 19:3x CST 记）。
+- **证据**：
+  - 卡 #99（M-267）：11-02 `t_01M6CZR8J8M1JKBM70XC47SKS0`（基点写错）被同 mission 的另一个任务替代后，一直没被取消。它钉给 `external:coordinator`，ready 了 48 小时，直到 mission 的预算把它挡住；预算卡写「No recommendation」。同一个 mission 里已有一个已接受的实现，`plan_node_id` 和 `spec_artifact_id` 都和它一样。
+  - platform main `bb6af68b`：`api/internal/agentrt/store/blockedrecommend.go:110-123` 的 `recFacts` 里没有兄弟任务；`:126` 的 `recommend` 对「只被预算挡住、mission 已超过一天」的落到 `:144-145`，不给推荐。infra `3f2b041`：`agent-config/scripts/landing/handin.sh:7`、`:189` 的 `propose` 没有「替代哪一个」的参数。
+- **影响**：重复的任务在计划上一直算排队，等预算挡住才出卡；卡上没有推荐，要你自己判断。
+- **修法**：①卡片引擎加一条规则：被挡住的任务所在 mission 里有已接受的 implement 任务、同 plan node、同任务书时，卡写「duplicate of t_…」，推荐关 mission（或「不做这件」）；②重提时记下它替代哪个任务（如 `handin.sh propose --replaces`），旧任务没起过尝试就随之撤下。第②项和 TD-497（没用上的交付 root 一直 ready、没有撤回）一起做；R5:5.6-2 的基点检查是同一类。
+- **防线**：卡片测试 `TestBlockedDuplicateRecommendsClose`：带这样一个兄弟任务的被挡任务，推荐关 mission，并点名那个兄弟任务。
+- **验收**：`go -C api test ./internal/agentrt/store/ -run TestBlockedDuplicateRecommendsClose -count=1`（设隔离的 `AGENTRT_TEST_PG`、`AGENTRT_TEST_REDIS`、`AGENTRT_TEST_REQUIRED=1`）通过；PROD 上下一张这类卡的第一行写明重复和推荐。
+
+### TD-507
+
+**P3 · NAS 备份 · MinIO 回读：一次性 MinIO 建出来后报错、按运行令牌又查不到时，当成「没有容器」删掉草稿快照（TD-444 第 5 步复核第 5 轮 S1）**
+
+- **状态**：未开始（2026-11-03 20:2x CST，复核停止线把它延后）。
+- **证据**（infra `3f2b041`）：`scripts/nas/backup-rollup/minio-readback.sh:102` 按运行令牌查容器，查询失败被 `|| true` 吞掉，`RB_CID` 为空；`:104` 于是不记容器；`:264` 把空的 `RB_CID` 当成没有容器，删掉草稿快照。
+- **影响**：`docker run` 建了容器再报错、`docker ps` 同时也失败时，容器可能还挂着这个草稿快照在跑，却没留下任何记录供下次清理。
+- **修法**：分清「查过，没有」和「查不了」。查不了时保留草稿快照，在 `pending-cleanup.list` 记 `container-unknown <token>` 和 `scratch <path> <uuid>`，下次运行确认这个令牌的容器已经不在了再清；永远不按名字删。
+- **防线**：`scripts/nas/tests/test_rollup_minio.sh` 加一个用例：替身在建容器后报错、`ps` 也失败：草稿保留，两行都挂起；下一次查询正常时两行都清掉。
+- **验收**：`bash scripts/nas/tests/run.sh test_rollup_minio.sh` 全过，新用例在 `3f2b041` 上失败。
+
+### TD-508
+
+**P3 · NAS 备份 · `pending-cleanup.list` 里缺字段的行被悄悄丢掉或改写（TD-444 第 5 步复核第 5 轮 S2）**
+
+- **状态**：未开始（2026-11-03 20:2x CST，复核停止线把它延后）。
+- **证据**（infra `3f2b041`）：`scripts/nas/backup-rollup/rollup.sh:211`：没有 uuid 的 `snapshot` 行、路径又不存在时，`drop_snapshot` 因为 `:194` 的 `[[ -d $s ]] || return 0` 返回成功，这一行就没了；`:212` 的 `scratch` 一样。`:205` 和 `minio-readback.sh:77-80` 把缺令牌的 `container <id>` 改写成 `container <id> -`。
+- **影响**：一条写坏的清理记录会被当作已清理而消失，或被改成别的样子；之后没人知道还有东西没清。
+- **修法**：按类型检查每行的列数和格式（快照和草稿：绝对路径 + uuid；容器：12–64 位十六进制 id + 令牌）。不合格的行原样保留，在日志里写 ERROR，绝不交给 `drop_*`。
+- **防线**：测试用例 `snapshot /missing`、`container <id>`、`scratch <path>`：三行都原样留下，并记 ERROR。
+- **验收**：`bash scripts/nas/tests/run.sh test_rollup.sh test_rollup_minio.sh` 全过，这三个用例在 `3f2b041` 上失败。
+
+### TD-509
+
+**P3 · 发布 · push-main 跑仓库快测试时几分钟没有输出，看着像卡住了**
+
+- **状态**：未开始（2026-11-03 20:2x CST 记）。
+- **证据**（infra `3f2b041`）：`scripts/release/push_main_tests.py:149` 的 `run` 把每个进程的输出写进文件（`:171-174`），等待循环（`:168-198`）里什么都不打印，结束后只打印失败的（`:208-215`）和一行汇总（`:219`）。`scripts/release/push-main.sh:382` 只在开跑前列一次测试路径。一次 infra 推送要静默 3–5 分钟，被当成挂了。
+- **影响**：推 main 的人分不清它是在跑还是卡住了，可能中途打断。
+- **修法**：`push_main_tests.py` 每 15 秒打印一行进度（完成 N/M、还在跑的是哪几个、各跑了多久），每个文件跑完打印一行；`push-main.sh` 开头先说「推之前要跑 k 个测试文件」。
+- **防线**：测试：跑得比间隔长的一次至少打印一行进度；失败时照样打印完整输出。
+- **验收**：`python3 -m pytest -q scripts/release/test_push_main.py` 全过，含新用例；下一次 infra 推送跑测试时，每 15 秒至少有一行进度。
+
+### TD-510
+
+**P3 · Console · 正在跑的步骤卡展开「To finish」后，同一个任务名出现两次（R5:5.5-20 复核 S2）**
+
+- **状态**：未开始（2026-11-03 23:0x CST，R5:5.5-20 第 1 轮复核的 should-fix，复核停止线把它延后）。
+- **证据**（R5:5.5-20 交付提交 075b0f9b）：`console/src/pages/shell/agents/PlanModuleDetail.tsx:115-122`：步骤在跑时 `named` 为空，`Latest task` 照常写出最新的任务；挡路的行要在 `StepWhy` 里展开后才出现（`:178`），展开与否是 `StepWhy.tsx:110` 的内部状态（`:123-130`），`PlanModuleDetail` 不知道它开着。
+- **影响**：展开后同一个任务名在卡上出现两次，不符合这一步「任务名在卡上只出现一次」的要求。
+- **修法**：把展开状态提到 `Stage`，展开时从 `Latest task` 里去掉挡路的行已经点名的任务。
+- **防线**：`stepCard` 测试：展开后任务名只出现一次。
+- **验收**：`npm --prefix console test -- src/pages/shell/agents/__tests__/stepCard.test.tsx` 全过，新用例在 075b0f9b 上失败。
+
+### TD-511
+
+**P3 · Console · `one_of` 的结论比 §4.2 的表多了一条例外（R5:5.5-20 复核 S3）**
+
+- **状态**：未开始（2026-11-03 23:0x CST，R5:5.5-20 第 1 轮复核的 should-fix，复核停止线把它延后）。
+- **证据**（R5:5.5-20 交付提交 075b0f9b）：`console/src/pages/shell/agents/explainModel.ts:382-383` 的 `anySig` 要每条路径都是「没人」才得出「Nobody is on it.」，`:385` 对 `one_of` 用它；`:369-376` 的说明先照 §4.2 的表写（有安静的、没有任务等任何一处就是 Nobody is on it），末尾另加了这条例外。设计文档 API-REQUIREMENTS-IA-v2 §4.2 不在仓库里，原文未核实。
+- **影响**：一条路径没有任务、另一条在等审批时，卡上写「Waits.」，按表应是「Nobody is on it.」；实现和设计说法不一，后来的人不知道以哪个为准。
+- **修法**：按表实现，或者请 Design 把这条例外写进 §4.2；定了之后改代码或改文档。
+- **防线**：一个样例（一条 `no_task` 路径、一条等审批的路径）把定下的规则钉住。
+- **验收**：`npm --prefix console test -- src/pages/shell/agents/__tests__/explainModel.test.tsx` 全过，含这个样例；§4.2 和 `anySig` 说法一致。
+
+### TD-512
+
+**P3 · agentd · 某个模型自己的周限额被拒时，只有厂商措辞对得上才冷却 claude 周池**
+
+- **状态**：未开始（2026-11-02 记；platform `a4c83f96` 没有关掉它，见证据）。
+- **证据**（platform main `bb6af68b`）：`api/internal/agentd/usage.go:461` 只在 `refusal != ""` 时让 `modelRefusal` 的拒绝生效。`refusal` 只有两个来源：失败的 result 文字匹配 `claudeLimit`（`:182`、`:400-402`），或者一条 `error: rate_limit` 的 assistant 消息、且主线程模型在它之后没再回答（`:406-407`、`:451-452`）。`seven_day_opus` 这类被拒事件本身（`:426-429`）不算。这个条件正是 `a4c83f96`（11-02）有意加的，防的是「换了模型接着跑的运行也冷却整个账号」，所以它没有关掉这个缺口。`:370-374` 的注释也写着，拒绝文字的形状还没在真实运行里见过。`usage_test.go` 的 `TestMeasureClaudeModelWeeklyLimits` 没有「被拒的模型事件 + 失败但措辞不认识的 result + 没有 rate_limit 消息」这个用例。
+- **影响**：厂商换个说法，或者不发 rate_limit 消息时，模型周限额被拒不冷却任何池；后面的认领照样派给 claude，一次次被拒，直到执行者因连续失败被撤下（TD-395）。
+- **修法**：判断依据从措辞改成事件：最新的模型周限额事件是 rejected、主线程模型在它之后没有回答、且运行以失败或没有 result 结束，就算这个模型的拒绝，冷却到它的重置时间；被拒后又接着回答的运行照旧不算。
+- **防线**：`usage_test.go` 两个方向的用例：上面这种运行冷却周池到该模型重置；被拒后主线程模型接着回答的运行不冷却。
+- **验收**：`go -C api test ./internal/agentd/ -run TestMeasureClaudeModelWeeklyLimits -count=1` 通过，新用例在 `bb6af68b` 上失败。
+
 ### TD-490
 
 **P2 · 落地 · platform 的落地不查 infra 的文档消费者登记表，下一件 infra 落地才红**
