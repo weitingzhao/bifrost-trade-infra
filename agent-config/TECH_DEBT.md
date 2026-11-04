@@ -3553,11 +3553,12 @@
 
 **P3 · platform 测试 · 落地 PG 测试的启用栅栏按冻结时钟放，偶发 before_enable**
 
-- **状态**：未开始（2026-10-29；10-30 查清根因）。
+- **状态**：在做（2026-10-29 记；10-30 查清根因；11-04 修复和 TD-514 一起在 platform 分支 `td/514-456-handin`，待交付落地）。
 - **证据**：`api/internal/server/agentrt_landing_708_pg_test.go:239`（main 017db20d 上是 `:179`；夹具的时钟顺序诊断在 `:111-131`，platform `f4c0b0fa` 已让落地测试不读跨 UTC 午夜的墙钟） `TestReview708FinalGatesTwoConnectionsPG` 在 server 包整包运行时偶发失败：STG 子用例 `drill final gate: failed stale`，PROD 子用例 `gate did not authorize … Reason:before_enable`。基线 `78cd8d26` 上连跑两次 server 包，第二次 6 个子用例全红；单独跑通过。同类根因已在 S6-6 的 T50–T55 夹具里确认并修掉（codex-work-721，platform `b728f2f0`）：启用事件按冻结的事件时钟写，mission 的 `created_at` 取 PostgreSQL `now()`，两者先后颠倒时资格判定正确地给出 `before_enable`。
 - **同类第二例**（2026-10-29 19:0x CDT，S6-6 落地 CI `landing-ci-a48a84e3f01c0e4e3381260f-1`）：`internal/agentrt/store` `TestLiveGateRefusesARootPastItsWindow/during_the_reads` 报 `landing gate: the UTC day changed during the gate`——CI 恰好跨过 UTC 午夜；测试用真实时钟，日界附近必然误报。修法同：测试注入时钟，不读墙钟。
 - **已排除**：server 包不冻结事件时钟（`FreezeEventClock` 只在 store 包的 export_test）；本机测试库比本机时钟快约 8 ms（2026-10-29 量），方向上只会让 mission 更晚，不能解释 `before_enable`。根因待查，先看资格判定里比较的是哪两个时间（规则 `effective_at` 截到秒、启用事件、mission 创建、验收事件）。
 - **根因（2026-10-30 22:50 查清）**：夹具用 Go 事件时钟（`store.eventClock = time.Now`）给 landing「enabled」事件盖时间，用 PostgreSQL `now()`（事务开始时间）给 mission 的 `created_at` 盖时间；两个时钟之间的偏差会漂。10-30 晚本机测试库量得 `db - host = -1.56 ms`（5 次，往返 0.3 ms，与 10-29 量的 +8 ms 方向相反），于是下一事务在 enabled 之后 1.5 ms 内开始时 `mission.created_at < fence`，夹具自己的时钟顺序检查（`agentrt_landing_708_pg_test.go:189`，现 `:126`）失败。与时序有关：d99c04c 单独能过，d99c04c+TD-460、d99c04c+S5 本机 3/3 失败，与那两项改动无关。生产上最终闸门同样拿库时钟的 `created_at` 比事件时钟的栅栏，跨 Pod 偏差只会让启用后偏差以内创建的 mission 被判不合格（失败即拒绝）。
+- **11-04 又出现 4 次**（本机，02:23、03:02、03:24、06:29 CST）：两次在只跑改动包时，两次在整个 api 一起跑时；每次都是 mission 的 `created_at` 比 fence（enabled 事件）早约 0.3 ms，夹具自己的时钟顺序检查报 `Review 708 fixture clock order`。同一天单独连跑 11 次（本机、UTC、东京三种时区）、另有 store 包同时在跑时修前修后各 15 次，全部通过：偶发率低，与单独跑还是整包跑无关。
 - **影响**：CI 与本机全套偶发红，推 main 前要重跑；真实回归可能被当成偶发放过。
 - **修法**：夹具在创建 mission 前循环读 `clock_timestamp()`，直到库内时间晚于栅栏再建（不改写 `created_at`）；或两边用同一个时钟盖章。其他按事件时钟放启用栅栏的落地 PG 夹具一并改。
 - **防线**：在 PG 测试 harness 里加一个检查：启用栅栏晚于库内 `now()` 时夹具直接失败并说明原因，而不是让资格判定给出 `before_enable`。
@@ -3890,6 +3891,53 @@
 - **修法**：判断依据从措辞改成事件：最新的模型周限额事件是 rejected、主线程模型在它之后没有回答、且运行以失败或没有 result 结束，就算这个模型的拒绝，冷却到它的重置时间；被拒后又接着回答的运行照旧不算。
 - **防线**：`usage_test.go` 两个方向的用例：上面这种运行冷却周池到该模型重置；被拒后主线程模型接着回答的运行不冷却。
 - **验收**：`go -C api test ./internal/agentd/ -run TestMeasureClaudeModelWeeklyLimits -count=1` 通过，新用例在 `bb6af68b` 上失败。
+
+### TD-513
+
+**P2 · 发布 · push-main 推 infra 时不跑文档消费者检查，也不等 ci-infra，main 红了没人知道**
+
+- **状态**：未开始（2026-11-04 记）。
+- **证据**：推 infra 时 push-main 打印「bifrost-trade-infra has no CI of its own; no CI checked」，可每次推 infra main 都会跑 `ci-infra` 流水线。11-03 晚从 80a8a4a 起它在 consumers 段连续失败（`unregistered_consumer k8s/storage/nfs-fast/render.py:96`，TD-444 第 5 步带上 11 个未登记的消费者），约 6 小时没人发现；期间在它之上的 infra 落地（R5:5.5-12 设计稿补充）落地 CI 也失败。consumers 段读的是推送前 main 上的登记表（`scripts/landing/doc_consumers.py` 的 `main`），所以登记行必须比消费者先上 main。
+- **影响**：infra main 的 CI 一直红，所有 infra 落地都过不去，而推的人以为是绿的。
+- **修法**：push-main 推 infra 之前，用候选提交同时作基点和修订跑 `doc_consumers.py --purpose push`，发现未登记的消费者就拒推，并提示先单独推登记行；推完像 CI_REPOS 一样等 `ci-infra` 的结果。
+- **防线**：push-main 的测试：一个提交新加一个带 `rglob(` 的文件，不登记就被拒推。
+- **验收**：`bash scripts/release/test_push_main.sh` 通过，新用例在本条修复前失败。
+
+### TD-514
+
+**P3 · 运行时 · 落地批准单那一环反复重读已执行的旧单，并且超时**
+
+- **状态**：在做（2026-11-04 记；修复和 TD-456 一起在 platform 分支 `td/514-456-handin`，Codex 复核 PASS，待交付落地）。
+- **证据**：
+  - PROD `platform-workers` 在 11-04 05:21Z 到 06:43Z 之间记了 8 条 `agentrt-landing-requests: appr_…: context deadline exceeded`（往前 10 小时内只有这 8 条），每条点名 1 到 6 张单。点名最多的都是早已执行完的旧单：#191（`approve_guardrail_landing`，10-29 22:21Z 执行，8 条里都有）、#192（同一动作，10-29 22:50Z 执行，7 条）、#193（`approve_core_landing`，10-29 23:34Z 执行，6 条）。
+  - 8 条集中在两段：05:21Z–05:35Z 和 06:34Z–06:43Z，正是两次落地在跑的时候（R5:5.5-20 第 3 次 05:10Z 交付，R5:5.5-12 P-a 06:33Z 交付）。两次落地都照样走到了 awaiting_grant。
+  - 代码（platform main `bb6af68b`）：`api/internal/agentrt/controller/controller.go:694` 每 30 秒跑一轮，整轮限时 30 秒；`controller/landing_requests.go:22` 把所有 D 级落地批准单逐张交给 `store/landing_request.go:108` `RecordLandingGrantRequest`，不看状态。每张单先折叠一遍整条落地流，再经 `store/landing_wait.go:67` 拿整条 `landing:bifrost-platform` 流的锁，拿到锁之后才查「这个状态记过没有」。所以早已记过的旧单也要排队拿锁，落地占着锁时整轮等到超时。
+- **影响**：落地在跑的那几分钟里，这一环什么都记不下来，包括新的拒绝；被拒的落地要等这一段过去才结束。旧单越积越多，每轮的折叠次数跟着变多（TD-503）。
+- **修法**：先在锁外只读查 (approval_id, status) 是否已原样记过，记过的直接跳过；只有新状态才折叠、拿锁、写入；查到任何对不上的（含字段类型不同）都交给锁内检查。不做逐单限时：落地占着流锁时，新状态等的是同一把锁，逐单限时帮不上；只在某个 root 自己的锁卡住时才有用，那时再加。每单仍扫一遍这条流里该 approval_id 的记录，O(候选数 × 流长)，规模到 TD-503 的上界时再考虑按 approval_id 的表达式索引或每轮一次的批量预查。
+- **防线**：store 测试 `TestTD514RecordedRequestSkipsTheStreamLock`：另一个连接占着流锁时，已记的观察立即返回；新状态确实等到超时（正向对照）；对不上的重复仍被拒。修复前它失败，报错与 PROD 日志相同。
+- **验收**：`go -C api test ./internal/agentrt/store/ -run TestTD514 -count=3` 在设好 `AGENTRT_TEST_PG` 和 `AGENTRT_TEST_REQUIRED=1` 时通过；修复上线后，下一次有落地在跑的那一小时里 `kubectl -n bifrost-platform-prod logs deploy/platform-workers --since=1h | grep -c 'agentrt-landing-requests'` 为 0。
+
+### TD-515
+
+**P3 · 测试 · `progress-publish.test.js` 的导出清单漏了 `startProgressBeats`，在 main 上一直是红的**
+
+- **状态**：未开始（2026-11-04 记，R5:5.5-12 S1-4 开发时发现）。
+- **证据**：`agent-config/scripts/progress-publish.test.js` 里「nothing exported can send a request to a caller-chosen path」一条，在 infra `4508170` 及更早的提交上都失败：它列出的导出清单缺 `startProgressBeats`。
+- **影响**：node 测试段总有一条红，真的新失败会被它掩盖。
+- **修法**：把它加进清单，或者让测试从模块本身读出导出清单。
+- **防线**：这条测试转绿后，留在 node 测试段里。
+- **验收**：`node --test agent-config/scripts/progress-publish.test.js` 全部通过。
+
+### TD-516
+
+**P3 · 运行时 · 外部工作重放：同一个幂等键换了三元组，回的是 `key_conflict` 而不是 `identity_mismatch`**
+
+- **状态**：未开始（2026-11-04 记，R5:5.5-12 P-b 复核第 1 轮的应该改，按复核停止线延后）。
+- **证据**：R5:5.5-12 P-b（platform `a79c3475`，未落地）：同一个幂等键、换了 vendor / session / epoch 的重放，先被幂等摘要拦下，回 409 `key_conflict`；设计 §1.4 写的是身份错误 `identity_mismatch`。两者都是 409，也不会重复写入。
+- **影响**：收集员分不清是自己重用了键，还是身份变了。
+- **修法**：在比对幂等摘要之前先比三元组；或者摘要冲突里唯一的差别是三元组时，改回 `identity_mismatch`。
+- **防线**：`TestBindingAtomicity` 加一个子例：同一个键、换了三元组，断言错误码。
+- **验收**：`go -C api test ./internal/agentrt/... -run TestBindingAtomicity -count=1` 通过，新子例在本条修复前失败。
 
 ### TD-490
 
