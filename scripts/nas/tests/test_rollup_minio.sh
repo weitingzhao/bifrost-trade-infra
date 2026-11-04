@@ -3,7 +3,8 @@
 # read back through a throwaway MinIO (the docker and mc doubles of lib.sh). A generation
 # publishes only when everything due reads back; the throwaway container and its scratch copy
 # are gone after success and after failure; the live MinIO is never touched; the credentials
-# reach no log. Also the fix review's R3 counterexamples and round 4's M1, S1, S2.
+# reach no log. Also the fix review's R3 counterexamples, round 4's M1, S1, S2 and round 5's
+# M1 (a part cut at a member boundary), M2 (an end_wal on another timeline).
 # Run through run.sh.
 set -euo pipefail
 . "$(dirname "$0")/lib.sh"
@@ -95,10 +96,11 @@ gone "A control"; untouched "A control"
 
 # ---- failures: nothing published, no commit marker, no success time, no prune, all cleaned up
 negm() {
-  local g s l m; g=$(gens minio); s=$(succ minio); l=$(gname logical-backup-hot); m=$(markers); sleep 1
+  local g s l m w; g=$(gens minio); s=$(succ minio); l=$(gname logical-backup-hot); m=$(markers); w=$(cat /rstate/minio-wal.minio); sleep 1
   expect_fail "$1 fails the run" bash "$ROLL" "${R[@]}"
   check "$1 — nothing published" test "$(gens minio)" = "$g"
   check "$1 — no commit marker" test "$(markers)" = "$m"
+  check "$1 — the WAL record unchanged" test "$(cat /rstate/minio-wal.minio)" = "$w"
   check "$1 — last-success unchanged" test "$(succ minio)" = "$s"
   check "$1 — the prune-on source kept its generation" test "$(gname logical-backup-hot)" = "$l"
   check "$1 — metrics report minio as failed and expected" bash -c \
@@ -148,6 +150,41 @@ cp /tmp/info.keep "$W/base/20261101T210000/backup.info/xl.meta"
 mv "$W/base/20261101T210000/data.tar.gz" /tmp/tar.keep
 negm "R3: a DONE base backup with no first data part"
 mv /tmp/tar.keep "$W/base/20261101T210000/data.tar.gz"
+# round 5 M1: every part must end with its end-of-archive marker, not only list cleanly
+mkpart() { # mkpart <object> <gz|raw> <cut after N bytes, 0 = whole> <member>...: a GNU tar part
+  local st; st=$(mktemp -d)
+  (cd "$st" && for m in "${@:4}"; do mkdir -p "$(dirname "$m")"
+     if [[ $m == pg_xact/* ]]; then head -c 1024 /dev/zero > "$m"; else echo "$m" > "$m"; fi; done && tar -cf "$st.tar" "${@:4}")
+  if (($3 > 0)); then head -c "$3" "$st.tar" > "$st.cut" && mv "$st.cut" "$st.tar"; fi
+  if [[ $2 == gz ]]; then gzip -n -c "$st.tar" > "$st.out"; else cp "$st.tar" "$st.out"; fi
+  mkdir -p "$MIN/$1" && cp "$st.out" "$MIN/$1/xl.meta"; rm -rf "$st" "$st.tar" "$st.cut" "$st.out"
+}
+BB=$P/base/20261101T210000
+mv "$MIN/$BB/data.tar.gz" /tmp/p0.keep; mv "$MIN/$BB/data_0001.tar.gz" /tmp/p1.keep
+mkpart "$BB/data_0001.tar.gz" gz 0 global/pg_control backup_label
+mkpart "$BB/data.tar.gz" gz 1024 PG_VERSION base/16384/12345
+negm "M1 r5: a non-last gzip part cut at a member boundary"
+check "M1 r5: the log says the part has no end marker" grep -q 'data.tar.gz does not end with a tar end-of-archive marker' /tmp/out
+mkpart "$BB/data.tar.gz" gz 2560 PG_VERSION pg_xact/0000 base/16384/12345
+negm "M1 r5: a non-last gzip part cut after zero-filled member data (the byte check alone passes it)"
+check "M1 r5: tar shows it stops before the marker" grep -q 'data.tar.gz stops before its end-of-archive marker (tar: \*\* End of File \*\*)' /tmp/out
+rm -rf "${MIN:?}/$BB/data.tar.gz" "${MIN:?}/$BB/data_0001.tar.gz"
+mkpart "$BB/data_0001.tar" raw 0 global/pg_control backup_label
+mkpart "$BB/data.tar" raw 1024 PG_VERSION base/16384/12345
+negm "M1 r5: a non-last uncompressed part cut at a member boundary"
+mkpart "$BB/data.tar" raw 0 PG_VERSION base/16384/12345
+expect_ok "M1 r5 control: uncompressed parts that end with their marker publish" bash "$ROLL" "${R[@]}"
+check "M1 r5 control: both uncompressed parts were read" grep -q "$P: base backup 20261101T210000 (2 data parts, ends with backup_label)" /tmp/out
+rm -rf "${MIN:?}/$BB/data.tar" "${MIN:?}/$BB/data_0001.tar"
+mv /tmp/p0.keep "$MIN/$BB/data.tar.gz"; mv /tmp/p1.keep "$MIN/$BB/data_0001.tar.gz"
+# round 5 M2: begin_wal and end_wal on different timelines
+info 0000000100000005000000FE 000000020000000000000001 DONE > "$W/base/20261101T210000/backup.info/xl.meta"
+negm "M2 r5: end_wal on another timeline than begin_wal"
+check "M2 r5: the log names the timelines" grep -q 'on different timelines' /tmp/out
+cp /tmp/info.keep "$W/base/20261101T210000/backup.info/xl.meta"
+sleep 1
+expect_ok "M2 r5 control: begin_wal and end_wal on one timeline publish again" bash "$ROLL" "${R[@]}"
+check "M2 r5 control: the record is the last segment actually read" grep -qx "$P 000000010000000600000000" /rstate/minio-wal.minio
 touch /tmp/fake/run_unhealthy
 negm "A: the throwaway MinIO never becomes healthy"
 rm -f /tmp/fake/run_unhealthy

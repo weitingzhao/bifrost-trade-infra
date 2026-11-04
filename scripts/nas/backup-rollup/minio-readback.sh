@@ -23,11 +23,13 @@
 #      - the newest base backup whose backup.info, read back, says status=DONE (a base
 #        directory without backup.info is unfinished and skipped); every object directory of
 #        it; its data tar parts data.tar[.gz|.bz2], data_0001.tar…, gap-free, each read back
-#        and listed as an intact tar, global/pg_control among the members and backup_label
-#        the last member of the last part (barman-cloud writes it last, so a missing last part
-#        shows); anything else in it (tablespaces, a part after a gap) fails;
-#      - every WAL segment from begin_wal through end_wal (both from backup.info) and on to
-#        the newest segment directory of that timeline; a missing segment, a segment directory
+#        and proven to end with its end-of-archive marker (rb_tar), global/pg_control among
+#        the members and backup_label the last member of the last part (barman-cloud writes it
+#        last, so a missing last part shows); anything else in it (tablespaces, a part after a
+#        gap) fails;
+#      - every WAL segment from begin_wal through end_wal (both from backup.info, on one
+#        timeline) and on to the newest segment directory of that timeline, both ends read
+#        back; the newest segment read is what gets recorded; a missing segment, a segment directory
 #        on a later timeline, or a newest segment older than the one the last committed
 #        generation read fails;
 #   5. the container is stopped, confirmed stopped and removed, and only then the scratch
@@ -60,6 +62,7 @@ minio_config_ok() { # before any snapshot: the pinned image is here, the credent
   [[ $(grep -cE '^MINIO_ROOT_(USER|PASSWORD)=.' "$MINIO_CREDENTIALS") == 2 ]] \
     || die "$MINIO_CREDENTIALS needs exactly one MINIO_ROOT_USER= and one MINIO_ROOT_PASSWORD= line"
   command -v docker > /dev/null || die "docker is needed for the MinIO read-back"
+  tar --version 2> /dev/null | head -1 | grep -q 'GNU tar' || die "GNU tar is needed: its --block-number output proves each data part ends with its end-of-archive marker"
   rb_docker 60 image inspect "$MINIO_IMAGE" > /dev/null 2>&1 || die "the image $MINIO_IMAGE is not on this host (the roll-up never pulls)"
 }
 
@@ -117,20 +120,42 @@ rb_read() { # rb_read <object> [<out file>]: one object read back through MinIO
   rm -f "$err"
   return "$rc"
 }
-rb_tar() { # rb_tar <object> <ext> <members out>: read back, decompress and list one tar part, on the host
-  local err dec st
+rb_tar() { # rb_tar <object> <ext> <members out>: read back one tar part, prove it ends whole, list its members
+  # barman-cloud closes every part with tarfile.close(): two zero blocks, padded to a full record.
+  # One read feeds three checks: GNU tar --block-number (-R) must stop at "** Block of NULs **",
+  # the end-of-archive marker at a header position ("** End of File **" means the stream just
+  # stopped, e.g. cut at a member boundary); the decompressed length is a multiple of 512; its
+  # last 1024 bytes are zero. The byte check alone would pass a cut after zero-filled member data.
+  local err dec t tp wp tarrc len tailhex lastline
+  local -a ps
   case $2 in .gz) dec=(gzip -dc) ;; .bz2) dec=(bzip2 -dc) ;; "") dec=(cat) ;; *) log "$1: a $2 tar cannot be listed here"; return 1 ;; esac
-  err=$(mktemp)
+  err=$(mktemp); t=$(mktemp -d)
+  mkfifo "$t/tar" "$t/len"
+  { tar -tRf - > "$t/listing" 2>> "$err"; echo "$?" > "$t/tar.rc"; cat > /dev/null; } < "$t/tar" &
+  tp=$!
+  wc -c < "$t/len" > "$t/len.out" &
+  wp=$!
   # shellcheck disable=SC2016
   rb_docker "$RB_READ_TIMEOUT" exec "$RB_CID" sh -c 'mc --config-dir /tmp/rollup-mc cat "rb/$1"' sh "$1" 2> "$err" \
-    | "${dec[@]}" 2>> "$err" | { tar -tf - > "$3" 2>> "$err"; r=$?; cat > /dev/null; exit "$r"; }
-  st="${PIPESTATUS[*]}"
-  if [[ $st != "0 0 0" ]]; then log "COULD NOT READ $1 as an intact tar (read, decompress, list: $st): $(rb_err "$err")"; rm -f "$err"; return 1; fi
+    | "${dec[@]}" 2>> "$err" | tee "$t/tar" "$t/len" | tail -c 1024 | od -An -v -tx1 | tr -d ' \n' > "$t/tail"
+  ps=("${PIPESTATUS[@]}")
+  wait "$tp" "$wp" 2> /dev/null || true
+  tarrc=$(cat "$t/tar.rc" 2> /dev/null || echo none); len=$(tr -d ' ' < "$t/len.out" 2> /dev/null || true); tailhex=$(cat "$t/tail")
+  sed -E 's/^block [0-9]+: //' "$t/listing" > "$3"; lastline=$(tail -1 "$3"); sed -i '$d' "$3"
+  rm -rf "$t"
+  if [[ "${ps[0]} ${ps[1]} ${ps[2]} $tarrc" != "0 0 0 0" ]]; then
+    log "COULD NOT READ $1 as a tar (read, decompress, copy, list: ${ps[0]} ${ps[1]} ${ps[2]} $tarrc): $(rb_err "$err")"; rm -f "$err"; return 1
+  fi
   rm -f "$err"
+  if [[ ! $len =~ ^[0-9]+$ ]] || ((len < 1024 || len % 512 != 0)) || [[ ${#tailhex} != 2048 || ! $tailhex =~ ^0+$ ]]; then
+    log "$1 does not end with a tar end-of-archive marker (length ${len:-?}, last 1024 bytes not all zero)"; return 1
+  fi
+  [[ $lastline == '** Block of NULs **' ]] \
+    || { log "$1 stops before its end-of-archive marker (tar: ${lastline:-nothing}): the part is cut"; return 1; }
 }
 
 rb_prefix() { # rb_prefix <view> <tmp> <bucket/server>: appends "<prefix> <newest WAL read>" to <tmp>/newest
-  local view=$1 tmp=$2 p=$3 id chosen="" begin end tbs o e ext n k b last seg nw=0 bad=0
+  local view=$1 tmp=$2 p=$3 id chosen="" begin end tbs o e ext n k b last seg nw=0 bad=0 ok read_last
   local -a parts=()
   local -A wal=()
   bc_list "$tmp/ids" "$view/$p/base" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' || return 1
@@ -144,6 +169,7 @@ rb_prefix() { # rb_prefix <view> <tmp> <bucket/server>: appends "<prefix> <newes
   begin=$(sed -n 's/^begin_wal=//p' "$tmp/info" | head -1); end=$(sed -n 's/^end_wal=//p' "$tmp/info" | head -1)
   tbs=$(sed -n 's/^tablespaces=//p' "$tmp/info" | head -1)
   [[ $begin =~ ^[0-9A-F]{24}$ && $end =~ ^[0-9A-F]{24}$ && ! $end < $begin ]] || { log "$p: base backup $chosen lacks a valid begin_wal and end_wal"; return 1; }
+  [[ ${begin:0:8} == "${end:0:8}" ]] || { log "$p: base backup $chosen has begin_wal $begin and end_wal $end on different timelines; check it by hand"; return 1; }
   [[ -z $tbs || $tbs == None ]] || { log "$p: base backup $chosen has tablespaces; this check does not cover them"; return 1; }
   if ! grep -Eq '^backup_label=.+' "$tmp/info" || grep -qx 'backup_label=None' "$tmp/info"; then
     log "$p: base backup $chosen has no backup_label: its last data part cannot be proven"; return 1
@@ -179,14 +205,19 @@ rb_prefix() { # rb_prefix <view> <tmp> <bucket/server>: appends "<prefix> <newes
   done < "$tmp/segs.raw"
   last=$(printf '%s\n' "${!wal[@]}" | LC_ALL=C sort | tail -1)
   [[ -n $last && ! $last < $end ]] || last=$end   # end_wal is due even without a directory: its absence fails below
+  [[ ${last:0:8} == "${begin:0:8}" ]] || { log "$p: the WAL end $last is not on the timeline of begin_wal $begin"; return 1; }
   wal_walk "$begin" "$last" "$RB_SEG_SIZE" > "$tmp/segs" || { log "$p: WAL names outside the segment range"; return 1; }
+  [[ $(head -1 "$tmp/segs") == "$begin" && $(tail -1 "$tmp/segs") == "$last" ]] \
+    || { log "$p: the WAL range $begin..$last is empty or does not span both ends"; return 1; }
+  read_last=""
   while read -r seg; do
     if [[ -z ${wal[$seg]:-} ]]; then log "$p: WAL $seg missing after base $chosen"; bad=1; continue; fi
-    for k in ${wal[$seg]}; do rb_read "$k" || bad=1; done
-    nw=$((nw + 1))
+    ok=1; for k in ${wal[$seg]}; do rb_read "$k" || { bad=1; ok=0; }; done
+    if ((ok)); then read_last=$seg; nw=$((nw + 1)); fi
   done < "$tmp/segs"
   ((bad == 0)) || { log "$p: not every WAL segment read back"; return 1; }
-  echo "$p $last" >> "$tmp/newest"
+  [[ $read_last == "$last" ]] || { log "$p: the last WAL segment read back ($read_last) is not the end $last"; return 1; }
+  echo "$p $read_last" >> "$tmp/newest"
   log "$p: base backup $chosen (${#parts[@]} data parts, ends with backup_label) and $nw WAL segments $begin..$last read back through MinIO"
 }
 
