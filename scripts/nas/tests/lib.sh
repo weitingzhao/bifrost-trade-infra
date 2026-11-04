@@ -49,40 +49,64 @@ fi
 exec /usr/bin/getfacl "$@"
 EOF
 # docker: the td444 container record under /tmp/fake/dk (exists, running, id, netmode, ports,
-# networks); containers named bifrost-rollup-* (the roll-up's throwaway MinIO) live under
-# /tmp/fake/run/<name>/ with their own filesystem fs/, and docker exec runs the command here
-# with the --env-file loaded, FAKE_DATA = the mounted directory, /tmp/rollup-mc mapped into fs/
+# networks). The roll-up's throwaway containers live under /tmp/fake/run/<id>/ (name, labels,
+# running, mount, envfile, own filesystem fs/); they are found by ID or name; docker exec runs
+# the command here with the --env-file loaded literally, FAKE_DATA = the mounted directory and
+# /tmp/rollup-mc mapped into fs/. Flags: run_conflict (run fails as on a name clash),
+# run_fail_after_create (run creates the container, then fails), run_stop_fail, run_rm_fail.
 cat > /shim/docker <<'EOF'
 #!/bin/bash
 S=/tmp/fake/dk; R=/tmp/fake/run; mkdir -p "$S" "$R"
 echo "docker $*" >> "$S/log"
 get() { cat "$S/$1" 2>/dev/null; }
-target() { local a; for a in "$@"; do [[ $a == bifrost-rollup-* ]] && { echo "$a"; return; }; done; }
-n=$(target "${@:2}")
-if [[ $1 == run || $1 == image || $1 == ps || -n $n ]]; then
+cid_of() { local d; [[ -n $1 ]] || return 1; [[ -d $R/$1 ]] && { echo "$1"; return 0; }
+  for d in "$R"/*/; do [[ -d $d && $(cat "$d/name" 2>/dev/null) == "$1" ]] && { basename "$d"; return 0; }; done; return 1; }
+rmode=0; case $1 in run|ps|image) rmode=1 ;; esac
+for a in "${@:2}"; do if [[ $a == bifrost-rollup-* ]] || cid_of "$a" > /dev/null; then rmode=1; fi; done
+if ((rmode)); then
+  last=${!#}
   case $1 in
-    run) shift; nv=0; pub=0; net=""; envf=""; mnt=""; name=""
+    run) shift; nv=0; pub=0; net=""; envf=""; mnt=""; name=""; labels=()
       while (($#)); do case $1 in
         -d) shift ;; --name) name=$2; shift 2 ;; --network) net=$2; shift 2 ;; --env-file) envf=$2; shift 2 ;;
         -v|--volume) mnt=${2%%:*}; nv=$((nv + 1)); shift 2 ;; -p|--publish) pub=1; shift 2 ;; -P) pub=1; shift ;;
-        --pull|--label|--memory) shift 2 ;; -*) echo "shim docker run: $1" >&2; exit 125 ;; *) break ;; esac; done
+        --label) labels+=("$2"); shift 2 ;; --pull|--memory) shift 2 ;; -*) echo "shim docker run: $1" >&2; exit 125 ;; *) break ;; esac; done
       [[ -e /tmp/fake/no_image ]] && { echo "Unable to find image" >&2; exit 125; }
-      [[ -n $name && ! -e $R/$name ]] || { echo "Conflict" >&2; exit 125; }
-      mkdir -p "$R/$name/fs"; echo true > "$R/$name/running"
-      printf '%s\n' "$net" > "$R/$name/net"; echo "$pub" > "$R/$name/pub"; echo "$nv" > "$R/$name/nvol"
-      printf '%s\n' "$mnt" > "$R/$name/mount"; printf '%s\n' "$envf" > "$R/$name/envfile"; printf '%s\n' "$*" > "$R/$name/cmd"
-      echo "fakeid-$name" ;;
+      if [[ -e /tmp/fake/run_conflict ]] || cid_of "$name" > /dev/null; then echo "Conflict. The container name $name is already in use" >&2; exit 125; fi
+      id=$(printf '%s %s %s' "$name" "$RANDOM" "$$" | sha256sum | cut -c1-64)
+      mkdir -p "$R/$id/fs"; echo "$name" > "$R/$id/name"; echo true > "$R/$id/running"; printf '%s\n' "${labels[@]}" > "$R/$id/labels"
+      printf '%s\n' "$net" > "$R/$id/net"; echo "$pub" > "$R/$id/pub"; echo "$nv" > "$R/$id/nvol"
+      printf '%s\n' "$mnt" > "$R/$id/mount"; printf '%s\n' "$envf" > "$R/$id/envfile"; printf '%s\n' "$*" > "$R/$id/cmd"
+      [[ -e /tmp/fake/run_fail_after_create ]] && { echo "context deadline exceeded" >&2; exit 125; }
+      echo "$id" ;;
     image) [[ $2 == inspect && ! -e /tmp/fake/no_image ]] ;;
-    ps) for a in "$@"; do if [[ $a == name=* ]]; then a=${a#name=^}; a=${a%\$}; [[ -d $R/$a ]] && echo "$a"; fi; done; exit 0 ;;
-    stop) [[ -d $R/$n ]] || exit 1; [[ -e /tmp/fake/run_stop_fail ]] && exit 1; echo false > "$R/$n/running" ;;
-    rm) [[ -d $R/$n && ! -e /tmp/fake/run_rm_fail && $(cat "$R/$n/running") == false ]] || exit 1; rm -rf "${R:?}/$n" ;;
-    inspect) [[ -d $R/$n ]] || { echo "Error: No such object" >&2; exit 1; }; cat "$R/$n/running" ;;
-    exec) [[ -d $R/$n && $(cat "$R/$n/running") == true ]] || { echo "container not running" >&2; exit 1; }
-      shift; while [[ $1 == -* ]]; do shift; done; shift
-      args=(); for a in "$@"; do args+=("${a//\/tmp\/rollup-mc/$R/$n/fs/tmp/rollup-mc}"); done
+    ps) shift; fid=""; flab=""; fname=""; fmt=""
+      while (($#)); do case $1 in
+        --filter) case $2 in id=*) fid=${2#id=} ;; label=*) flab=${2#label=} ;; name=*) fname=${2#name=^}; fname=${fname%\$} ;; esac; shift 2 ;;
+        --format) fmt=$2; shift 2 ;; *) shift ;; esac; done
+      for d in "$R"/*/; do
+        [[ -d $d ]] || continue; id=$(basename "$d")
+        [[ -z $fid || $id == "$fid"* ]] || continue
+        [[ -z $flab ]] || grep -Fxq "$flab" "$d/labels" || continue
+        [[ -z $fname || $(cat "$d/name") == "$fname" ]] || continue
+        if [[ $fmt == *Names* ]]; then cat "$d/name"; else echo "$id"; fi
+      done; exit 0 ;;
+    stop) c=$(cid_of "$last") || exit 1; [[ -e /tmp/fake/run_stop_fail ]] && exit 1; echo false > "$R/$c/running" ;;
+    rm) c=$(cid_of "$last") || exit 1; [[ ! -e /tmp/fake/run_rm_fail && $(cat "$R/$c/running") == false ]] || exit 1; rm -rf "${R:?}/$c" ;;
+    inspect) c=$(cid_of "$last") || { echo "Error: No such object: $last" >&2; exit 1; }
+      fmt=""; prev=""; for a in "$@"; do [[ $prev == -f || $prev == --format ]] && fmt=$a; prev=$a; done
+      case $fmt in
+        *State.Running*) cat "$R/$c/running" ;;
+        *Config.Labels*) l=${fmt#*\"}; l=${l%%\"*}; sed -n "s/^$l=//p" "$R/$c/labels" ;;
+        *) echo "$c" ;;
+      esac ;;
+    exec) shift; while [[ $1 == -* ]]; do shift; done
+      c=$(cid_of "$1") && [[ $(cat "$R/$c/running") == true ]] || { echo "container not running" >&2; exit 1; }
+      shift
+      args=(); for a in "$@"; do args+=("${a//\/tmp\/rollup-mc/$R/$c/fs/tmp/rollup-mc}"); done
       # --env-file as docker reads it: KEY=VALUE taken literally, quotes included
-      ( while IFS= read -r l; do if [[ $l == [A-Za-z_]*=* ]]; then export "$l"; fi; done < "$(cat "$R/$n/envfile")"
-        FAKE_DATA=$(cat "$R/$n/mount"); export FAKE_DATA; exec "${args[@]}" ) ;;
+      ( while IFS= read -r l; do if [[ $l == [A-Za-z_]*=* ]]; then export "$l"; fi; done < "$(cat "$R/$c/envfile")"
+        FAKE_DATA=$(cat "$R/$c/mount"); export FAKE_DATA; exec "${args[@]}" ) ;;
     *) echo "shim docker: $*" >&2; exit 1 ;;
   esac
   exit

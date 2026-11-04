@@ -197,15 +197,21 @@ drop_snapshot() { # drop_snapshot <path> <uuid> [ro|rw]: verified delete (rw: a 
   log "could not delete $kind $s; kept in pending-cleanup.list"
   pending_add "$kind $s $u"
 }
-retry_pending() { # pending-cleanup.list: "<container|scratch|snapshot> <name or path> <uuid or ->"
+retry_pending() { # pending-cleanup.list lines: "container <id> <run token>", "scratch|snapshot <path> <uuid>"
+  # and, from the first version, "<path> <uuid>" (a read-only snapshot); any other line is kept
   [[ -s $STATE/pending-cleanup.list ]] || return 0
-  local k t u busy=0 f=$STATE/pending-cleanup.list.retry
+  local line k t u x busy=0 f=$STATE/pending-cleanup.list.retry
   mv "$STATE/pending-cleanup.list" "$f"
-  while read -r k t u; do if [[ $k == container ]]; then drop_container "$t" || busy=1; fi; done < "$f"
-  while read -r k t u; do
-    case $k in
-      snapshot) drop_snapshot "$t" "$u" ro ;;
-      scratch) if ((busy)); then pending_add "scratch $t $u"; else drop_snapshot "$t" "$u" rw; fi ;;
+  while read -r k t u x; do if [[ $k == container && -z $x ]]; then drop_container "$t" "$u" || busy=1; fi; done < "$f"
+  while IFS= read -r line; do
+    read -r k t u x <<< "$line" || true
+    [[ -n $k ]] || continue
+    case "$k:${x:+extra}" in
+      container:) ;;
+      snapshot:) drop_snapshot "$t" "$u" ro ;;
+      scratch:) if ((busy)); then pending_add "scratch $t $u"; else drop_snapshot "$t" "$u" rw; fi ;;
+      /*:) if [[ -n $t && -z $u ]]; then drop_snapshot "$k" "$t" ro; else log "ERROR: unknown pending-cleanup.list line kept: $line"; pending_add "$line"; fi ;;
+      *) log "ERROR: unknown pending-cleanup.list line kept: $line"; pending_add "$line" ;;
     esac
   done < "$f"
   rm -f "$f"
@@ -244,7 +250,7 @@ on_exit() {
   fi
   if [[ -f $RUNSTATE ]]; then
     local busy=0
-    while read -r kind path u; do if [[ $kind == container ]]; then drop_container "$path" || busy=1; fi; done < "$RUNSTATE"
+    while read -r kind path u; do if [[ $kind == container ]]; then drop_container "$path" "$u" || busy=1; fi; done < "$RUNSTATE"
     while read -r kind path u; do
       if [[ $kind == scratch ]]; then if ((busy)); then pending_add "scratch $path $u"; else drop_snapshot "$path" "$u" rw; fi; fi
       if [[ $kind == snapshot && $path != "$keep_snap" ]]; then drop_snapshot "$path" "$u"; fi
@@ -333,6 +339,7 @@ mv "$DEST/.committed/$STAMP.tmp" "$DEST/.committed/$STAMP"
 now=$(date +%s)
 for n in "${N[@]}"; do
   mv "$STATE/bytes.$n.new" "$STATE/bytes.$n"; echo "$now" > "$STATE/last_success.$n"; echo 1 > "$STATE/last_run_ok.$n"
+  if [[ -f $STATE/minio-wal.$n.new ]]; then mv "$STATE/minio-wal.$n.new" "$STATE/minio-wal.$n"; fi   # the WAL ratchet
 done
 log "generation $STAMP committed for ${#N[@]} sources"
 
