@@ -13,7 +13,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 const h = require('./collector-test-harness.js')
 
-const FILES = ['thread-heartbeat.js', 'collector-session.js', 'host-heartbeat.js', 'progress-publish.js', 'collector-test-harness.js',
+const FILES = ['thread-heartbeat.js', 'collector-session.js', 'collector-epochs.js', 'host-heartbeat.js', 'progress-publish.js', 'collector-test-harness.js',
   'collector-session.test.js', 'collector-hooks.test.js', 'collector-noop.test.js', 'source-capability-witness.test.js']
 const U = 'collector-session.test.js'
 const K = 'collector-hooks.test.js'
@@ -21,18 +21,24 @@ const N = 'collector-noop.test.js'
 
 // [name, file, from, to, test file, test name pattern]
 const MUTANTS = [
-  ['resume reuses the counter', 'collector-session.js', 'st.max += 1', 'st.max = 1', U, '^the epoch counter never goes back'],
-  ['a duplicate resume opens a new epoch', 'collector-session.js', "(byPid.source === 'resume' || !START_HOOKS.has(byPid.opened_by))", '(!START_HOOKS.has(byPid.opened_by))', U, '^resume opens max\\+1'],
-  ['a late end is sent', 'collector-session.js', 'if (!isOpen(e)) {\n      st.dropped_ends += 1', 'if (false) {\n      st.dropped_ends += 1', U, '^a late SessionEnd across a resume'],
+  ['resume reuses the counter', 'collector-epochs.js', 'st.max += 1', 'st.max = 1', U, '^the epoch counter never goes back'],
+  ['an older process repeating its start opens an epoch (M4)', 'collector-epochs.js', 'if (byPid && (isOpen(byPid) || now - Date.parse(byPid.opened_at) < REPEAT_WINDOW_MS)) {', 'if (byPid && isOpen(byPid)) {', U, '^M4: an older process repeating its resume start opens no epoch'],
+  ['a late end is sent', 'collector-epochs.js', '    if (!isOpen(e)) {\n      st.dropped_ends += 1', '    if (false) {\n      st.dropped_ends += 1', U, '^a late SessionEnd across a resume'],
   ['fork is refused', 'collector-session.js', "'compact', 'fork'])", "'compact'])", U, '^the event table'],
   ['no context reads as whole context', 'collector-session.js', "if (!root && !node) return bind('unlinked', 'no_context')", 'if (!root && !node) return null', U, '^client_bind'],
   ['StopFailure is not wired', 'collector-session.js', ", StopFailure: 'turn_end' }", ' }', U, '^the event table'],
   ['the env host id is called a file', 'collector-session.js', "return { host: env, source: 'env', invalid: false }", "return { host: env, source: 'file', invalid: false }", U, '^host id'],
-  ['an unacked end is not sent again', 'collector-session.js', '      replay.push({ epoch: e.epoch', '      void ({ epoch: e.epoch', U, '^a resume sends again'],
-  ['the parent pid stands in for CLAUDE_PID', 'collector-session.js', "const raw = String(env.CLAUDE_PID || '').trim()", 'const raw = String(process.ppid)', K, '^two resumes in the same second'],
-  ['an end is never marked', 'collector-session.js', 'if (r.end) body._end =', 'if (false) body._end =', K, '^startup, prompt, failed turn, end'],
-  ['a refused end leaves no gap', 'collector-session.js', "st.gaps.push({ kind: 'end_unacked', epoch: e.epoch, at: now })", 'void 0', K, '^the end intent is persisted'],
-  ['an unknown epoch keeps its session', 'collector-session.js', '    delete id.session\n', '', K, '^lock contention'],
+  ['an unacked end is not sent again', 'collector-epochs.js', "    out.push({ epoch: e.epoch, thread: e.end.thread || e.thread || '' })", '    void 0', U, '^a resume sends again'],
+  ['an end is sent without the lock (M1)', 'collector-epochs.js', "    if (ev.kind === 'end') {\n      // No end goes out", "    if (false) {\n      // No end goes out", U, '^M1: an end that cannot take the epoch lock'],
+  ['a kept end is never folded in (M1)', 'collector-epochs.js', '    const folded = foldPending(st, dir)', '    const folded = []', U, '^M1: an end that cannot take the epoch lock'],
+  ['an end without a pid closes the current epoch (M2)', 'collector-epochs.js', '    } else if (!e) {\n      st.dropped_ends += 1\n', '    } else if (!e && ev.pid === 0) {\n      e = current\n    } else if (!e) {\n      st.dropped_ends += 1\n', U, '^M2: an end whose process cannot be told apart'],
+  ['a replay is tried once only (M3)', 'collector-epochs.js', 'count(e.end.replay_attempts) >= MAX_REPLAY_ATTEMPTS', 'count(e.end.replay_attempts) >= 1', U, '^M3: a failed replay is tried again'],
+  ['an unseen process supersedes a live one', 'collector-epochs.js', "  if (ev.pid > 0 || !current) return open('first_event', '', false)", "  if (ev.pid > 0 || !current) return open('first_event', '', true)", U, '^a first event from a process never seen'],
+  ['an answer under a busy lock is lost', 'collector-epochs.js', '    deferRecord(sessionDir(end.vendor, end.session), 0, answer, new Date(now))', '    void answer', U, '^an answer that cannot take the epoch lock'],
+  ['the parent pid stands in for CLAUDE_PID', 'collector-epochs.js', "const raw = String(env.CLAUDE_PID || '').trim()", 'const raw = String(process.ppid)', K, '^two resumes in the same second'],
+  ['an end is never marked', 'collector-epochs.js', 'if (r.end) body._end =', 'if (false) body._end =', K, '^startup, prompt, failed turn, end'],
+  ['a refused end leaves no gap', 'collector-epochs.js', "  st.gaps.push({ kind: 'end_unacked', epoch: e.epoch, at })", '  void 0', K, '^the end intent is persisted'],
+  ['an unknown epoch keeps its session', 'collector-epochs.js', '    delete id.session\n', '', K, '^lock contention'],
   ['the local end record goes on the wire', 'thread-heartbeat.js', '  delete out._end\n', '', K, '^startup, prompt, failed turn, end'],
   ['a collector reads the env title', 'thread-heartbeat.js', "let title = collector ? '' : (process.env.BIFROST_HEARTBEAT_TITLE || '').trim()", "let title = (process.env.BIFROST_HEARTBEAT_TITLE || '').trim()", K, '^collector mode never sends a title'],
   ['heartbeats use the reporter token', 'thread-heartbeat.js', '  if (!body || !body.identity) return token()', '  return token()', K, '^credentials by purpose'],

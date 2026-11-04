@@ -170,17 +170,13 @@ test('lock contention: a held epoch lock costs at most its cap, and the beat sti
       assert.ok(known.ms >= 1800 && known.ms < 4500, `waited ${known.ms} ms`)
       const fresh = await t.hook('UserPromptSubmit', { pid: 41009 })
       assert.ok(fresh.ms < 4500)
-      await t.hook('SessionEnd', { pid: 41009, extra: { reason: 'other' } })
-      await t.hook('SessionEnd', { extra: { reason: 'other' } })
     } finally {
       release()
     }
     const got = t.srv.got.slice(1).map(x => [x.body.event, x.body.session || '', x.body.epoch || 0, x.body.client_bind && x.body.client_bind.reason])
-    assert.deepEqual(got, [['turn_start', S, 1, 'no_context'], ['turn_start', '', 0, 'identity_fallback'], ['turn_end', S, 1, 'no_context']],
-      'a known epoch is read without the lock; an unknown one is not guessed; an end of an unknown process is not sent')
-    const st = t.epochs()
-    assert.equal(st.max, 1, 'nothing was allocated without the lock')
-    assert.equal(st.epochs[0].end, undefined, 'an end sent without the lock records no intent')
+    assert.deepEqual(got, [['turn_start', S, 1, 'no_context'], ['turn_start', '', 0, 'identity_fallback']],
+      'a known epoch is read without the lock; an unknown one is not guessed')
+    assert.equal(t.epochs().max, 1, 'nothing was allocated without the lock')
   } finally {
     t.srv.close()
   }
@@ -311,6 +307,95 @@ test('BIFROST_HEARTBEAT=off in collector mode sends nothing and keeps no epochs'
     await t.hook('SessionEnd', { extra: { reason: 'other' }, env: { BIFROST_HEARTBEAT: 'off' } })
     assert.equal(t.srv.got.length, 0)
     assert.equal(t.epochs(), null)
+  } finally {
+    t.srv.close()
+  }
+})
+
+// Review round 1 (Codex, S1-4): each test below failed on 21d277b.
+
+test('M1: a SessionEnd under a held epoch lock is not sent; the next resume sends it and records the ack', async () => {
+  const t = await session('m1')
+  try {
+    await t.hook('SessionStart', { extra: { source: 'startup' } })
+    const release = await h.holdLock(path.join(path.dirname(h.epochsFile(t.home, 'claude', S)), 'epochs.lock'))
+    try {
+      const r = await t.hook('SessionEnd', { extra: { reason: 'other' } })
+      assert.ok(r.ms < 4500, `${r.ms} ms`)
+    } finally {
+      release()
+    }
+    assert.deepEqual(h.beats(t.srv), [['session_start', 'startup', S, 1]], 'no end goes out without its intent')
+    assert.equal(t.epochs().epochs[0].end, undefined)
+    await t.hook('SessionStart', { pid: 41002, extra: { source: 'resume' } })
+    assert.deepEqual(h.beats(t.srv).slice(1), [['turn_end', '', S, 1], ['session_start', 'resume', S, 2]])
+    const e = t.epochs().epochs[0]
+    assert.ok(e.end.intent_at && e.end.acked_at, 'the kept end has its intent and now its ack')
+    assert.ok(t.epochs().gaps.some(g => g.kind === 'end_deferred'))
+  } finally {
+    t.srv.close()
+  }
+})
+
+test('M1: a SessionEnd whose state directory cannot be written is not sent', async () => {
+  const t = await session('m1ro')
+  const dir = path.dirname(h.epochsFile(t.home, 'claude', S))
+  try {
+    await t.hook('SessionStart', { extra: { source: 'startup' } })
+    fs.chmodSync(dir, 0o500)
+    await t.hook('SessionEnd', { extra: { reason: 'other' } })
+    assert.deepEqual(h.beats(t.srv), [['session_start', 'startup', S, 1]])
+  } finally {
+    fs.chmodSync(dir, 0o700)
+    t.srv.close()
+  }
+})
+
+test('M2: a SessionEnd without a usable CLAUDE_PID after a resume is not sent; the resumed process ends', async () => {
+  const t = await session('m2')
+  try {
+    await t.hook('SessionStart', { extra: { source: 'startup' } })
+    await t.hook('SessionStart', { pid: 41002, extra: { source: 'resume' } })
+    await t.hook('SessionEnd', { pid: '', extra: { reason: 'other' } })
+    await t.hook('SessionEnd', { pid: 'not-a-pid', extra: { reason: 'other' } })
+    assert.equal(h.beats(t.srv).length, 2, 'neither end is sent')
+    assert.equal(t.epochs().epochs[1].end, undefined)
+    await t.hook('SessionEnd', { pid: 41002, extra: { reason: 'other' } })
+    assert.deepEqual(h.beats(t.srv).slice(-1), [['turn_end', '', S, 2]])
+    assert.deepEqual(t.epochs().gaps.filter(g => g.kind === 'end_unresolved').length, 2)
+  } finally {
+    t.srv.close()
+  }
+})
+
+test('M3: an end refused at the end and again at the first resume is sent at the second resume', async () => {
+  let refuse = true
+  const t = await session('m3', rec => (rec.body.event === 'turn_end' && refuse ? { status: 503, body: { error: 'down' } } : null))
+  try {
+    await t.hook('SessionStart', { extra: { source: 'startup' } })
+    await t.hook('SessionEnd', { extra: { reason: 'other' } })
+    await t.hook('SessionStart', { pid: 41002, extra: { source: 'resume' } })
+    assert.ok(!t.epochs().epochs[0].end.acked_at)
+    refuse = false
+    await t.hook('SessionStart', { pid: 41003, extra: { source: 'resume' } })
+    assert.deepEqual(h.beats(t.srv).slice(-2), [['turn_end', '', S, 1], ['session_start', 'resume', S, 3]])
+    assert.ok(t.epochs().epochs[0].end.acked_at)
+  } finally {
+    t.srv.close()
+  }
+})
+
+test('M4: an older process repeating its resume start leaves the newer epoch and its end alone', async () => {
+  const t = await session('m4')
+  try {
+    await t.hook('SessionStart', { extra: { source: 'startup' } })
+    await t.hook('SessionStart', { pid: 41002, extra: { source: 'resume' } })
+    await t.hook('SessionStart', { pid: 41003, extra: { source: 'resume' } })
+    await t.hook('SessionStart', { pid: 41002, extra: { source: 'resume' } })
+    assert.deepEqual(h.beats(t.srv).slice(-1), [['session_start', 'resume', S, 2]])
+    assert.equal(t.epochs().max, 3)
+    await t.hook('SessionEnd', { pid: 41003, extra: { reason: 'other' } })
+    assert.deepEqual(h.beats(t.srv).slice(-1), [['turn_end', '', S, 3]], 'the newer process still ends')
   } finally {
     t.srv.close()
   }

@@ -119,9 +119,9 @@ test('without a process id (Cursor, Codex) the current epoch is used and said to
   assert.equal(c.transition(st, start('startup', 0), T0).epoch, 1)
   assert.deepEqual(c.transition(st, ev('beforeSubmitPrompt'), T0), { epoch: 1, identity: 'current_fallback', replay: [] })
   assert.equal(c.transition(st, start('startup', 0), T0).epoch, 1, 'a repeated start of the same session id is a duplicate')
-  const r = c.transition(st, ev('sessionEnd'), T0)
-  assert.deepEqual([r.epoch, r.end, r.identity], [1, true, 'current_fallback'])
-  assert.equal(c.transition(st, ev('sessionEnd'), T0).drop, true)
+  // An end that cannot be told apart by its process closes nothing (review M2).
+  assert.deepEqual(c.transition(st, ev('sessionEnd'), T0), { drop: true, why: 'end_unresolved' })
+  assert.equal(st.epochs[0].end, undefined)
 })
 
 test('a resume sends again, first, the earlier ends the server never acked', () => {
@@ -131,8 +131,9 @@ test('a resume sends again, first, the earlier ends the server never acked', () 
   const r = c.transition(st, start('resume', 8), T0)
   assert.deepEqual(r.replay, [{ epoch: 1, thread: 'T1' }])
   assert.ok(st.epochs[0].end.replayed_at)
+  st.epochs[0].end.acked_at = T0.toISOString()
   c.transition(st, end(8), T0)
-  assert.deepEqual(c.transition(st, start('resume', 9), T0).replay, [{ epoch: 2, thread: 'S' }], 'a replayed end is not sent a third time')
+  assert.deepEqual(c.transition(st, start('resume', 9), T0).replay, [{ epoch: 2, thread: 'S' }], 'an acked end is not sent again')
 })
 
 test('the epoch counter never goes back, even when old epochs are pruned', () => {
@@ -216,4 +217,112 @@ test('diagnose: a collector without a host id is a problem; no token is printed'
   assert.deepEqual([r.code, JSON.parse(r.out).mode], [0, 'reporter'])
   r = await run({ BIFROST_HEARTBEAT: 'off', PLATFORM_COLLECTOR_TOKEN: 'x' })
   assert.equal(JSON.parse(r.out).mode, 'off')
+})
+
+// Review round 1 (Codex, S1-4): each test below failed on 21d277b.
+const CAP = c.MAX_REPLAY_ATTEMPTS || 5
+
+test('M2: an end whose process cannot be told apart closes no epoch; the resumed process still ends', () => {
+  const st = fresh()
+  c.transition(st, start('startup', 7), T0)
+  c.transition(st, start('resume', 8), T0)
+  assert.deepEqual(c.transition(st, end(0), T0), { drop: true, why: 'end_unresolved' })
+  assert.equal(st.epochs[1].end, undefined, 'the resumed epoch is still open')
+  assert.deepEqual(st.gaps.map(g => g.kind), ['end_missing', 'end_unresolved'])
+  assert.equal(c.transition(st, end(8), T0).end, true)
+})
+
+test('M3: a failed replay is tried again at each later resume, up to a cap, and never after its ack', () => {
+  const st = fresh()
+  c.transition(st, start('startup', 7), T0)
+  c.transition(st, end(7), T0)
+  for (let i = 1; i <= CAP; i++) {
+    // Each pick is an attempt, counted before the send: a crash after it is a spent attempt, not an exclusion.
+    assert.deepEqual(c.transition(st, start('resume', 7 + i), T0).replay, [{ epoch: 1, thread: 'S' }], `attempt ${i}`)
+    assert.equal(st.epochs[0].end.replay_attempts, i)
+  }
+  assert.deepEqual(c.transition(st, start('resume', 100), T0).replay, [], 'the cap stops it; the end stays an unacked gap')
+  assert.deepEqual(c.endGaps(st).filter(g => g.epoch === 1), [{ epoch: 1, kind: 'end_unacked' }])
+  const again = fresh()
+  c.transition(again, start('startup', 7), T0)
+  c.transition(again, end(7), T0)
+  c.transition(again, start('resume', 8), T0)
+  again.epochs[0].end.acked_at = T0.toISOString()
+  assert.deepEqual(c.transition(again, start('resume', 9), T0).replay, [])
+})
+
+test('M4: an older process repeating its resume start opens no epoch and supersedes no newer one', () => {
+  const st = fresh()
+  c.transition(st, start('startup', 7), T0)
+  c.transition(st, start('resume', 8), T0)
+  c.transition(st, start('resume', 9), T0)
+  assert.deepEqual(c.transition(st, start('resume', 8), T0), { epoch: 2, identity: 'pid', replay: [] })
+  assert.equal(st.max, 3)
+  assert.equal(st.epochs[2].superseded_at, undefined, 'the newer epoch is not superseded')
+  assert.equal(c.transition(st, end(9), T0).end, true, 'and the newer process still ends')
+})
+
+test('M4: a process that already ended and repeats its SessionStart opens no epoch', () => {
+  const st = fresh()
+  c.transition(st, start('startup', 7), T0)
+  c.transition(st, end(7), T0)
+  assert.equal(c.transition(st, start('startup', 7), T0).epoch, 1)
+  c.transition(st, start('resume', 8), T0)
+  c.transition(st, end(8), T0)
+  assert.equal(c.transition(st, start('resume', 8), T0).epoch, 2)
+  assert.equal(st.max, 2)
+})
+
+test('a first event from a process never seen opens its own epoch and supersedes no live one', () => {
+  const st = fresh()
+  c.transition(st, start('startup', 7), T0)
+  assert.equal(c.transition(st, ev('UserPromptSubmit', { pid: 9 }), T0).epoch, 2)
+  assert.equal(st.epochs[0].superseded_at, undefined)
+  assert.equal(c.transition(st, end(7), T0).end, true, 'the first process still ends its own epoch')
+})
+
+test('M1: an end that cannot take the epoch lock is not sent; it is kept and folded in at the next lock', () => {
+  const sid = '00000000-0000-4000-8000-0000000000e1'
+  const lock = (file, fn) => fn()
+  const busy = () => {
+    throw new Error('lock busy')
+  }
+  const payload = (hook, extra) => ({ session_id: sid, hook_event_name: hook, ...extra })
+  const body = reason => ({ thread: sid, vendor: 'claude', host: 'h1', event: reason ? 'session_start' : 'turn_end', reason, identity: { session: sid, host_id_source: 'env' } })
+  c.resolve('claude', payload('SessionStart', { source: 'startup' }), body('startup'), { withLock: lock }, { CLAUDE_PID: '7' })
+  const endBody = body('')
+  assert.deepEqual(c.resolve('claude', payload('SessionEnd', { reason: 'other' }), endBody, { withLock: busy }, { CLAUDE_PID: '7' }).drop, true, 'not sent without its intent')
+  assert.equal(endBody._end, undefined)
+  const r = c.resolve('claude', payload('SessionStart', { source: 'resume' }), body('resume'), { withLock: lock }, { CLAUDE_PID: '8' })
+  assert.deepEqual(r.replay.map(b => [b.event, b.identity.epoch]), [['turn_end', 1]], 'the kept end goes out first at the next resume')
+  const st = c.loadEpochs(path.join(c.sessionDir('claude', sid), 'epochs.json'))
+  assert.equal(st.epochs[0].end.why, 'lock_busy')
+  assert.ok(st.gaps.some(g => g.kind === 'end_deferred' && g.epoch === 1))
+})
+
+test('a closed epoch whose pid comes back after the repeat window is a new process (the pid was reused)', () => {
+  const st = fresh()
+  c.transition(st, start('startup', 7), T0)
+  c.transition(st, end(7), T0)
+  const later = new Date(T0.getTime() + 2 * 3600 * 1000)
+  assert.equal(c.transition(st, start('resume', 7), later).epoch, 2)
+  assert.equal(c.transition(st, start('resume', 7), later).epoch, 2, 'and its own repeat right after is a repeat')
+})
+
+test('an answer that cannot take the epoch lock is kept and folded in: the ack is not lost', () => {
+  const sid = '00000000-0000-4000-8000-0000000000e2'
+  const lock = (file, fn) => fn()
+  const busy = () => {
+    throw new Error('lock busy')
+  }
+  const body = (event, reason) => ({ thread: sid, vendor: 'claude', host: 'h1', event, reason, identity: { session: sid, host_id_source: 'env' } })
+  c.resolve('claude', { session_id: sid, hook_event_name: 'SessionStart', source: 'startup' }, body('session_start', 'startup'), { withLock: lock }, { CLAUDE_PID: '7' })
+  const endBody = body('turn_end', '')
+  c.resolve('claude', { session_id: sid, hook_event_name: 'SessionEnd', reason: 'other' }, endBody, { withLock: lock }, { CLAUDE_PID: '7' })
+  assert.equal(c.recordEnd(endBody._end, { sent: true, status: 202 }, { withLock: busy }), false)
+  const file = path.join(c.sessionDir('claude', sid), 'epochs.json')
+  assert.equal(c.loadEpochs(file).epochs[0].end.acked_at, undefined)
+  c.resolve('claude', { session_id: sid, hook_event_name: 'UserPromptSubmit' }, body('turn_start', ''), { withLock: lock }, { CLAUDE_PID: '9' })
+  assert.ok(c.loadEpochs(file).epochs[0].end.acked_at, 'the kept ack is folded in at the next lock')
+  assert.deepEqual(c.endGaps(c.loadEpochs(file)), [])
 })

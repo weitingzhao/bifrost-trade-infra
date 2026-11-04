@@ -100,6 +100,9 @@ function lockBudgetMs() {
   return Math.max(0, hookDeadline - lockRuntime.now())
 }
 const FIRST_EVENT_TIMEOUT_MS = 1000
+// Collector mode: a resent end waits at most this long, and only while this much of the hook budget is left.
+const REPLAY_TIMEOUT_MS = 800
+const REPLAY_RESERVE_MS = 2500
 const RUN_BEAT_MS = 120 * 1000
 const KEY_RE = /^[0-9a-f]{64}$/
 const TURN_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
@@ -1331,9 +1334,13 @@ async function collectorPrepare(collector, vendor, payload, body) {
   const r = collector.resolve(vendor, payload, body, deps)
   if (r.drop) return false
   for (const beat of r.replay) {
+    // A resend never costs this hook's own beat its turn: it goes only while
+    // the budget still holds that beat's lock wait and send. A skipped one stays
+    // unacked and is picked again at a later resume, up to its cap.
+    if (lockBudgetMs() < REPLAY_RESERVE_MS) break
     try {
       allocateStamp(beat)
-      collector.recordEnd(beat._end, await postRecover(beat, FIRST_EVENT_TIMEOUT_MS), deps)
+      collector.recordEnd(beat._end, await postRecover(beat, REPLAY_TIMEOUT_MS), deps)
     } catch {
       // the end stays unacked; the audit reports it
     }

@@ -3,11 +3,16 @@
 // node --test agent-config/scripts/collector-noop.test.js
 //
 // No-op equivalence (R5:5.5-12 S1-4): with no collector token configured, the
-// requests the hook scripts send are byte for byte the ones the scripts of the
-// baseline commit send, for every source-capability fixture and the extra
-// events below. This is the safety net for "every session runs the new hook
-// code at once". The baseline scripts come from git; without the commit the
-// test fails, it does not skip.
+// hook scripts are compared with the scripts of the baseline commit, for every
+// source-capability fixture and the extra events and credential cases below.
+// What is compared, and nothing more: the requests (method, path, credential,
+// content type, body bytes), the files left in the home directory (time
+// fields normalized), exit code 0 and empty stdout and stderr. Timing is not
+// equal: the events newly wired into settings start one more node process;
+// for those only an upper bound is checked. Every request goes to a local
+// fake server that answers 202, so the platform's own state machine is not
+// part of this comparison. The baseline scripts come from git; without the
+// commit the test fails, it does not skip.
 const test = require('node:test')
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
@@ -94,31 +99,59 @@ function seedHome(home) {
 // The real server issues a key on a registration; later beats present it.
 const respond = rec => (rec.body && rec.body.thread_key ? { status: 202, body: { ok: true } } : null)
 
-async function runEvents(variant, name, events, extraEnv = {}) {
+// Every file under the home directory, with time fields normalized. The test's own markers are not the scripts'.
+function homeFiles(home) {
+  const out = {}
+  const walk = rel => {
+    for (const e of fs.readdirSync(path.join(home, rel), { withFileTypes: true })) {
+      const name = path.join(rel, e.name)
+      if (name === '.marks') continue
+      if (e.isDirectory()) walk(name)
+      else {
+        let text = '<unreadable>'
+        try {
+          text = fs.readFileSync(path.join(home, name), 'utf8').replace(/"at":\d+/g, '"at":0')
+        } catch {
+          // a mode-000 credential file stays as it was set up
+        }
+        out[name] = text
+      }
+    }
+  }
+  walk('')
+  return out
+}
+
+// Hook events this slice wires that the baseline never saw: no request, no file, so a bound on time is checked.
+const NEW_EVENTS = new Set(['SessionStart', 'PreCompact', 'SessionEnd', 'StopFailure', 'sessionStart'])
+
+async function runEvents(variant, name, events, extraEnv = {}, setup = seedHome) {
   const dir = VARIANTS[variant]
   const home = h.tmpHome(`noop-${variant}`)
-  seedHome(home)
+  setup(home)
   const srv = await h.fakeServer(respond)
   try {
     for (const [i, ev] of events.entries()) {
       const env = h.cleanEnv(home, srv.url, { PLATFORM_REPORTER_TOKEN: h.REPORTER, BIFROST_HOST_ID: 'h1', NODE_OPTIONS: `--require ${PRELOAD}`, COLLECTOR_TEST_SEED: `${name}:${i}`, ...extraEnv, ...ev.env })
       const r = await h.runHook(path.join(dir, 'thread-heartbeat.js'), ev.vendor, ev.payload, env)
-      assert.equal(r.code, 0)
-      assert.equal(r.out, '')
+      assert.deepEqual([r.code, r.out, r.err], [0, '', ''], `${variant} ${name}:${i}`)
+      if (variant === 'current' && NEW_EVENTS.has(ev.payload.hook_event_name)) assert.ok(r.ms < 2000, `${name}:${i} took ${r.ms} ms`)
       await h.settle(srv, home, srv.got.length, 200)
     }
-    return srv.got.map(({ method, url, auth, type, raw }) => ({ method, url, auth, type, raw }))
+    return { requests: srv.got.map(({ method, url, auth, type, raw }) => ({ method, url, auth, type, raw })), files: homeFiles(home) }
   } finally {
     srv.close()
   }
 }
 
-async function equivalent(name, events, extraEnv) {
-  const before = await runEvents('baseline', name, events, extraEnv)
-  const after = await runEvents('current', name, events, extraEnv)
-  assert.ok(before.length > 0 || events.every(e => e.vendor === 'claude'), `${name}: the baseline sent nothing`)
-  assert.deepEqual(after, before, `${name}: reporter-mode requests differ from the baseline`)
-  return before.length
+async function equivalent(name, events, extraEnv, setup) {
+  const before = await runEvents('baseline', name, events, extraEnv, setup)
+  const after = await runEvents('current', name, events, extraEnv, setup)
+  assert.ok(before.requests.length > 0 || events.every(e => e.vendor === 'claude'), `${name}: the baseline sent nothing`)
+  assert.deepEqual(after.requests, before.requests, `${name}: reporter-mode requests differ from the baseline`)
+  assert.deepEqual(after.files, before.files, `${name}: reporter-mode files differ from the baseline`)
+  assert.ok(Object.keys(before.files).some(f => f.includes('thread-keys')) || before.requests.length === 0, `${name}: no state file was compared`)
+  return before.requests.length
 }
 
 test('every Claude hook sequence fixture sends what the baseline sends', async () => {
@@ -138,6 +171,25 @@ test('tool, wait, compaction, failure, cursor and codex events send what the bas
 
 test('a collector token that is empty or blank is no collector token', async () => {
   assert.ok((await equivalent('blank-token', extraEvents().slice(0, 4), { PLATFORM_COLLECTOR_TOKEN: '  ' })) > 0)
+})
+
+test('credential files: a reporter token on disk, and a collector token file that is blank or unreadable', async () => {
+  const onDisk = home => {
+    seedHome(home)
+    fs.writeFileSync(path.join(home, '.config', 'bifrost', 'lineage-reporter.token'), `${h.REPORTER}\n`)
+  }
+  const collectorFile = (contents, mode) => home => {
+    onDisk(home)
+    const file = path.join(home, '.config', 'bifrost', 'collector.token')
+    fs.writeFileSync(file, contents)
+    fs.chmodSync(file, mode)
+  }
+  const noEnv = { PLATFORM_REPORTER_TOKEN: undefined }
+  const events = extraEvents().slice(0, 6)
+  assert.ok((await equivalent('reporter-file', events, noEnv, onDisk)) > 0)
+  assert.ok((await equivalent('collector-blank', events, noEnv, collectorFile(' \n\n', 0o600))) > 0)
+  assert.ok((await equivalent('collector-unreadable', events, noEnv, collectorFile('collector-x\n', 0o000))) > 0)
+  assert.equal(await equivalent('no-token', events, noEnv, seedHome), 0, 'no token: neither version sends anything')
 })
 
 async function runWrapper(variant) {

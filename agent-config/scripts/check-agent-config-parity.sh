@@ -190,24 +190,17 @@ else:
     else:
         fails.append("缺少 .claude/settings.json")
 
-    # 会话钩子接心跳（R5:5.5-12 §4.3）：Claude 的 SessionStart、PreCompact、SessionEnd，加 §12 D4 的
-    # StopFailure；SessionEnd 必须自带 timeout（§12 D11）。Cursor 的 sessionStart、sessionEnd。
-    # 没有收集员令牌时这些钩子什么都不发。
-    def heartbeat_hooks(entries, nested):
-        return [hh for e in (entries or []) for hh in (e.get('hooks', []) if nested else [e])
-                if 'thread-heartbeat.js' in hh.get('command', '')]
-    if cs.exists():
-        ch_hooks = json.loads(cs.read_text()).get('hooks', {})
-        for ev in ('SessionStart', 'PreCompact', 'SessionEnd', 'StopFailure'):
-            if not heartbeat_hooks(ch_hooks.get(ev), True):
-                fails.append(f".claude/settings.json 未接线 thread-heartbeat.js 到 {ev}")
-        if any(not isinstance(hh.get('timeout'), (int, float)) for hh in heartbeat_hooks(ch_hooks.get('SessionEnd'), True)):
-            fails.append(".claude/settings.json 的 SessionEnd 心跳缺 timeout（§12 D11）")
-    if ch.exists():
-        cu_hooks = json.loads(ch.read_text()).get('hooks', {})
-        for ev in ('sessionStart', 'sessionEnd'):
-            if not heartbeat_hooks(cu_hooks.get(ev), False):
-                fails.append(f".cursor/hooks.json 未接线 thread-heartbeat.js 到 {ev}")
+    # 会话钩子接心跳（R5:5.5-12 §4.3）：规则在 check_session_hooks.py（有自己的单元测试）。
+    sh = ROOT / 'bifrost-trade-infra/agent-config/scripts/check_session_hooks.py'
+    if not sh.exists():
+        fails.append("缺少 bifrost-trade-infra/agent-config/scripts/check_session_hooks.py")
+    else:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('check_session_hooks', sh)
+        session_hooks = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(session_hooks)
+        read = lambda p: json.loads(p.read_text()) if p.exists() else {}
+        fails.extend(session_hooks.problems(read(cs), read(ch)))
 
     # Codex 的接线在用户级 ~/.codex，不进仓库；本机装了 codex 才查（W-35）。
     # 没有 trust 的 hook 会被 Codex 无声跳过，所以问 Codex 自己，不只看文件在不在。
