@@ -54,10 +54,11 @@ check "UGOS: that pre recorded no done" test "$(dones pre:REG)" = "$d"
 check "UGOS: and recorded why" grep -q ' fail pre:REG owner/mode fix-up 1' /state/reg.phase
 check "UGOS: the log names the refused path" grep -q 'cannot set owner 1000:10 and mode .* Operation not permitted' /tmp/out
 d=$(dones final:REG)
-expect_fail "UGOS: final fails when setting an owner is refused" final_yes
+expect_fail_with "UGOS: final fails when setting an owner is refused" 1 'FAIL: REG: setting owner and mode on .* exited 1' final_yes
 check "UGOS: that final recorded no done" test "$(dones final:REG)" = "$d"
 check "UGOS: and recorded why" grep -q ' fail final:REG owner/mode fix-up 1' /state/reg.phase
 rm -f /tmp/fake/python_no_chown
 expect_ok "UGOS control: with chown allowed again pre sets everything" bash "$PMOVE" "${G[@]}" --confirm reg --from-snapshot pre reg
 check "UGOS control: the owners and modes match again" same_attrs
+expect_ok "td444-attrs.py unit tests (round 6: no escape from the target tree, hard-link conflicts)" python3 "$SRC/tests/test_td444_attrs.py"
 finish

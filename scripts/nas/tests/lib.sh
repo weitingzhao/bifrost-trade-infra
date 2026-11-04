@@ -13,30 +13,58 @@ MOVE=$SRC/td444-move.sh ROLL=$SRC/backup-rollup/rollup.sh
 pass=0 fail=0
 ok() { pass=$((pass + 1)); echo "PASS: $*"; }
 bad() { fail=$((fail + 1)); echo "FAIL: $*"; }
-expect_ok() { local d=$1; shift; if "$@" > /tmp/out 2>&1; then ok "$d"; else bad "$d"; tail -15 /tmp/out; fi; }
-expect_fail() { local d=$1; shift; if "$@" > /tmp/out 2>&1; then bad "$d (succeeded)"; tail -15 /tmp/out; else ok "$d"; fi; }
+# A command that never got to answer (tty_run timed out or found no exit status, or the exit
+# code is one of timeout / docker / exec failures: 124-127) is a broken test run, never the
+# expected refusal: expect_ok and expect_fail both record it as a failure.
+TTY_INFRA="" TTY_TIMEOUT=${TTY_TIMEOUT:-600}
+runner_broken() { [[ -n $TTY_INFRA ]] || (($1 >= 124 && $1 <= 127)); }
+expect_ok() { local d=$1 rc=0; shift; TTY_INFRA=""; "$@" > /tmp/out 2>&1 || rc=$?
+  if ((rc == 0)); then ok "$d"
+  elif runner_broken "$rc"; then bad "$d (the test run broke: ${TTY_INFRA:-exit $rc})"; tail -15 /tmp/out
+  else bad "$d"; tail -15 /tmp/out; fi; }
+expect_fail() { local d=$1 rc=0; shift; TTY_INFRA=""; "$@" > /tmp/out 2>&1 || rc=$?
+  if ((rc == 0)); then bad "$d (succeeded)"; tail -15 /tmp/out
+  elif runner_broken "$rc"; then bad "$d (the test run broke: ${TTY_INFRA:-exit $rc})"; tail -15 /tmp/out
+  else ok "$d"; fi; }
+expect_fail_with() { # expect_fail_with <desc> <exit code> <ERE the output must hold> <command...>
+  local d=$1 want=$2 pat=$3 rc=0; shift 3; TTY_INFRA=""; "$@" > /tmp/out 2>&1 || rc=$?
+  if ((rc == 0)); then bad "$d (succeeded)"; tail -15 /tmp/out
+  elif runner_broken "$rc"; then bad "$d (the test run broke: ${TTY_INFRA:-exit $rc})"; tail -15 /tmp/out
+  elif ((rc != want)); then bad "$d (exit $rc, not $want)"; tail -15 /tmp/out
+  elif ! grep -Eq -- "$pat" /tmp/out; then bad "$d (exit $rc, but no line matches: $pat)"; tail -15 /tmp/out
+  else ok "$d"; fi; }
 check() { local d=$1; shift; if "$@"; then ok "$d"; else bad "$d"; fi; }
 finish() { echo; echo "passed $pass, failed $fail"; ((fail == 0)); }
 tty_run() { # tty_run <answer> <command...>: on a pty, typing <answer> each time the command asks
   # "Type yes to continue"; returns the command's own exit code. Typed only after the prompt shows:
   # input sent earlier can be lost before the command opens /dev/tty, and script -e reports 0
-  # once its stdin ends first, so the command writes its own status.
-  local a=$1 n=0 c sp w; shift
-  rm -f /tmp/tty.rc /tmp/tty.in /tmp/tty.out; mkfifo /tmp/tty.in
-  script -qc "$(printf '%q ' "$@"); echo \$? > /tmp/tty.rc" /dev/null < /tmp/tty.in > /tmp/tty.out 2>&1 &
+  # once its stdin ends first, so the command writes its own status. After TTY_TIMEOUT seconds
+  # the command's session is killed; that, or no status at all, sets TTY_INFRA.
+  local a=$1 n=0 c sp w pid t0=$SECONDS; shift
+  TTY_INFRA=""
+  rm -f /tmp/tty.rc /tmp/tty.in /tmp/tty.out /tmp/tty.pid; mkfifo /tmp/tty.in
+  script -qc "echo \$\$ > /tmp/tty.pid; $(printf '%q ' "$@"); echo \$? > /tmp/tty.rc" /dev/null < /tmp/tty.in > /tmp/tty.out 2>&1 &
   sp=$!
   exec {w}> /tmp/tty.in
   while kill -0 "$sp" 2> /dev/null; do
+    if ((SECONDS - t0 >= TTY_TIMEOUT)); then
+      TTY_INFRA="no result within ${TTY_TIMEOUT}s"
+      pid=$(cat /tmp/tty.pid 2> /dev/null || true)
+      if [[ $pid =~ ^[0-9]+$ ]]; then kill -TERM -- "-$pid" 2> /dev/null || true; sleep 2; kill -KILL -- "-$pid" 2> /dev/null || true; fi
+      kill -KILL "$sp" 2> /dev/null || true
+      break
+    fi
     c=$(grep -c 'Type yes to continue' /tmp/tty.out || true)
     if ((c > n)); then printf '%s' "$a" >&"$w"; n=$c; fi
     sleep 0.2
   done
   exec {w}>&-
-  wait "$sp" || true
+  wait "$sp" 2> /dev/null || true
   cat /tmp/tty.out
-  return "$(cat /tmp/tty.rc 2> /dev/null || echo 99)"
+  if [[ -n $TTY_INFRA ]]; then echo "tty_run: $TTY_INFRA"; return 124; fi
+  if [[ ! -s /tmp/tty.rc ]]; then TTY_INFRA="the command left no exit status (script did not run it)"; echo "tty_run: $TTY_INFRA"; return 99; fi
+  return "$(cat /tmp/tty.rc)"
 }
-
 mkdir -p /shim /tmp/fake
 cat > /shim/btrfs <<'EOF'
 #!/bin/bash
