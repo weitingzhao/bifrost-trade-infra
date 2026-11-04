@@ -167,6 +167,8 @@ call() {
   rm -f "$out" "$out.code" "$header"
 }
 ok() { case "$CODE" in 2??) return 0 ;; *) return 1 ;; esac; }
+# Collector mode only (R5:5.5-12 §5): which sessions wrote the work, said at squash and run.
+. "$(dirname "${BASH_SOURCE[0]}")/handin-sessions.sh"
 
 # The heartbeat owns and reaps its sleep/call child, and the parent owns and
 # reaps this process on every exit, including signals and normal completion.
@@ -287,6 +289,7 @@ cmd_squash() {
     recovery_id=$(git show -s --format=%B "$head" | awk 'tolower($1) == "change-id:" {print $2}')
     [ -z "$change_id" ] || [ "$recovery_id" = "$change_id" ] || die 'squash: prepared commit Change-Id differs from first attempt'
     save_squash_identity "$identity" "$task" "$recovery_id"
+    sessions_check "$base" "$head" "$dir" "$head"
     printf '%s\n' "$head"; return
   fi
   [ "${#selected[@]}" -gt 0 ] || die 'squash: explicitly select this work unit with --commit SHA (repeat in oldest-first order)'
@@ -344,6 +347,7 @@ cmd_squash() {
   local result
   result=$(git commit-tree "$(git rev-parse "$head^{tree}")" -p "$base" -F "$msg") || die "squash: original tip preserved; retry using $msg"
   git update-ref "refs/heads/$branch" "$result" "$head" || die "squash: branch moved concurrently; original tip is in $backup"
+  sessions_check "$base" "$head" "$dir" "$result"
   printf '%s\n' "$result"
 }
 
@@ -395,6 +399,7 @@ cmd_run() {
   parents=$(git rev-list --parents -n1 "$commit" | cut -d' ' -f2-)
   [ "$parents" = "$base" ] || die 'run: commit must have the task base as its only parent'
   valid_message "$commit" "$task" || die 'run: commit needs one matching Agentrt-Task and one Change-Id'
+  sessions_replay "$task" "$commit" "${saved%.json}.unregistered_sessions.json"
 
   claim_pinned "$(jq -n --arg h "$HOST" --arg t "$task" --arg k "$key" '{host_id:$h,task_id:$t,idempotency_key:$k,free_slots:1}')"
   attempt=$(printf '%s' "$RESPONSE" | jq -er .attempt_id)
