@@ -379,8 +379,13 @@ one_per_repo() {
   [ -n "$repo" ] && [ -n "$mission" ] || die 'run: the task names no repository or mission'
   call agentd GET "/landing/missions/$mission" ''
   ok || die "run: read the landing status of $mission: HTTP $CODE"
+  # A root that has landed and waits only for the mission's closing re-read of
+  # main (needs_evidence, or landed_unverified) is not on its way: that read
+  # comes when the mission closes, and the mission waits for its other slices
+  # (11-05: M-303's second slice was held behind its first, landed and on STG).
   busy=$(printf '%s' "$RESPONSE" | jq -r --arg t "$task" --arg r "$repo" \
-    '[.roots[]? | select(.repo == $r and .root != $t and .class == "unresolved") | "\(.root) (\(.reason // "unresolved"))"] | join(", ")')
+    '[.roots[]? | select(.repo == $r and .root != $t and .class == "unresolved"
+      and .needs_evidence != true and .reason != "landed_unverified") | "\(.root) (\(.reason // "unresolved"))"] | join(", ")')
   call agentd GET "/tasks?mission=$mission" ''
   ok || die "run: read the tasks of $mission: HTTP $CODE"
   busy=$(printf '%s' "$RESPONSE" | jq -r --arg t "$task" --arg r "$repo" --arg b "$busy" \

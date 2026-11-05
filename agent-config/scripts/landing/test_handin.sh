@@ -593,10 +593,11 @@ def one_per_repo(root,repo,env,git,run,args,base,commit):
     # no binding.
     other='t_'+'0'*25+'2'
     unresolved=json.dumps({'roots':[{'repo':'bifrost-platform','root':other,'class':'unresolved','reason':'awaiting_grant'}]})
+    on_stg=json.dumps({'roots':[{'repo':'bifrost-platform','root':other,'class':'unresolved','reason':'stg_running'}]})
     verifying=json.dumps({'tasks':[{'task_id':other,'repo':'bifrost-platform','role':'implement','subject_task_id':None,
         'executor_pin':'external:coordinator','state':'verifying'}]})
     def claims(): return [c for c in (json.loads(l) for l in (root/'calls').read_text().splitlines()) if c[-1].endswith('/claim/pinned')] if (root/'calls').exists() else []
-    for name,extra in (('landing view',{'TEST_LANDING_ROOTS':unresolved}),('open task',{'TEST_MISSION_TASKS':verifying})):
+    for name,extra in (('landing view',{'TEST_LANDING_ROOTS':unresolved}),('on STG',{'TEST_LANDING_ROOTS':on_stg}),('open task',{'TEST_MISSION_TASKS':verifying})):
         p=run(*args,success=False,extra=extra)
         assert 'already has a hand-in on its way' in p.stderr and other in p.stderr and '--allow-parallel' in p.stderr, (name,p.stderr)
         assert claims()==[], name
@@ -609,8 +610,11 @@ def one_per_repo(root,repo,env,git,run,args,base,commit):
     # With a reason it goes on to the claim (stopped there by the fixture's no_lease).
     p=run(*args,'--allow-parallel','two independent fixes',success=False,extra={'TEST_LANDING_ROOTS':unresolved,'TEST_CLAIM_ERROR':'1'})
     assert 'going on in parallel: two independent fixes' in p.stderr and 'no_lease' in p.stderr and len(claims())==2
-    # Not on its way: another repository, a delivered root, this task itself, an accepted or a checker task.
+    # Not on its way: another repository, a delivered root, a root landed that waits only for the mission's closing
+    # re-read of main (11-05, M-303), this task itself, an accepted or a checker task.
     calm=json.dumps({'roots':[{'repo':'bifrost-trade-infra','root':other,'class':'unresolved'},{'repo':'bifrost-platform','root':other,'class':'delivered'},
+        {'repo':'bifrost-platform','root':other,'class':'unresolved','reason':'evidence','needs_evidence':True},
+        {'repo':'bifrost-platform','root':'t_'+'0'*25+'4','class':'unresolved','reason':'landed_unverified','needs_evidence':False},
         {'repo':'bifrost-platform','root':task,'class':'unresolved'}]})
     done=json.dumps({'tasks':[{'task_id':other,'repo':'bifrost-platform','role':'implement','subject_task_id':None,'executor_pin':'external:coordinator','state':'accepted'},
         {'task_id':'t_'+'0'*25+'3','repo':'bifrost-platform','role':'review','subject_task_id':other,'executor_pin':None,'state':'running'},
