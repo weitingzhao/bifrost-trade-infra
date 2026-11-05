@@ -67,6 +67,8 @@ elif route.startswith('/landing/missions/'):
     doc=json.loads(os.environ.get('TEST_LANDING_ROOTS','{"roots":[]}'))
     code=os.environ.get('TEST_LANDING_CODE',code)
 elif route=='/claim/pinned':
+    first=root/'claim-started'
+    if not first.exists(): first.write_text(repr(time.time()))
     doc={'attempt_id':'a_fixture','lease_epoch':1,'pushed_ref':'refs/heads/agent/'+os.environ['TEST_TASK']+'/a'+os.environ.get('TEST_ATTEMPT','1')}
     if os.environ.get('TEST_CLAIM_ERROR'):
         code='409'; doc={'error':'no_lease','message':'executor quota reached quota_stop_percent'}
@@ -485,7 +487,7 @@ def claim_ready(root,repo,env,git,run,args,base,commit):
         return [json.loads(line) for line in (root/'calls').read_text().splitlines()
                 if json.loads(line)[-1].endswith('/claim/pinned')]
     def reset():
-        for name in ('calls','claim-count','waits'): (root/name).unlink(missing_ok=True)
+        for name in ('calls','claim-count','waits','claim-started'): (root/name).unlink(missing_ok=True)
     p=run(*args,extra={'TEST_TASK_STATE':'proposed','TEST_CLAIMS':json.dumps([proposed]*5+[{'code':200}])})
     assert 'a_fixture' in p.stdout and 'retrying claim/pinned' in p.stderr
     requests=claims()
@@ -498,10 +500,14 @@ def claim_ready(root,repo,env,git,run,args,base,commit):
     # Both a persistent proposed response and a transport timeout after one
     # must respect the total deadline. Curl gets only the remaining budget.
     for replies in ([proposed], [proposed,{'code':200,'timeout':True}]):
-        reset(); started=time.monotonic()
+        reset()
         p=run(*args,success=False,extra={'TEST_CLAIMS':json.dumps(replies),
             'HANDIN_READY_TIMEOUT_SECONDS':'2','TEST_REAL_WAIT':'1' if len(replies)==1 else ''})
-        elapsed=time.monotonic()-started
+        # The stopwatch starts at the first claim, where the deadline starts:
+        # the reads before it (the task, its mission's landing and tasks, one
+        # hand-in per repository, R5:5.6-2) are not part of the wait, and under
+        # a loaded host they alone took a second (push-main, 8 files at a time).
+        elapsed=time.time()-float((root/'claim-started').read_text())
         # Bash SECONDS has one-second granularity; the deadline may be
         # reached up to one second earlier than a monotonic stopwatch.
         assert .8<elapsed<3.5, elapsed

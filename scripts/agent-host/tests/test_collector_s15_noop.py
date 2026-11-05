@@ -183,7 +183,11 @@ shown = ["<out>" if i and args[i - 1] == "-o" else ("@header" if a.startswith("@
 with (root / "calls").open("a") as f: f.write(json.dumps(shown) + "\n")
 out = Path(args[args.index("-o") + 1])
 if "/tasks/" in url:
-    out.write_text(json.dumps({{"base_commit": os.environ["TEST_BASE"], "state": "ready"}})); print("200", end="")
+    out.write_text(json.dumps({{"base_commit": os.environ["TEST_BASE"], "state": "ready", "repo": "platform", "mission_id": "M-1"}})); print("200", end="")
+elif "/landing/missions/" in url:
+    out.write_text(json.dumps({{"roots": []}})); print("200", end="")
+elif "/tasks?mission=" in url:
+    out.write_text(json.dumps({{"tasks": []}})); print("200", end="")
 else:
     out.write_text("{{}}"); print("500", end="")
 '''
@@ -236,10 +240,20 @@ def run_handin(tmp_path, script, case, tag):
     return outs, files, calls.replace(str(root), "<root>")
 
 
+def without_one_per_repo_reads(calls):
+    """The calls less the three reads run makes before it binds, which the baseline predates: the task, its mission's
+    landing and its mission's tasks (one hand-in per repository at a time, R5:5.6-2). They must be there, in order."""
+    lines = calls.splitlines(keepends=True)
+    urls = [json.loads(line)[-1] for line in lines]
+    i = next(k for k, u in enumerate(urls) if u.endswith("/landing/missions/M-1"))
+    assert urls[i - 1].endswith("/tasks/t_" + "0" * 25 + "3") and urls[i + 1].endswith("/tasks?mission=M-1"), urls
+    return "".join(lines[:i - 1] + lines[i + 2:])
+
+
 @pytest.mark.parametrize("case", NO_TOKEN, ids=["no-token", "blank-token", "unreadable-file"])
 def test_handin_squash_and_run_behave_as_the_baseline(tmp_path, case):
     old_script = baseline(tmp_path, "agent-config/scripts/landing/handin.sh") / "handin.sh"
     old = run_handin(tmp_path, old_script, case, "old")
     new = run_handin(tmp_path, HANDIN, case, "new")
     assert old[0][0][0] == 0 and old[1], "the baseline squashed and kept its state"
-    assert new == old
+    assert (new[0], new[1], without_one_per_repo_reads(new[2])) == old
