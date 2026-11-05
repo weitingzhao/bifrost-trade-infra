@@ -3334,6 +3334,28 @@
   - R6 的头 5 片交付，统计每片的复核轮数和「写好 → 交上去」的时长，与上面 2026-11-05 的数字比；
   - 第 2 轮起的复核说明都只含上一轮条目和 diff。
 
+### TD-524
+
+**P2 · agent 流程 · 平台动作能做的集群写入，被写成了执行卡（`owner_run_command`），Owner 批完还要再在终端跑命令**
+
+- **状态**：未开始（2026-11-05 记；R5 计划冻结，排 R6）。
+- **证据**：PROD 审批库 2026-10-29 → 11-05 共 124 张单。
+  - 平台自己执行的：落地卡 62、PROD 发布 28、`apply_manifest` 8。
+  - 要 Owner 在终端执行的 `owner_run_command`：23 张。其中：
+    - 装 cicd 的 Tekton 定义 6 张（#186、#224、#233、#234、#253、#304）；
+    - PROD agentrt 迁移 Job 2 张（#188、#269）；
+    - NAS 迁移 10 张（TD-444，一次性）；
+    - 其余零散 5 张。
+  - 平台执行策略本来就允许 `apply_manifest` 从 `bifrost-trade-infra` 的 `k8s/cicd/tekton` 往 `cicd` 写 `tekton.dev` 的 Task、Pipeline 和 TriggerTemplate（`k8s/overlays/platform-prod/config/actuation-policy.yaml:17` 前缀、`:44` 命名空间、`:109`–`:115` 资源）。可这 6 张都写成了执行卡，沿用的是更早的写法。#304 还因为给错了执行目录，来回了四次。
+- **影响**：每张执行卡要 Owner 做两件事：在 Console 批，再到本机终端执行。走 `apply_manifest` 只需要在 Console 批一次，执行和回读都由平台做。
+- **修法**：
+  1. 下一次 cicd 定义改动走 `plan_manifest` / `apply_manifest`。先实测：Task 和 Pipeline 分两次按顺序装，看两次 C 级批单能不能并成一次。
+  2. PROD agentrt 迁移：11-05 的 PROD 发布流水线已有 `agentrt-schema` 一步。先核实它是否已经覆盖迁移 Job；覆盖了就不再为此建执行卡。
+- **防线**：执行卡建单时，平台检查命令里有没有 `kubectl apply` 了 `apply_manifest` 名单前缀下的文件。有就拒建，并给出 `apply_manifest` 的用法。
+- **验收**：
+  - 下一次 cicd 定义改动只有 Console 上的批单，没有执行卡；
+  - 之后一周，执行卡里没有能由平台动作完成的。
+
 ### TD-488
 
 **P3 · cicd · Tekton 清理 CronJob 间歇失败、不留日志；失败的 Job 让 KubeJobFailed 响到 TTL，平台又删不掉**
