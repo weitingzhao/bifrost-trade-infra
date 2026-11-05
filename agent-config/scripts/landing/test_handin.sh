@@ -61,7 +61,11 @@ if '--data-binary' in args:
     if not data.startswith('@'): payload=json.loads(data)
 s=json.loads((root/'state.json').read_text()); doc={'ok':True}; code=os.environ.get('TEST_CODE','200')
 action=route.rsplit('/',1)[-1]
-if route.startswith('/tasks/'): doc={'base_commit':os.environ['TEST_BASE'],'state':os.environ.get('TEST_TASK_STATE','ready')}
+if route.startswith('/tasks/'): doc={'base_commit':os.environ['TEST_BASE'],'state':os.environ.get('TEST_TASK_STATE','ready'),'repo':'bifrost-platform','mission_id':'M-1'}
+elif route.startswith('/tasks?'): doc=json.loads(os.environ.get('TEST_MISSION_TASKS','{"tasks":[]}'))
+elif route.startswith('/landing/missions/'):
+    doc=json.loads(os.environ.get('TEST_LANDING_ROOTS','{"roots":[]}'))
+    code=os.environ.get('TEST_LANDING_CODE',code)
 elif route=='/claim/pinned':
     doc={'attempt_id':'a_fixture','lease_epoch':1,'pushed_ref':'refs/heads/agent/'+os.environ['TEST_TASK']+'/a'+os.environ.get('TEST_ATTEMPT','1')}
     if os.environ.get('TEST_CLAIM_ERROR'):
@@ -472,7 +476,7 @@ def claim_error(root,repo,env,git,run,args,base,commit):
     p=run(*args,success=False,extra={'TEST_CLAIM_RAW':'1'})
     assert 'HTTP 502' in p.stderr and 'gateway unavailable' not in p.stderr
     calls=[json.loads(line) for line in (root/'calls').read_text().splitlines()]
-    assert all(c[-1].endswith(('/tasks/'+task,'/claim/pinned')) for c in calls)
+    assert all(c[-1].endswith(('/tasks/'+task,'/claim/pinned','/landing/missions/M-1','/tasks?mission=M-1')) for c in calls)
     assert not (root/'pushes').exists()
 
 def claim_ready(root,repo,env,git,run,args,base,commit):
@@ -505,7 +509,7 @@ def claim_ready(root,repo,env,git,run,args,base,commit):
         assert 'timed out after 2s' in p.stderr and task in p.stderr and 'is proposed, not ready' in p.stderr
         assert 'retry with the same key' in p.stderr
         assert all(0<float(c[c.index('--max-time')+1])<=2 for c in claims())
-        assert all(c[-1].endswith(('/tasks/'+task,'/claim/pinned'))
+        assert all(c[-1].endswith(('/tasks/'+task,'/claim/pinned','/landing/missions/M-1','/tasks?mission=M-1'))
                    for c in map(json.loads,(root/'calls').read_text().splitlines()))
         dead_pids(root)
         assert not list((repo/'.git/handin/runs').glob('*.lock'))
@@ -576,5 +580,40 @@ def plan_node(root,repo,env,git,run,args,base,commit):
     run(*common,'--plan-node',success=False)
     assert before==(root/'calls').read_text(), 'an invalid step made an HTTP request'
 
-for name,fn in [('B-03',http),('R-03',squash),('TD-458-squash',squash_attempts),('TD-458-prepared',squash_prepared),('TD-458-prepared-identity',squash_prepared_identity),('TD-458-legacy-identity',squash_legacy_identity),('R-04',recovery),('R-05',cleanup),('R-01-push',push_cleanup),('N-01',tokens),('N-02',refresh),('C-7-claim',claim_error),('TD-458-ready',claim_ready),('C-7-material',material),('D5-plan-node',plan_node)]: test(name,fn)
+def one_per_repo(root,repo,env,git,run,args,base,commit):
+    # R5:5.6-2: a run is refused while another hand-in of the same repository
+    # and mission is on its way, before anything is bound; --allow-parallel
+    # with a reason lets it go on. A refused run reaches no claim and saves
+    # no binding.
+    other='t_'+'0'*25+'2'
+    unresolved=json.dumps({'roots':[{'repo':'bifrost-platform','root':other,'class':'unresolved','reason':'awaiting_grant'}]})
+    verifying=json.dumps({'tasks':[{'task_id':other,'repo':'bifrost-platform','role':'implement','subject_task_id':None,
+        'executor_pin':'external:coordinator','state':'verifying'}]})
+    def claims(): return [c for c in (json.loads(l) for l in (root/'calls').read_text().splitlines()) if c[-1].endswith('/claim/pinned')] if (root/'calls').exists() else []
+    for name,extra in (('landing view',{'TEST_LANDING_ROOTS':unresolved}),('open task',{'TEST_MISSION_TASKS':verifying})):
+        p=run(*args,success=False,extra=extra)
+        assert 'already has a hand-in on its way' in p.stderr and other in p.stderr and '--allow-parallel' in p.stderr, (name,p.stderr)
+        assert claims()==[], name
+    # Nothing was bound: the same key with another report is not "bound to a different report".
+    (root/'report2').write_text('another report\n')
+    other_report=[a if a!=str(root/'report') else str(root/'report2') for a in args]
+    p=run(*other_report,success=False,extra={'TEST_CLAIM_ERROR':'1'})
+    assert 'bound to a different report' not in p.stderr and 'no_lease' in p.stderr and len(claims())==1, p.stderr
+    args=other_report  # the key is bound to the second report from here on
+    # With a reason it goes on to the claim (stopped there by the fixture's no_lease).
+    p=run(*args,'--allow-parallel','two independent fixes',success=False,extra={'TEST_LANDING_ROOTS':unresolved,'TEST_CLAIM_ERROR':'1'})
+    assert 'going on in parallel: two independent fixes' in p.stderr and 'no_lease' in p.stderr and len(claims())==2
+    # Not on its way: another repository, a delivered root, this task itself, an accepted or a checker task.
+    calm=json.dumps({'roots':[{'repo':'bifrost-trade-infra','root':other,'class':'unresolved'},{'repo':'bifrost-platform','root':other,'class':'delivered'},
+        {'repo':'bifrost-platform','root':task,'class':'unresolved'}]})
+    done=json.dumps({'tasks':[{'task_id':other,'repo':'bifrost-platform','role':'implement','subject_task_id':None,'executor_pin':'external:coordinator','state':'accepted'},
+        {'task_id':'t_'+'0'*25+'3','repo':'bifrost-platform','role':'review','subject_task_id':other,'executor_pin':None,'state':'running'},
+        {'task_id':task,'repo':'bifrost-platform','role':'implement','subject_task_id':None,'executor_pin':'external:coordinator','state':'ready'}]})
+    p=run(*args,success=False,extra={'TEST_LANDING_ROOTS':calm,'TEST_MISSION_TASKS':done,'TEST_CLAIM_ERROR':'1'})
+    assert 'on its way' not in p.stderr and 'no_lease' in p.stderr and len(claims())==3, p.stderr
+    # A landing view that cannot be read stops the run; it is never read as "nothing on its way".
+    p=run(*args,success=False,extra={'TEST_LANDING_CODE':'503'})
+    assert 'read the landing status of M-1: HTTP 503' in p.stderr and len(claims())==3, p.stderr
+
+for name,fn in [('B-03',http),('R-03',squash),('TD-458-squash',squash_attempts),('TD-458-prepared',squash_prepared),('TD-458-prepared-identity',squash_prepared_identity),('TD-458-legacy-identity',squash_legacy_identity),('R-04',recovery),('R-05',cleanup),('R-01-push',push_cleanup),('N-01',tokens),('N-02',refresh),('C-7-claim',claim_error),('TD-458-ready',claim_ready),('C-7-material',material),('D5-plan-node',plan_node),('5.6-2-one-per-repo',one_per_repo)]: test(name,fn)
 PY

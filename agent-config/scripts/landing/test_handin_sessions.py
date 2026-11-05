@@ -34,7 +34,12 @@ if "/api/v1/agent/threads?" in url:
     out.write_text(json.dumps({{"threads": [{{"binding": {{"state": s}}}} for s in table.get(query, [])]}}))
     print("200", end=""); sys.exit(0)
 if "/tasks/" in url:
-    out.write_text(json.dumps({{"base_commit": os.environ["TEST_BASE"], "state": "ready"}})); print("200", end=""); sys.exit(0)
+    out.write_text(json.dumps({{"base_commit": os.environ["TEST_BASE"], "state": "ready", "repo": "bifrost-platform", "mission_id": "M-1"}})); print("200", end=""); sys.exit(0)
+# R5:5.6-2: nothing else of the repository is on its way.
+if "/landing/missions/" in url:
+    out.write_text(json.dumps({{"roots": []}})); print("200", end=""); sys.exit(0)
+if "/tasks?mission=" in url:
+    out.write_text(json.dumps({{"tasks": []}})); print("200", end=""); sys.exit(0)
 out.write_text("{{}}"); print("500", end="")
 '''
 THREADS = {"sidebar=" + LINKED: ["unlinked", "linked"], "sidebar=" + UNREG: [], "session=" + UNREG: ["unlinked", "refused"],

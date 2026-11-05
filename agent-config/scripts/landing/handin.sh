@@ -16,6 +16,8 @@
 #       Keep N on interrupted retries; earlier recovery messages remain intact.
 #       Every attempt keeps the first saved task identity, including prepared commits.
 #   handin.sh run --task t_… --report FILE --remote REMOTE [--key K] [--commit SHA]
+#       [--allow-parallel REASON]: refused while another hand-in of the same repository
+#       and mission is on its way (R5:5.6-2), unless a reason is given.
 #       claim/pinned, upload the report, start, computed, push the commit to
 #       the branch the platform gave, persist, submit; the lease is renewed
 #       every 60 s until it ends. A step whose answer is lost is sent again as
@@ -24,7 +26,7 @@
 #       --key <task>:<n+1>, which gets the next attempt and its own branch.
 #       After cancellation, keep the key: a remote push may have completed;
 #       run reads back the assigned ref before retrying the bound commit.
-#   handin.sh status [--attempt a_…] [--task t_…] [--op land:…]
+#   handin.sh status [--attempt a_…] [--task t_…] [--op land:…] [--mission M-n]
 #   handin.sh refresh --task t_… --op land:…
 #       Read the attempt/task/landing wait; refresh uses the execution identity.
 #   handin.sh material --op land:… [--stg-release true|false]
@@ -360,8 +362,41 @@ valid_message() {
     printf '%s\n' "$message" | grep -qiE '^Change-Id:[[:space:]]*I[0-9a-f]{40}[[:space:]]*$'
 }
 
+# One hand-in per repository at a time (R5:5.6-2, the debt paydown plan D3
+# of 2026-11-05): a hand-in started while another of the same repository is
+# still on its way waits for a grant while the first one lands, main moves
+# under it, and its landing is discarded and asked for again (30 discarded
+# operations, 49.4 h of the 109.3 h spent waiting for grants, 10-22..11-05).
+# On its way: another task of the same repository and mission that the
+# landing view still counts unresolved, or that is not accepted yet. Read
+# before anything is bound, so a refusal leaves nothing to clean up.
+one_per_repo() {
+  local task="$1" allow="$2" repo mission busy
+  call agentd GET "/tasks/$task" ''
+  ok || die "run: read task: HTTP $CODE"
+  repo=$(printf '%s' "$RESPONSE" | jq -r '.repo // ""')
+  mission=$(printf '%s' "$RESPONSE" | jq -r '.mission_id // ""')
+  [ -n "$repo" ] && [ -n "$mission" ] || die 'run: the task names no repository or mission'
+  call agentd GET "/landing/missions/$mission" ''
+  ok || die "run: read the landing status of $mission: HTTP $CODE"
+  busy=$(printf '%s' "$RESPONSE" | jq -r --arg t "$task" --arg r "$repo" \
+    '[.roots[]? | select(.repo == $r and .root != $t and .class == "unresolved") | "\(.root) (\(.reason // "unresolved"))"] | join(", ")')
+  call agentd GET "/tasks?mission=$mission" ''
+  ok || die "run: read the tasks of $mission: HTTP $CODE"
+  busy=$(printf '%s' "$RESPONSE" | jq -r --arg t "$task" --arg r "$repo" --arg b "$busy" \
+    '[.tasks[]? | select(.repo == $r and .task_id != $t and .role == "implement" and .subject_task_id == null
+      and .executor_pin == "external:coordinator" and (.state | IN("accepted", "cancelled", "rejected") | not))
+      | "\(.task_id) (\(.state))"] as $open | ([$b] | map(select(. != "")) + $open) | join(", ")')
+  [ -z "$busy" ] && return 0
+  if [ -n "$allow" ]; then
+    printf 'handin: run: %s already has a hand-in on its way (%s); going on in parallel: %s\n' "$repo" "$busy" "$allow" >&2
+    return 0
+  fi
+  die "run: $repo already has a hand-in on its way: $busy. One per repository at a time (R5:5.6-2): wait for it to land, or pass --allow-parallel <reason>"
+}
+
 cmd_run() {
-  local task="" report="" remote="" key="" commit=""
+  local task="" report="" remote="" key="" commit="" allow_parallel=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --task) task="$2"; shift 2 ;;
@@ -369,11 +404,13 @@ cmd_run() {
       --remote) remote="$2"; shift 2 ;;
       --key) key="$2"; shift 2 ;;
       --commit) commit="$2"; shift 2 ;;
+      --allow-parallel) allow_parallel="$2"; shift 2 ;;
       *) die "run: unknown $1" ;;
     esac
   done
   [ -n "$task" ] && [ -f "$report" ] && [ -n "$remote" ] || die 'run: --task, --report FILE and --remote are required'
   [ -n "$key" ] || key="$task:1"
+  one_per_repo "$task" "$allow_parallel"
   local sum binding saved base parents attempt epoch ref fence doc state
   sum="sha256:$(shasum -a 256 "$report" | cut -d' ' -f1)"
   binding=$(printf '%s\n' "$BASE_URL" "$HOST" "$task" "$key" | shasum -a 256 | cut -d' ' -f1)
@@ -500,18 +537,19 @@ verify_result() {
 }
 
 cmd_status() {
-  local attempt="" task="" op=""
+  local attempt="" task="" op="" mission=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --attempt) attempt="$2"; shift 2 ;;
       --task) task="$2"; shift 2 ;;
       --op) op="$2"; shift 2 ;;
+      --mission) mission="$2"; shift 2 ;;
       *) die "status: unknown $1" ;;
     esac
   done
-  [ -n "$attempt$task$op" ] || die 'status: --attempt, --task or --op'
+  [ -n "$attempt$task$op$mission" ] || die 'status: --attempt, --task, --op or --mission'
   local path
-  for path in "${attempt:+/attempts/$attempt}" "${task:+/tasks/$task}" "${op:+/landing/operations/$op}"; do
+  for path in "${attempt:+/attempts/$attempt}" "${task:+/tasks/$task}" "${op:+/landing/operations/$op}" "${mission:+/landing/missions/$mission}"; do
     [ -n "$path" ] || continue
     call agentd GET "$path" ''
     ok || die "status: HTTP $CODE"
