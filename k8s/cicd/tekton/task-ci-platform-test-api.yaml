@@ -1,5 +1,9 @@
 # Task test-api of bifrost-ci-platform (pipeline-ci-platform.yaml): go vet and the Go tests,
 # every one, or with api-scope=console only those that read files outside api/ (R5:5.7-1).
+# R5:5.7-5: part splits the full run in two that run side by side, each with its own
+# PostgreSQL and Redis: store is ./internal/agentrt/store alone (527 s of the 16.7-minute
+# run on 11-05), rest is go vet and every other package. Together they are every package
+# once. all (the default) is the run as before.
 apiVersion: tekton.dev/v1
 kind: Task
 metadata:
@@ -13,6 +17,10 @@ spec:
     - name: scope
       type: string
       default: full
+    - name: part
+      type: string
+      default: all
+      description: all, store (./internal/agentrt/store only) or rest (go vet and every other package)
   workspaces:
     - name: source
   # The agent runtime's database and Redis tests (W-31 2.1) need a real
@@ -90,6 +98,9 @@ spec:
         # R5:5.7-1: full, or console (see task changes).
         - name: API_SCOPE
           value: $(params.scope)
+        # R5:5.7-5: all, store or rest.
+        - name: API_PART
+          value: $(params.part)
       computeResources:
         requests:
           cpu: 250m
@@ -102,6 +113,9 @@ spec:
         set -euo pipefail
         ws="$(workspaces.source.path)"
         cd "${ws}/bifrost-platform/api"
+        part="${API_PART:-all}"
+        case "${part}" in all|store|rest) ;; *) echo "unknown part ${part}"; exit 1 ;; esac
+        STORE_PACKAGE=./internal/agentrt/store
 
         echo "==> go mod download"
         go mod download
@@ -244,6 +258,12 @@ spec:
           printf 'module scopecheck\n\ngo 1.21\n' > "${scope_check}/go.mod"
           # shellcheck disable=SC2086
           if found="$(cd "${scope_check}" && GOFLAGS= go run . "${ws}/bifrost-platform" ${CONSOLE_SCOPE_PACKAGES} -- ${CONSOLE_SCOPE_KNOWN} 2>&1)"; then
+            # Both parts run this same check on the same checkout, so they agree: the
+            # console packages are not the store package, and store runs nothing here.
+            if [ "${part}" = store ]; then
+              echo "==> console scope: part store runs no test (${STORE_PACKAGE} is not among ${CONSOLE_SCOPE_PACKAGES})"
+              exit 0
+            fi
             echo "==> console scope: go test ${CONSOLE_SCOPE_PACKAGES}; no go vet (the Go code is main's)"
             # shellcheck disable=SC2086
             go test ${CONSOLE_SCOPE_PACKAGES} -count=1 -timeout=900s
@@ -254,12 +274,30 @@ spec:
           echo "${found}"
         fi
 
+        # 900s: agentrt/store alone takes ~230s on a dev Mac with its PostgreSQL
+        # tests (W-31 core landing block); 300s timed out on the CI node.
+        if [ "${part}" = store ]; then
+          echo "==> go test ${STORE_PACKAGE} (part store)"
+          go test "${STORE_PACKAGE}" -count=1 -timeout=900s
+          echo "==> Go API tests passed (part store)"
+          exit 0
+        fi
+
         echo "==> go vet ./..."
         go vet ./...
 
+        if [ "${part}" = rest ]; then
+          store_import="$(go list "${STORE_PACKAGE}")"
+          # Import paths have no spaces: one per line, then go test takes them as words.
+          packages="$(go list ./... | grep -vxF "${store_import}")"
+          echo "==> go test: $(printf '%s\n' "${packages}" | wc -l | tr -d ' ') packages, every one but ${store_import} (part rest)"
+          # shellcheck disable=SC2086
+          go test ${packages} -count=1 -timeout=900s
+          echo "==> Go API tests passed (part rest)"
+          exit 0
+        fi
+
         echo "==> go test ./..."
-        # 900s: agentrt/store alone takes ~230s on a dev Mac with its PostgreSQL
-        # tests (W-31 core landing block); 300s timed out on the CI node.
         go test ./... -count=1 -timeout=900s
 
         echo "==> Go API tests passed"

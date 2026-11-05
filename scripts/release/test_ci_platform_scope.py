@@ -93,11 +93,15 @@ def test_the_run_says_its_scope_in_a_result():
 
 def test_test_api_takes_its_scope_from_changes():
     t = pipeline_tasks()
-    api = t["test-api"]
-    assert api["params"] == [{"name": "scope", "value": "$(tasks.changes.results.api-scope)"}]
-    assert api["taskSpec"]["params"] == [{"name": "scope", "type": "string", "default": "full"}]
+    scope = {"name": "scope", "value": "$(tasks.changes.results.api-scope)"}
+    # R5:5.7-5: test-api is the rest of the packages and go vet, test-api-store the store
+    # package alone; both take the scope changes chose and run after the same clones.
+    api, store = t["test-api"], t["test-api-store"]
+    assert (api["params"], store["params"]) == ([scope, {"name": "part", "value": "rest"}], [scope, {"name": "part", "value": "store"}])
+    assert api["runAfter"] == store["runAfter"] == ["clone", "clone-legacy"] and api["taskSpec"] == store["taskSpec"]
+    assert [(p["name"], p.get("default")) for p in api["taskSpec"]["params"]] == [("scope", "full"), ("part", "all")]
     env = {e["name"]: e.get("value") for e in api["taskSpec"]["steps"][0]["env"]}
-    assert env["API_SCOPE"] == "$(params.scope)"
+    assert (env["API_SCOPE"], env["API_PART"]) == ("$(params.scope)", "$(params.part)")
     # Only the exact word console narrows the run; anything else is every test.
     assert 'if [ "${API_SCOPE:-full}" = "console" ]; then' in api_script()
     changes = t["changes"]
@@ -361,12 +365,13 @@ def module(tmp_path: Path, extra: dict[str, str] | None = None) -> Path:
     return api
 
 
-def run_api(tmp_path: Path, api: Path, scope: str):
+def run_api(tmp_path: Path, api: Path, scope: str, part: str = "all"):
     ran = tmp_path / "ran"
-    ran.mkdir(exist_ok=True)
+    shutil.rmtree(ran, ignore_errors=True)
+    ran.mkdir()
     script = api_script().replace("$(workspaces.source.path)", str(tmp_path))
-    return subprocess.run(["bash"], input=script, cwd=api, env={**go_env(tmp_path), "RAN_DIR": str(ran), "API_SCOPE": scope},
-                          capture_output=True, text=True, timeout=300), ran
+    return subprocess.run(["bash"], input=script, cwd=api, env={**go_env(tmp_path), "RAN_DIR": str(ran), "API_SCOPE": scope,
+                          "API_PART": part}, capture_output=True, text=True, timeout=300), ran
 
 
 @pytest.mark.skipif(shutil.which("go") is None, reason="go is not installed")

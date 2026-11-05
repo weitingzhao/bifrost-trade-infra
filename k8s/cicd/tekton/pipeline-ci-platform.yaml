@@ -133,9 +133,29 @@ spec:
       runAfter: [clone, clone-legacy]
       # R5:5.7-1: the scope task changes chose (Tekton runs this task after it, as it
       # reads its result). full runs go vet and every Go test, as before.
+      # R5:5.7-5: split in two that run side by side, each with its own PostgreSQL and
+      # Redis: this one is go vet and every package but ./internal/agentrt/store (part
+      # rest), test-api-store below is that package alone; together every package once.
       params:
         - name: scope
           value: $(tasks.changes.results.api-scope)
+        - name: part
+          value: rest
+      workspaces:
+        - name: source
+          workspace: source
+      taskRef:
+        name: bifrost-ci-platform-test-api
+    - name: test-api-store
+      runAfter: [clone, clone-legacy]
+      # R5:5.7-5: ./internal/agentrt/store alone (527 s of the 16.7-minute test-api on
+      # 11-05), beside test-api. With api-scope=console it runs no test when the scope
+      # check passes, as test-api decides on the same checkout.
+      params:
+        - name: scope
+          value: $(tasks.changes.results.api-scope)
+        - name: part
+          value: store
       workspaces:
         - name: source
           workspace: source
