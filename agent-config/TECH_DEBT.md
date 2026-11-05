@@ -121,19 +121,19 @@
 
 目标：备份 MinIO 已搬到 NAS（infra 1ee0ac2，已接监控 ba03488），把剩下的收尾：自动修复只在 PROD 一处动手、失败记录不再被删、platform 的新检查上线、稳定一周后退役集群里的 MinIO 残留，再处理 WAL 体量和 CNPG 1.30 的备份插件。
 
-项：TD-133, TD-134, TD-135 · 已还：TD-197, TD-173, TD-132, TD-131
+项：TD-133, TD-134 · 已还：TD-197, TD-173, TD-132, TD-131 · 11-05 清理移出：TD-135（见 `CUT-r5-ledger-cleanup-2026-11-05.md`）
 
 ### 第 7 波 · 数据缺口（10-06 由 Data Gaps 看板并入）
 
 目标：Data Gaps 看板上未结的 15 项并入台账：先把每日快照的写入修对（TD-137）再接读侧和三页，归因行补上价格，Research 侧已就绪的一个版本（0.185.0）发出去，长期限 IV 锥在 10-31 前从 option_daily 回填，其余按 Owner 已定的口径排。
 
-项：TD-137, TD-142, TD-143, TD-144, TD-146, TD-149, TD-158, TD-159, TD-172, TD-180, TD-246, TD-250, TD-274, TD-301, TD-302 · 已还：TD-141, TD-147, TD-177, TD-179, TD-151, TD-181, TD-193, TD-140, TD-171, TD-138, TD-139, TD-178, TD-199, TD-243, TD-182, TD-148, TD-145, TD-150
+项：TD-137, TD-142, TD-143, TD-149, TD-158, TD-159, TD-172, TD-180, TD-246, TD-250, TD-274, TD-301, TD-302 · 已还：TD-141, TD-147, TD-177, TD-179, TD-151, TD-181, TD-193, TD-140, TD-171, TD-138, TD-139, TD-178, TD-199, TD-243, TD-182, TD-148, TD-145, TD-150 · 11-05 清理移出：TD-144, TD-146（见 `CUT-r5-ledger-cleanup-2026-11-05.md`）
 
 ### 第 8 波 · Pine 线程收尾后的跟进（10-06）
 
 目标：Pine 与路线图那条线（会话「Pine 信号业务与实现」）收尾时留下的日后核对：W3 两次真正的归档、一个只差发布的前端修复、路线图台账的月度重评、「我的价位」等 Design、auto mode 规则重新应用。
 
-项：TD-183, TD-184, TD-185, TD-186, TD-188 · 已还：TD-187
+项：TD-183, TD-184, TD-185, TD-188 · 已还：TD-187 · 11-05 清理移出：TD-186（见 `CUT-r5-ledger-cleanup-2026-11-05.md`）
 
 ### 第 9 波 · 控制面对局域网敞开（第 3 轮，10-07）
 
@@ -157,7 +157,7 @@
 
 目标：会动手的维护只由 PROD 的 platform-workers 做，本机与 STG 只观测。已做：本机停手（TD-130 第一步）、STG 不修 IB 也不写发布记录（TD-223）、页面不再触发维护、状态持久化（TD-196）。接着：PROD 自己探测、带时间戳的检查信号，只给 PROD 挂技能并先只报告，再逐项放开；备份只归 CNPG 与 backup-retry；不再清掉失败现场。
 
-项：TD-130, TD-272, TD-276, TD-283, TD-284, TD-285, TD-286, TD-287, TD-288, TD-289, TD-296, TD-297, TD-299 · 已还：TD-256, TD-257, TD-270, TD-271, TD-273, TD-275, TD-277, TD-278, TD-279, TD-280, TD-281, TD-282, TD-196, TD-223, TD-204, TD-253, TD-254, TD-255
+项：TD-130, TD-276, TD-283, TD-284, TD-286, TD-287, TD-288, TD-289, TD-296, TD-297, TD-299 · 已还：TD-256, TD-257, TD-270, TD-271, TD-273, TD-275, TD-277, TD-278, TD-279, TD-280, TD-281, TD-282, TD-196, TD-223, TD-204, TD-253, TD-254, TD-255 · 11-05 清理移出：TD-272, TD-285（见 `CUT-r5-ledger-cleanup-2026-11-05.md`）
 
 ## 数据边界（接受并留座）
 
@@ -168,6 +168,8 @@
 - **CUE 只有调整合约** — CUE 1:30 合股（除权 2026-04-24）后交易所没有挂标准系列，只剩 10-16 到期的 14 个 CUE1 合约（10-05 OI 14 行）：市场本来没有，max pain / ATM IV / GEX / flow / PCR 留空是对的。依据：看板 R10.CUE，10-06 实测。页面上的说明已上线（frontend 8d991d8，原 TD-150，2026-10-08 签收）。
 
 ## 需要你拍板
+
+> 2026-11-05 台账清理：TD-135、TD-144、TD-146 降级出台账，原文在 `agent-config/work/multi-agent/CUT-r5-ledger-demoted-2026-11-05.md`。下面关于它们的问题照旧等你定。
 
 ### 现金写入失败要改成抛错吗？（改 core 公开接口）
 
@@ -266,12 +268,9 @@
 | [TD-130](#td-130) | P1 | ops-control | ops-autopilot acts on the shared cluster's data layer from the Owner's laptop (local bdev platform-api, role all); the in-cluster STG/PROD autopilots idle on an empty checklist, and each of the three keeps its own throttle | 要你批 |
 | [TD-133](#td-133) | P3 | data | Leftovers of the in-cluster MinIO after the move to the NAS (deploy/minio at 0, its PVC/PV, an empty EndpointSlice, the backup-retry CronJob) | 要你批 |
 | [TD-134](#td-134) | P2 | data | WAL is ~19.5 GiB/day (4.2 GiB compressed) because checkpoints run every 5 minutes without wal_compression | 要你批 |
-| [TD-135](#td-135) | P3 | data | Native barmanObjectStore backups are removed in CloudNativePG 1.30; the Barman Cloud Plugin that replaces them needs cert-manager, which the cluster does not have | 新依赖（要你批） |
 | [TD-137](#td-137) | P1 | trade-data | The daily snapshot capture locks an account's intraday book into the day (first write wins, no freshness test) and account_nav_daily stores no margin-pressure fields | 改表 + 发布（要你批） |
 | [TD-142](#td-142) | P2 | research-data | The 90-day IV cone has 31–39 sessions of history and there is no 180-day tenor: ATM IV was stored only to 90 DTE before 2026-08-05 | 在做：本批已批 |
 | [TD-143](#td-143) | P3 | research-data | Hypotheses never link to trades: linked_opportunity_ids is empty on all 91 rows, and only Research's own create / patch writes it | 不用批 |
-| [TD-144](#td-144) | P3 | research-data | Settled candidates are not attributed to the judge (persona) that put them forward, so the Personas bench track-record columns stay grey | 要你批 |
-| [TD-146](#td-146) | P3 | research-data | No store accepts a hand verdict, so the Personas bench 'Agrees with you' column cannot be computed | 要你批 |
 | [TD-149](#td-149) | P2 | market-data | CTVA's adjusted daily bars ignore its 2026-10-01 spin-off, so every return-based feature on CTVA sees an ~84% one-day drop | 不用批 |
 | [TD-158](#td-158) | P3 | research-data | Earnings estimates are served one name per request, so no universe-wide page can show an Earn column | 不用批 |
 | [TD-159](#td-159) | P3 | market-data | No read says how many standard and adjusted option contracts a name has, so "only adjusted contracts are listed" is inferred in the browser from ticker shapes | 不用批 |
@@ -287,7 +286,6 @@
 | [TD-183](#td-183) | P3 | market-data | W3 archive-before-delete has never archived for real: the first intraday option_snapshot archive is ~10-08 02:15 UTC and option_daily / short_volume on 11-01 | 不用批 |
 | [TD-184](#td-184) | P3 | frontend | The Simulator says "stored with the run" for runs that were not stored: the fix (fe 53d6939e) is on main but not in STG/PROD | 发布（要你批） |
 | [TD-185](#td-185) | P3 | research-control | The Pine-vs-TradingView roadmap ledger is a point-in-time judgement: its scores and next steps need a re-evaluation around 11-06 | 不用批 |
-| [TD-186](#td-186) | P3 | frontend | "My levels" (plan stop / target and price alerts as horizontal lines) on the Symbol chart waits on Design: ASK-symbol-chart-my-levels-2026-10-06 | 要你批 |
 | [TD-188](#td-188) | P3 | frontend | The app's design registry is still at Rev .157: packages .158–.162 are built but designRoutes / adoption were not re-synced (the Design project's DS mirror was synced to 0.13.0 on 10-06) | 不用批 |
 | [TD-189](#td-189) | P3 | research-data | SEPA has no rows for four sessions (08-28, 08-31, 09-08, 09-16): those nights never computed it, so the SEPA lens and its hit rate skip them | 不用批 |
 | [TD-192](#td-192) | P2 | research-control | One IB Flex failure loses that night's SEPA for good: husbandry_gate blocks sepa_projection although SEPA reads nothing from Flex, and the projection never back-fills a missed night | 要你批 |
@@ -308,11 +306,9 @@
 | [TD-267](#td-267) | P2 | ops-platform | An approval is consumed by a transient refusal: approve executes immediately, and a release-window clash marks the request `failed`, so the Owner's click is spent and a new request must be filed | 不用批 |
 | [TD-268](#td-268) | P3 | ops-platform | `ExecSQLOnPrimary` is dead code: TD-256 and TD-259 took its last caller, and the ratchet that counted call sites now guards a function nobody calls | 不用批 |
 | [TD-269](#td-269) | P3 | ops-platform | `release.sh hold` cannot be stopped cleanly: SIGTERM waits behind its `sleep 3600`, and SIGKILL leaves a stale lock only the Owner may clear | 不用批 |
-| [TD-272](#td-272) | P3 | ops-platform | tekton-trigger can create any PipelineRun in cicd, and no admission policy matches it, so its token is still a path to the cluster-admin Argo controller account | 安全/凭据（要你批） |
 | [TD-276](#td-276) | P3 | ops-platform | An apply_manifest run is named apply-<plan id>, so a failed apply of a plan cannot be retried; a new plan is needed | 不用批 |
 | [TD-283](#td-283) | P3 | ops-platform | release.sh dev still restarts DEV with kubectl rollout restart, which the read-only Agent identity cannot do | 不用批 |
 | [TD-284](#td-284) | P3 | ops-platform | Plugin and pine image builds cannot be started through start_pipeline_run: no image tag, no workspaces, pine missing from the window map | 不用批 |
-| [TD-285](#td-285) | P2 | ops-platform | The applier cannot take over a field that kubectl-client-side-apply owns: plan and apply fail with a server-side apply conflict | 安全/凭据（要你批） |
 | [TD-286](#td-286) | P2 | ops-platform | Approval notifications carry no short id or parameters and their delivery is not recorded; session, Console and phone are not one approval experience | 安全/凭据（要你批） |
 | [TD-287](#td-287) | P3 | ops-platform | The gpu-server power manager on ubt-k3s-01 has failed every poweroff since the node key changed and logs success; platform wake/poweroff have no SSH identity | 安全/凭据（要你批） |
 | [TD-288](#td-288) | P2 | infra | ubt-k3s-01, the sole control plane, went down without a shutdown on 10-10 and no boot since June recorded a clean shutdown; nothing alerts on an unplanned reboot | 不用批 |
@@ -703,21 +699,6 @@
 - **验收**: A week after the change, cnpg_collector_wal_bytes per day is at most half of 19.48 GiB.
 - 审批 要你批 · 代价 S · 风险 low · repos: bifrost-trade-infra
 
-### TD-135
-
-**P3 · data · Native barmanObjectStore backups are removed in CloudNativePG 1.30; the Barman Cloud Plugin that replaces them needs cert-manager, which the cluster does not have**
-
-- **状态**：未开始（Owner 10-07 暂缓）
-- **Claim**: Applying the Cluster on 10-06 printed "Native support for Barman Cloud backups and recovery is deprecated and will be completely removed in CloudNativePG 1.30.0". The operator is 1.27.4. The plugin needs cert-manager; no cert-manager namespace or CRDs exist.
-- **Evidence**:
-  - `bifrost-trade-infra/k8s/data/cluster.yaml` — spec.backup.barmanObjectStore
-  - `bifrost-trade-infra/k8s/system/cnpg-operator/kustomization.yaml` — operator version pin
-- **Impact**: An operator upgrade past 1.29 would stop WAL archiving and backups.
-- **Fix**: Before that upgrade: install cert-manager, deploy plugin-barman-cloud, move the Cluster to an ObjectStore plus plugin configuration, verify a backup and a restore drill.
-- **Ratchet**: install-cnpg-operator.sh refuses a version of 1.30 or later while the Cluster still uses barmanObjectStore.
-- **验收**: A completed Backup with method plugin and a restore drill that passes.
-- 审批 要你批 · 代价 M · 风险 med · repos: bifrost-trade-infra
-
 ### TD-137
 
 **P1 · trade-data · The daily snapshot capture locks an account's intraday book into the day (first write wins, no freshness test) and account_nav_daily stores no margin-pressure fields**
@@ -789,38 +770,6 @@
 - **Fix**: Research derives hypothesis → trade_id at read time from Trade plans with source_kind='hypothesis', source_ref = the hypothesis id and trade_id set. Read path (trade-api GET /plans with a source_kind filter, or another read path) is listed with the build; no new writer into either store (D13). The frontend chain reads the derived link. Links appear only once plans are used.
 - **Ratchet**: Research test: a plan with source_kind hypothesis and a trade_id yields the link, a cancelled plan does not; frontend test that the chain is not broken when the link exists.
 - 审批 不用批 · 代价 M · 风险 low · repos: bifrost-research, bifrost-trade-api, bifrost-trade-frontend
-
-### TD-144
-
-**P3 · research-data · Settled candidates are not attributed to the judge (persona) that put them forward, so the Personas bench track-record columns stay grey**
-
-- **状态**：未开始（Owner 10-07 暂缓）
-- **验收**：选 A 时，上线后：`SELECT count(*), count(*) FILTER (WHERE source_ref ? 'persona') FROM research.candidate_pool WHERE source='harness' AND trade_date >= '<上线日>'`（Golden Source 副本只读）两数相等且 > 0
-- **Claim**: research.candidate_pool has 129 rows and none carries a persona key in source_ref; no other table records which judge proposed which candidate. JudgeTrackRecord's four track-record columns and the Pilot Console bench bar have nothing to read.
-- **Measured**: MEASURED 10-06 on the Golden Source replica.
-- **Evidence**:
-  - `bifrost-research/src/bifrost_research/repositories/candidate_pool.py:24` — `"source_ref",`
-  - `bifrost-trade-frontend/src/pages/copilot/personas/JudgeTrackRecord.tsx:15` — `*   a per-judge verdict against the outcome that followed, so the design's`
-- **Impact**: The bench cannot say which judge earns its weight.
-- **Fix**: Recommended: the harness writes source_ref.persona (and the judge model) when it inserts a candidate; forward only, no DDL, no backfill; candidate-outcome /summary groups by it. Alternative: a new research.* table if one candidate can carry several judges' votes (design first, database-design skill).
-- **Ratchet**: Test that the harness insert path sets source_ref.persona; an asset check that new harness candidates without it are 0.
-- 审批 要你批 · 代价 S · 风险 low · repos: bifrost-research, bifrost-trade-frontend
-
-### TD-146
-
-**P3 · research-data · No store accepts a hand verdict, so the Personas bench 'Agrees with you' column cannot be computed**
-
-- **状态**：未开始（Owner 10-07 暂缓）
-- **验收**：建了的话：`git -C bifrost-research grep -n 'verdict' origin/main -- src/bifrost_research/schema` 出现新表的 DDL，且 `git -C bifrost-trade-frontend grep -n "column: 'Agrees with you'" origin/main -- src` 无输出（列不再登记为缺数据）
-- **Claim**: Nothing records a hand verdict beside the machine's on the same name; JudgeTrackRecord greys 'Agrees with you' for that reason.
-- **Measured**: CODE-READ 10-06: no verdict table under bifrost_research/schema on origin/main a242b22.
-- **Evidence**:
-  - `bifrost-trade-frontend/src/pages/copilot/personas/JudgeTrackRecord.tsx:23` — `* - **Agrees with you** needs a hand verdict beside a machine one on the same`
-  - `bifrost-trade-frontend/src/pages/copilot/personas/JudgeTrackRecord.tsx:24` — `*   name. The hand-verdict store (Vision §4 · §9.3) does not exist yet.`
-- **Impact**: One of the bench's columns stays grey; no agreement rate between the Owner and the judges.
-- **Fix**: If wanted: a journal.* table keyed by research user (D-Journal-Stores), one row per (user, symbol, trade_date) verdict with an optional note, written from the bench; designed with the database-design skill before any DDL. If not: the column keeps its stated reason and this item is closed as not wanted.
-- **Ratchet**: If built: a DB test of the store and the frontend column test. If not built: none needed (the page already states why).
-- 审批 要你批 · 代价 M · 风险 low · repos: bifrost-research, bifrost-trade-frontend
 
 ### TD-149
 
@@ -1100,23 +1049,6 @@
 - **Ratchet**: None feasible (a judgement, not a mechanism); this entry is the reminder.
 - 审批 不用批 · 代价 S · 风险 low · repos: (workspace doc)
 
-### TD-186
-
-**P3 · frontend · "My levels" (plan stop / target and price alerts as horizontal lines) on the Symbol chart waits on Design: ASK-symbol-chart-my-levels-2026-10-06**
-
-- **状态**：未开始（Owner 10-07 暂缓）
-- **验收**：Design 的回复（RESPONSE 或 Rev 说明）在 `design/trade/` 里；按回复落地后，Symbol › Price 图有对应图层，或台账 G5 改成「➖ 不做」并写明理由
-- **现在**：Design 10-06 带回的 Package .63 @ Rev .162 只回了 Rev .161 回执，**没有回答这份 ASK**，继续等。ASK 写在 `design/uploads/ASK-symbol-chart-my-levels-2026-10-06.md`。实测：`strategy_plan` 有 `stop_kind/target_kind = underlying_price`，但 PROD 0 行；价格提醒没有存储（`/research/alerts` 是镜头级）
-- **下一步**：Design 定形态；计划止损和止盈部分不需要新表，app 直接做；价格提醒要新表，先列方案给 Owner 批
-- **Claim**: TradingView's drawing tools are useful to an option seller mainly as horizontal levels (planned strike, invalidation stop, alert price). K-LINE-SPEC / RESPONSE A7 keeps drawing tools off the chart, so the exception needs Design's ruling.
-- **Evidence**:
-  - `bifrost-trade-core/src/bifrost_core/monitor/schemas/strategy_plans.py:48` — `target_kind: Optional[TargetKind] = None`（TargetKind 含 `underlying_price`）
-  - `design/trade/RESPONSE-2026-10-05-price-chart-pine.md` A7 — 仍不放：均线、画线工具
-- **Impact**: The chart cannot show where the trader's own plan says it is wrong; plans and alerts stay off price.
-- **Fix**: Per Design's answer; plan levels from strategy_plan, alerts via a new store (Owner approval).
-- **Ratchet**: Decide with the implementation.
-- 审批 要你批 · 代价 M · 风险 low · repos: bifrost-trade-frontend, design
-
 ### TD-188
 
 **P3 · frontend · The app's design registry is still at Rev .157: packages .158–.162 are built but designRoutes / adoption were not re-synced, and the Design project's DS mirror is 0.11.0 against @bifrost/ui 0.13.0**
@@ -1388,22 +1320,6 @@
 - **Ratchet**: A shell test that sends SIGTERM to a `hold` and asserts the window file is gone within a couple of seconds.
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-infra
 
-### TD-272
-
-**P3 · ops-platform · tekton-trigger can create any PipelineRun in cicd, and no admission policy matches it, so its token is still a path to the cluster-admin Argo controller account**
-
-- **状态**：未开始
-- **Claim**: TD-271's policies match only the platform identities and tekton-deliver. Role `cicd/tekton-trigger-runs` grants `tekton-trigger` create on PipelineRuns and TaskRuns (and get/list/watch on Secrets in cicd). A run it creates may inline a spec, use a resolver, bind a secret workspace or name `argocd-application-controller`. The EventListener only renders fixed TriggerTemplates, so the exposure is the SA token or the EventListener pod, not an anonymous webhook.
-- **Measured**: MEASURED 2026-10-09 (Claude, read-only). Role rules: `pipelineruns, taskruns` create/get/list; `secrets` get/list/watch. `40-admission.yaml` matchConditions list `bifrost-platform` (STG, PROD) and `tekton-deliver` only.
-- **Evidence**:
-  - `bifrost-trade-infra/k8s/platform-rbac/40-admission.yaml` — `matchConditions` of `bifrost-platform-pipelinerun` / `bifrost-platform-taskrun`
-  - live: `role/tekton-trigger-runs` in cicd
-- **Impact**: Whoever holds the tekton-trigger token is cluster-admin through the Argo account, the same way the platform was before TD-271.
-- **Fix**: Add `system:serviceaccount:cicd:tekton-trigger` to the two run policies' matchConditions, after measuring that its TriggerTemplates only use `pipelineRef` names, volumeClaimTemplate workspaces and the `default` account. Drop the Secrets list/watch from its role if the interceptors do not need it.
-- **Ratchet**: `check_admission_guards.py --live` gains the same inline / resolver / secret-workspace cases as tekton-trigger, plus a normal templated run allowed.
-- 验收: `python3 scripts/check_admission_guards.py --live`（tekton-trigger 的反例被拒、正常 run 放行）
-- 审批 安全/凭据（要你批） · 代价 S · 风险 low · repos: bifrost-trade-infra
-
 ### TD-276
 
 **P3 · ops-platform · An apply_manifest run is named apply-<plan id>, so a failed apply of a plan cannot be retried; a new plan is needed**
@@ -1442,18 +1358,6 @@
 - **Ratchet**: delivery test: every build pipeline in the catalog can be started with `tag` and gets its workspaces; every guarded pipeline maps to a repo.
 - 验收: the three builds start through `start_pipeline_run` with the right tag.
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
-
-### TD-285
-
-**P2 · ops-platform · The applier cannot take over a field that `kubectl-client-side-apply` owns: plan and apply fail with a server-side apply conflict**
-
-- **状态**：未开始（Owner 2026-10-10 定：给 applier 的 diff 和 apply 加 `--force-conflicts`，边界由 allow-list 和准入策略兜住；W-31 第 0 步第 2 波做，apply 要你批）
-- **Claim**: Objects first applied by hand (client-side) keep their fields under `kubectl-client-side-apply`. The applier's server-side apply then conflicts on any changed field. Measured 2026-10-10: `plan-ee6f0ba5-1791604913` for `k8s/ib-gateway/overlays/live` — `conflict with "kubectl-client-side-apply" … .containers[name="ib-gateway"].image`; the Owner applied it by hand. Again 2026-10-15: `plan-7c2ff929-1792125862` (ib-gateway 0.4.1, plugin `7c2ff92`), same conflict on the same field; the Owner applied `overlays/live` by hand with the admin kubeconfig at 04:46Z. Each hand apply keeps the field under `kubectl-client-side-apply`, so every ib-gateway release needs the Owner's terminal until this is fixed.
-- **Evidence**: `bifrost-trade-infra/k8s/cicd/tekton/apply-manifest/pipeline.yaml` — diff and apply without `--force-conflicts`
-- **Fix**: either `--force-conflicts` on the applier's diff and apply (git is the source of truth; the allow-list and admission policies still bound it), or a one-off ownership migration per object by the Owner.
-- **Ratchet**: `check_admission_guards.py` asserts whichever is chosen.
-- 验收: a plan that changes a client-side-applied field succeeds and applies.
-- 审批 要批 · 代价 S · 风险 med · repos: bifrost-trade-infra
 
 ### TD-286
 
@@ -1658,6 +1562,7 @@
 **P3 · flex-ib · The flex worker's system messages never leave the pod: it publishes to 127.0.0.1:6379, which is refused in-cluster, so the UI toast for a cash-ingest run is dropped with only a WARNING**
 
 - **状态**：未开始
+- **2026-11-05 更新（台账清理时核对）**：回环地址的问题已修（plugin-flex-query `9f7265e`），症状还在：worker 写 redis-live-prod 现在被 NetworkPolicy `data/redis-live-prod-ingress` 拒（没有放行 plugin-flex-query），11-03 到 11-05 每天 11:30 的 flex 消息仍然丢。Claim 要按这个原因改写，修法改为放行这条连接。
 - **Claim**: `bifrost_flex_query/orchestration/notify.py:64` builds its Redis URL from `effective_redis_dict(config, default_db=0)`. The `flex-query-worker` Deployment carries no `REDIS*` env at all, so the default resolves to `127.0.0.1:6379` and the publish is refused inside the cluster. The message center has real consumers — trade-api runs a blocking XREAD reader loop and the frontend turns those events into toasts and alerts — so the notification for a flex run is lost, not merely unused.
 - **Measured**: MEASURED 2026-10-08 in the 10:30 UTC flex cash run (Der ran the TD-103 acceptance): `WARNING [bifrost_core.core.message_center] message center xadd failed topic=portfolio.flex_executions …: Error 111 connecting to 127.0.0.1:6379. Connection refused.` CODE-READ confirms the default and the absent env; `kubectl get deploy flex-query-worker -o jsonpath=…env` shows no `REDIS*` key.
 - **Evidence**:
@@ -1804,25 +1709,12 @@
 - 验收: `cd bifrost-platform/api && go test -count=1 -run 'TestRedactHidesEverySecretMainHides' -v ./internal/notice/ && cd ../mcp/platform && npm test`
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
 
-### TD-308
-
-**P2 · ops-platform · the progress document is published by a script that never says whether it was accepted; the PROD Progress page went stale for hours with nothing showing it**
-
-- **状态**：未开始（本机一侧 2026-10-11 已临时补上，见 Fix 的第一句；仓库里的脚本和服务端没动）
-- **Claim**: `scripts/progress-publish.js` posts the local board's document to `PUT /api/v1/agent-progress` and exits 0 whatever happens (`uncaughtException`, `unhandledRejection` and both promise outcomes all call `process.exit(0)`; nothing is logged). The server refuses a document over 256 KiB (`api/internal/agentprogress/document.go` `MaxDocumentBytes`) and one with more than 20 steps in a piece of work (`schema.go` `maxSteps`). A long-running programme crosses both limits by itself. The Console keeps showing the last accepted document; its "computed N ago" line is the only sign.
-- **Measured**: MEASURED 2026-10-11 11:40 CDT by calling `publishProgress` directly and printing only the status: 413 with the document at 369,020 bytes (267,617 of them the event trails of finished steps); after slimming to 95 KB, 400 until every work was cut to 20 steps; then 202. When the rejections began is NOT MEASURED — the document was already 339 KB at 10:35 and three works had passed 20 steps during the night.
-- **Evidence**: `agent-config/scripts/progress-publish.js` (the four `process.exit(0)`); `agent-config/scripts/thread-heartbeat.js` `publishProgress` (returns `{sent, status}`, which the caller drops); `bifrost-platform/api/internal/agentprogress/schema.go` lines 11–17 and `document.go` line 24; `agent-config/work/multi-agent/LESSONS-from-practice.md` row 76.
-- **Impact**: the Owner's page on PROD silently shows an old picture. On 10-11 he happened to be looking at the local board; had he looked at the Console he would have seen last night's state under today's date. It also defeats the purpose of the page as the one place he looks.
-- **Fix**: locally, the board now slims the document before publishing and records the server's answer (`~/agent-work/status/board2.py` `slim_for_publish`, `publish-result.js`), and shows a light for it. In the repositories: (1) `progress-publish.js` writes the outcome (`sent`, `status`, the server's error text, byte count) to a result file or stdout and exits non-zero on a refusal; (2) the server answers a refusal with which limit was hit, and the handler's response is surfaced; (3) the Console's Progress page shows when the document was last ACCEPTED and, when the newest attempt was refused, says so with the reason — this needs the server to remember the last refusal; (4) decide the limits deliberately: 20 steps per work is a display bound, not a reason to drop the whole document — truncate server-side with a marker, or have the publisher paginate.
-- **Ratchet**: a test that a document with 21 steps in a work and one of 300 KiB each produce a recorded, visible refusal (not a silent drop) end to end: publisher result, server response body, and the Console line.
-- 验收: `cd bifrost-platform/api && go test ./internal/agentprogress/` and `node --test agent-config/scripts/progress-publish.test.js` (to be written) and the Console test for the refusal line
-- 审批 不用批 · 代价 M · 风险 low · repos: bifrost-platform, bifrost-trade-infra
-
 ### TD-309
 
 **P2 · infra · the platform's apply pipeline cannot plan or apply a Tekton Pipeline that was last applied by hand: server-side apply conflicts with the client-side field manager on `.spec.tasks`**
 
 - **状态**：在做（2026-10-11 13:25 统筹方按推荐定了做法：由 Owner 用服务端方式把这 13 条流水线重新应用一次，字段管理者换成 apply 流水线用的那个，之后的改动走平台。放弃的做法：让 apply 流水线对 `cicd` 里的 `tekton.dev` 对象一律 `--force-conflicts`——那是让流水线可以从人手里拿走字段，属于放宽规则，要 Owner 签。依据：一次性、可重做、不改任何规则。怎么推翻：Owner 说「改 apply 流水线」。命令和 TD-310 要他生成签名密钥的那一条放在同一次办，在本机看板「需要你做的」里排着，还没轮到）
+- **合并自 TD-285**（2026-11-05 台账清理）：The applier cannot take over a field that `kubectl-client-side-apply` owns: plan and apply fail with a server-side apply conflict。理由：同一机制：client-side-apply 字段归属与 applier SSA 冲突（TD-309 在做，限 Tekton；本条是通用对象）；11-01 TD-473 又撞。原文在 git 历史（infra `e68e94b` 及以前的本文件）。 注意：TD-285 记的修法是对 `cicd` 的 `tekton.dev` 对象一律 `--force-conflicts`，与本条状态里定的一次性重新应用相反；以哪个为准待定。
 - **Claim**: the thirteen pipelines in `cicd` were installed on 2026-10-11 by the Owner with client-side `kubectl apply` (the documented way for that install). `bifrost-apply-manifest` uses server-side apply; its `kubectl diff` on one of them fails: `Apply failed with 1 conflict: conflict with "kubectl-client-side-apply" using tekton.dev/v1: .spec.tasks`. So a later change to any of these Pipeline objects cannot go through `plan_manifest` / `apply_manifest` (which the actuation policy allows for Pipeline and Task in `cicd`) until ownership of the fields is moved.
 - **Measured**: MEASURED 2026-10-11 12:50 CDT: `plan_manifest` of `k8s/cicd/tekton/pipeline-deliver-platform.yaml` at infra `0cc8c19` — `freeze-check` Succeeded, `run` Failed with the conflict above (PipelineRun `plan-0cc8c195-1791740994`). Whether the same conflict existed before today's install for these objects is NOT MEASURED.
 - **Evidence**: the run's `run` task log; `k8s/cicd/tekton/apply-manifest/pipeline.yaml` (the `kubectl diff` / apply step); `docs/RELEASE.md`, the freeze-check section, step 3 ("按文件逐个 apply").
@@ -1846,20 +1738,6 @@
 - **Ratchet**: a platform test that `Freeze` is refused while `Anchor` is empty; a `release.sh` test for the same; a line in the release checklist that the drill's unfreeze half has passed since the last change to the anchor.
 - 验收: with an anchor compiled in: `scripts/release/release.sh freeze --reason drill` then `scripts/release/release.sh unfreeze` (Owner signs) → `policy status` shows `frozen False` and a STG deliver run passes `freeze-check`; with no anchor: `freeze` exits non-zero and changes nothing
 - 审批 要批（信任锚变更和一次平台发版）· 代价 S · 风险 med · repos: bifrost-platform, bifrost-trade-infra
-
-### TD-311
-
-**P3 · ops-platform · the send door's follow-ups: push paths that do not pass through it, an incomplete hidden-character set, agent-written ids in its log line, and a corpus test that stops one step short of the relay**
-
-- **状态**：未开始（2026-10-11 复核 70 留下的，都不挡 TD-306 合并）
-- **Claim**: TD-306 put one predicate at `notice.Send`. Review 70 found four things outside what that round set out to do. (1) `notice.Send` is not the only place a push leaves: `api/internal/alertrelay/relay.go` `publish` posts to ntfy on its own (Alertmanager alerts, heartbeat missing / recovered, direct `/alerts/notify`), and `scripts/agent/peer_watchdog.sh` curls ntfy directly; none of these check for hidden characters. Their text comes from alert labels, annotations and configuration, not from an agent's request, which is why this is P3. (2) `HasHidden` does not include U+2800, U+3164, U+FFA0, U+17B4, U+17B5, U+206A–U+206F, U+180B–U+180D, U+180F, U+E0100–U+E01EF. (3) The `notice withheld` log line carries the thread key or host name as `id`; those are agent-reported and are not redacted (they are emptied only when they themselves contain a hidden character). (4) The 100,000-string clean-corpus tests compare `Posted` with the composer, not what the fake relay received.
-- **Measured**: NOT MEASURED by the coordinator; read from review 70 (`work/multi-agent/reviews/codex-2026-10-11-review70-td306-send-door.md`), which cites `api/internal/notice/hide.go:85`, `:118`, `api/internal/approvalnotify/door_test.go:146`, `api/internal/alertrelay/relay.go:398`, `scripts/agent/peer_watchdog.sh:40`.
-- **Evidence**: the review file above; `bifrost-platform` branch `w31/td-306-d` `d7802d0`.
-- **Impact**: low. An alert whose label or annotation carries a hidden character would reach the phone as written; a thread key chosen by an agent appears in one warning log line.
-- **Fix**: route `alertrelay`'s publish through the same predicate with a server-written fallback (`Alert · <alertname>` is itself label text — use the alert's fingerprint); add the missing code points with tests; log a digest of the thread key or host name instead of the value; add a bounded Send → fake relay pass over the clean corpus.
-- **Ratchet**: a test that lists every call site that posts to the push endpoint and fails when one does not go through `notice.Send` (a source scan with a positive control).
-- 验收: `cd bifrost-platform/api && go test ./internal/notice/ ./internal/alertrelay/ ./internal/approvalnotify/`
-- 审批 无（代码改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
 ### TD-312
 
@@ -1902,19 +1780,6 @@
 - **Ratchet**: the host installer refuses to finish when the token file on the host names an admin key (it checks key names only, never values). None today.
 - 验收: `grep -n "同样三个键" agent-config/.mcp.json.README.md` prints nothing; the installer's refusal has a test that passes
 - 审批 无 · 代价 S · 风险 low · repos: bifrost-trade-infra
-
-### TD-321
-
-**P3 · multi-agent · a silent wrapped run now notifies nobody, and a session that inherited the wrapper's marker is still treated as a wrapped run**
-
-- **状态**：未开始（TD-316 签收时留下的后续，Owner 2026-10-12 签收）
-- **Claim**: after TD-316 a thread whose id begins `run-` is left out of the Owner's silent-thread push, of "Needs you" and of the host-lost message (`bifrost-platform` `api/internal/agentthreads/config.go` `Due`, `threads.go` host message; `console/src/api/agentThreads.ts` `silentThreads`). It stays in the thread list with status `silent`, but nothing calls anyone: the seat that dispatched the run has to watch it itself. Today the only dispatcher is the coordinator, whose own watcher covers it. Second: a process that is not a wrapped run but inherited both `BIFROST_HEARTBEAT_THREAD=run-…` and `BIFROST_HEARTBEAT_WRAPPED_RUN=1` (a daemon or a terminal started from inside a wrapped run) reports under the run's id and is hidden the same way (review 126, P3; unchanged by TD-316).
-- **Measured**: on PROD 2026-10-12 a wrapped run silent for 700 s was counted silent and not pushed (the acceptance of TD-316). No process with both variables existed on the coordinator's machine that day (review 126).
-- **Impact**: none while one seat dispatches and watches. With a second dispatching seat, or a dispatcher without a watcher, a hung background run would go unnoticed.
-- **Fix**: when there is a second dispatching seat, route a silent wrapped run to the seat that started it (the platform needs to know which seat that is — an interface decision for the Owner); let the marker carry the wrapper's pid and have the hook check that it is alive.
-- **Ratchet**: none yet; the tests of TD-316 hold the exclusion itself.
-- 验收: a wrapped run that hangs is brought to the seat that dispatched it within the threshold plus one beat; a session started from inside a finished wrapped run reports under its own id
-- 审批 Owner（接口） · 代价 M · 风险 low · repos: bifrost-platform, bifrost-trade-infra
 
 ### TD-322
 
@@ -2002,20 +1867,6 @@
 - 验收: `node agent-config/scripts/agent-guard/test.js` passes with the seven closed spellings refused and the reviewer's list of ordinary commands still allowed
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-infra
 
-### TD-330
-
-**P2 · ops-platform · a push to infra main that touches the production platform's manifests is deployed by Argo at once, with no approval and no release check**
-
-- **状态**：未开始（2026-10-13 11:34 护栏 ⑤ 选路时记下：Owner 选了走标签，钉住清单的做法留到第 3 轮和全自动发布一起看）
-- **Claim**: the Application `bifrost-platform-prod` follows `main` of the infra repository with automated sync, prune and selfHeal. Any session that pushes a change under `k8s/overlays/platform-prod` or `k8s/base-platform` changes production; the approval request, the release window and the source check of the delivery pipeline are not on that path. Twelve repositories and several agent sessions push to that branch every day.
-- **Measured**: MEASURED 2026-10-12 22:45 read-only: `targetRevision=main`, `automated={prune:true,selfHeal:true}`, no `ignoreDifferences`. About 20 commits touched those two directories in the month before (counted for the design, `agent-work` notes; NOT re-counted here).
-- **Evidence**: `k8s/cicd/applications/bifrost-platform-prod.yaml:12-22`; `bifrost-trade-infra/CLAUDE.md` ("推 main 即改运行时"); the three design drafts and reviews 141, 143, 148 of guardrail 5 (pinning the Application to a commit advanced by the delivery pipeline closes this, and was not chosen now: three drafts still had wrong-answer paths).
-- **Impact**: the one production surface an agent can change without the Owner seeing a request. A wrong edit to a ConfigMap generator there rolls the API and the workers.
-- **Fix**: either pin the Application to a commit that only the delivery pipeline advances (the design exists, unfinished), or a smaller guard first: the agent guard and CI refuse a push that touches those two directories unless it carries an approved request's id; decide when round 3 is planned.
-- **Ratchet**: a read-only check that the live `targetRevision` and sync policy are what the ledger says, and whichever guard is chosen.
-- 验收: a change under `k8s/overlays/platform-prod` reaches production only through an approved request
-- 审批 要你批 · 代价 M · 风险 med · repos: bifrost-trade-infra, bifrost-platform
-
 ### TD-331
 
 **P3 · ops-platform · production pods of the platform are deployed by a movable tag: after a promotion, a restart pulls whatever `:prod` points to then**
@@ -2079,34 +1930,6 @@
 - **Ratchet**: a page test: with the network dead, the decision buttons are unavailable with a sentence saying the server has not been reached since a given time; a click that gets no answer says so within five seconds.
 - 验收: the Owner approves three production requests in a row at the first attempt, and the server log shows each request arriving within seconds of the click
 - 审批 无（代码改动，随平台发布）· 代价 M · 风险 med · repos: bifrost-platform
-
-### TD-337
-
-**P2 · ops-platform · routine platform releases still wait for the Owner's approval, and one pending request freezes the platform's STG: on 2026-10-13 three chained requests left the line idle for about nine hours**
-
-- **状态**：未开始（2026-10-13 19:22 Owner 定：不做通知静默时段，也不做「撤回待批单」这类机制；该调整的是哪些单子需要人批，那是 W-56 的规则，等它的门槛做完由他签；现在不强求。统筹方先改排法：他不在时不建单，做完的攒着，他在时合成一张）
-- **Claim**: by the architecture's definition of the human's role (goals, rules, irreversible things) the three requests of 2026-10-13 (#13, #14, #15: reversible code releases of the platform, with green CI, the same commit on STG and an independent review) did not need a human decision. They reached the Owner because the release policy does not list the production pipelines until W-56's thresholds are accepted (his decision of 2026-10-10). While a request is pending, the source gate of a production delivery (the newest successful STG delivery must be the requested commit) keeps anything else off the platform's STG, so requests made one by one form a chain: #13 waited 10 h 51 min, #14 1 h 2 min, #15 4 h 49 min.
-- **Measured**: MEASURED 2026-10-13 from the request records and from the coordinator's commit and event log (no activity 06:08–11:34 and 14:29–18:13 CDT; the second gap was a stalled thread, LESSONS row 120).
-- **Evidence**: `scripts/release/platform_prod_gate.py:165-187`; `agent-config/WORK.md` W-56 (thresholds, and the Owner's notes of 2026-10-10, 2026-10-12 and 2026-10-13); `agent-config/work/multi-agent/LESSONS-from-practice.md` row 121.
-- **Impact**: every routine release costs the Owner an approval and stalls the platform line while he is away.
-- **Fix**: finish W-56's thresholds (rollback without rebuild, failure detection, the drills) and have the Owner sign a release policy that lists the platform's production pipeline; after that only three kinds of release reach him: outside the policy, a failed or stuck check, during a freeze. Until then the coordinator batches: no request while he is away, one request for everything verified on STG when he is back.
-- **Ratchet**: the policy template's own test (production pipelines stay out of the policy until the thresholds are accepted) is the line to move, with his signature.
-- 验收: a routine platform release reaches production with no approval request, and a release outside the policy still produces one
-- 审批 Owner 签规则（放宽）· 代价 L（W-56 的剩余门槛）· 风险 med · repos: bifrost-platform, bifrost-trade-infra
-
-### TD-340
-
-**P3 · ops-platform · leaving the approvals page while a decision is in flight and a newer Console is deployed loses the reload guard: the page offers Reload and a reload cuts the decision short**
-
-- **状态**：未开始（2026-10-13 22:57 TD-338 的独立复核（Claude 子代理，实验 E5）顺带查出；原来就有，不是 TD-338 带进来的；只记不做）
-- **Claim**: the guard that disables Reload while a decision is in flight (`reloadHeld`, set from a per-mount counter of decision requests) lives in the approvals page component. When the Owner leaves the page (for example back to Needs you) the component unmounts; the request keeps going, but the next mount starts with the counter at zero, so the banner says "Reload before approving" and Reload is enabled. The banner on the Needs you page does not hold either.
-- **Measured**: MEASURED by the reviewing subagent's test E5 on the TD-338 branch (2026-10-13): A's POST still hanging, page left and reopened, Reload enabled. NOT MEASURED in a browser.
-- **Evidence**: `bifrost-platform/console/src/pages/ApprovalsPage.tsx` (`postsInFlight` is a ref of the page component; `reloadHeld` recomputed from it); `console/src/pwa/ConsoleBuildBanner.tsx`.
-- **Impact**: a reload in that moment can cut a decision short; since TD-329 the server finishes an action whose decision it stored, so the visible damage is the page losing track of the result, not the action.
-- **Fix**: keep the count of decision requests in flight outside the page component (the module store the question pages already use is the precedent), and let every build banner read it.
-- **Ratchet**: a page test: decision in flight, newer Console deployed, leave and reopen the approvals page: Reload stays disabled until the request is answered.
-- 验收: the page test above
-- 审批 无（代码改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
 ### TD-342
 
@@ -2177,32 +2000,6 @@
 - 验收: both service accounts answer no; the platform's branch and tag listings still work with the read-only identity.
 - 审批 要（RBAC 与 Secret 归 Owner）· 代价 S · 风险 medium · repos: bifrost-trade-infra, bifrost-platform
 
-### TD-431
-
-**P2 · delivery · release window · the window's decision table is hard-coded three times with Trade's repository and pipeline names**
-
-- **状态**：未开始（2026-10-24 统筹线程记；4.3 设计稿实读，修法并进 4.3「应用登记」）
-- **Claim**: which pipelines must hold the window, which pass without it and which are refused is decided by three copies of one table, each naming Trade's five repositories and four deliver pipelines: Go `bifrost-platform` `api/internal/delivery/release_window.go:21-39,141-183`, Python `bifrost-trade-infra` `scripts/release/window_decision.py:12-33,75-126`, Tekton inline `k8s/cicd/tekton/task-release-window.yaml:39-134`. A pipeline not in the table (`bifrost-build-stg`, `build-frontend-stg`, `build-research-pine`, `ci-finance`) is refused whenever any window is open.
-- **Evidence**: `work/multi-agent/DESIGN-release-lanes-2026-10-24.md` §1.1 (branch w31/r4-release-lanes 836b6508); copies to be re-read by the fix.
-- **Impact**: the platform knows Trade by name (CLAUDE.md §1 verification test fails); adding an application means editing three files in two repositories that can drift apart.
-- **Fix**: one application registry the three readers load (4.3 §2.1), or one reader the others call.
-- **Ratchet**: a test that fails when a repository or pipeline name appears in a decision copy instead of the registry.
-- 验收: a new application registered in one place is decided the same by all three readers.
-- 审批 不要 · 代价 M · 风险 low · repos: bifrost-platform, bifrost-trade-infra
-
-### TD-429
-
-**P1 · delivery · release window · the holder is a machine, not a session, and approved PROD runs start without holding the window**
-
-- **状态**：未开始（2026-10-24 统筹线程记；修法并进 4.3「每个会话一个持有凭据」）
-- **Claim**: ① `release.sh` sets the holder to `${USER}@$(hostname -s)` (`bifrost-trade-infra` `scripts/release/release.sh:746,772`), and the window store treats a second hold by the same holder as a renewal that may change `what` (`bifrost-platform` `api/internal/delivery/window_store.go:155-163`): every session on one machine is the same holder, so the window does not keep two sessions on one machine apart. ② A PROD approval executes `start_pipeline_run` for the requester without the runner holding the window; on 2026-10-23 four platform PROD runs started while nobody held it (the coordinator's watcher takes the window only after the run appears).
-- **Evidence**: ① code read by the coordinator 2026-10-24; ② `DESIGN-release-lanes-2026-10-24.md` §1.3 (audit of 2026-10-23), not re-measured by the coordinator.
-- **Impact**: the two incidents the window exists for (2026-09-27 core 0.24.0 released twice, 2026-09-28 a plugin tag overwritten) can recur between sessions on the same machine, or between a PROD run and anything else.
-- **Fix**: a per-session holder credential issued by the platform; the PROD runner takes the application's lane before it starts the run and releases it when the run ends (4.3).
-- **Ratchet**: a test where two sessions on one host hold the same application: the second is refused; an audit check that every PROD run started inside a held lane.
-- 验收: both checks pass on PROD for a week of releases.
-- 审批 要（4.3 的设计由 Owner 定）· 代价 M · 风险 medium · repos: bifrost-platform, bifrost-trade-infra
-
 ### TD-428
 
 **P2 · hosts · Mac mini · the out-of-band plane and the Claude app share the only (admin) account, and its config is readable by any staff user**
@@ -2215,45 +2012,6 @@
 - **Ratchet**: the W-68 B4 host checks report home and config modes and `autorestart` for both minis; a mode other than 700 / 600 is an alert.
 - 验收: the check reads 700 / 600 and `autorestart 1` on both minis.
 - 审批 要（Owner 在 mini 上跑，D3-3）· 代价 S · 风险 low · repos: bifrost-trade-infra
-
-### TD-427
-
-**P3 · agentrt · presence · with several API instances the controller's health probe samples the Service, so host-loss detection can be deferred (an accepted boundary)**
-
-- **状态**：未开始（2026-10-23 统筹线程记；Owner 17:5x CDT 选「选项 1」：接受多实例时的概率保证并加推迟提示。原话记在运行时产物 `sha256:50ddb7590b536d7c2eebc1eda1cf1bf2df17502adae0f5096a683f9eb6fa0cd0`）
-- **Claim**: the workers' controller decides whether the platform takes agentd's calls by probing the API Service with 5 fresh connections a pass (`bifrost-platform` `api/internal/server/agentrt_wire.go`, `serviceTakesCalls`). With one ready and one unready API instance, every connection of a pass can land on the unready one; each such pass is an observed outage, and the recovery after it gives every host 30 s again, so a really lost host can be judged late. A deferral past 2 minutes across two recoveries raises `presence_deferred`, so it is never silent, but it is not bounded.
-- **Evidence**: reviews 529 (A-2) and 530 (A), `agent-config/work/multi-agent/reviews/codex-2026-10-23-review530-r3-35-online-r5.md`; production runs one API replica, Recreate (`k8s/base-platform/manifest.yaml`), so the case does not arise today.
-- **Impact**: none while there is one API replica; with two or more, host-loss announcements can come late (visible as `presence_deferred`).
-- **Fix**: before running more than one API replica, give the controller evidence of the Service's whole availability: probe each ready endpoint (read EndpointSlices: a new RBAC grant for the platform SA, the Owner's), or make the API's Kubernetes readiness include `agentrt_ready` (weigh that the API's other features would leave the Service while agentrt is not ready).
-- **Ratchet**: a manifest check that platform-api `replicas` stays 1 until this item is closed (to add with the fix's first step).
-- 验收: with two API instances, one ready and one never ready, and every host really stopped, the hosts are announced within 35 s of their last contact.
-- 审批 要（RBAC 或 readiness 的取舍归 Owner）· 代价 M · 风险 low · repos: bifrost-platform, bifrost-trade-infra
-
-### TD-426
-
-**P3 · agentrt · tests · TestExamVoidRefusals fails about once in 256 runs: its "no such paper" id can be a real paper's**
-
-- **状态**：未开始（2026-10-23 统筹线程记；BI-1 第 1 块的门禁里撞上一次）
-- **Claim**: the case "no such paper" builds a run id that should not exist as `"ab" + lapsed.RunID[2:]`. RunID is a sha256 in hex, so about one run in 256 starts with `ab`, and then the "missing" id is the real paper's: the void is not refused and the test fails.
-- **Evidence**: `bifrost-platform/api/internal/agentrt/store/examvoid_test.go:101`; failed once in a full `go test ./... -count=1` on branch `w31/bi1-1-data-r2` (2026-10-23), passed 30 runs alone and the next full run. Second hit 2026-11-01: the R5:5.7 platform line met it once locally (cause inferred from the case, not re-run); the case is still at `examvoid_test.go:101` on main 017db20d.
-- **Impact**: a red CI or push-main gate that has nothing to do with the change; someone re-runs until green and stops reading reds.
-- **Fix**: build an id that differs from the real one in every case (e.g. flip the first hex digit to a different one, or use a fixed id of the right length that no hash in the fixture can equal).
-- **Ratchet**: none practical beyond the fix; the case asserts the id it uses differs from the paper's.
-- 验收: the case's id is never equal to the real run id (an assertion in the test), and 300 runs of the test pass.
-- 审批 无 · 代价 S · 风险 low · repos: bifrost-platform
-
-### TD-425
-
-**P3 · ops-console · the sign-off list shows a step whose work has not started as if it were ready to sign**
-
-- **状态**：未开始（2026-10-22 统筹线程记，教训 199）
-- **Claim**: `signoffWaits` (`bifrost-platform/console/src/api/agentRuntimePlan.ts`) lists every step whose done rule has an unsigned `owner_signoff`, whatever the step's state. A rule set ahead of the work (R3 3.2-2…3.2-6 on 2026-10-22) puts steps nobody has started on the Owner's list; signing one marks it done.
-- **Evidence**: PROD Work page 2026-10-23 02:2xZ: 「Waiting for your sign-off · 16」, seven of them planned with no task and no evidence.
-- **Impact**: the Owner has to be told which to skip; a step signed by mistake is done in the runtime with no work behind it.
-- **Fix**: options for the Owner: A show planned steps in a separate 「Not started」 group under the list (Console only, the state is already in the answer); B the runtime refuses a sign-off on a step with no evidence (a platform rule change); C keep the convention of lesson 199 alone. Recommended A.
-- **Ratchet**: a Console test that a planned step is not counted in 「Waiting for your sign-off · n」.
-- 验收: on PROD, a step with an `owner_signoff` rule and state planned appears under 「Not started」 and not in the count.
-- 审批 无（A）· 代价 S · 风险 low · repos: bifrost-platform
 
 ### TD-424
 
@@ -2268,19 +2026,6 @@
 - 验收: an infra commit that drops a clone or a signed ref the platform table expects is refused by push-main, naming the platform test.
 - 审批 无 · 代价 S · 风险 low · repos: bifrost-trade-infra
 
-### TD-423
-
-**P3 · gitea · batch D's step 5 copied back 12 attempt branches that agentd had deleted on purpose**
-
-- **状态**：未开始（2026-10-22 统筹线程记；同日先按「agent/** 规则丢了」记错，读 `protect-repo.sh` 后改正，教训 195）。2026-10-23 `copy-agent-branches.sh` 已删（源组织 `bifrost-agents` 已删），第 5 步不会再有人照着跑；剩下的只有这 12 条分支去留，等 Owner 定
-- **Claim**: the `agent/**` branch rule is gone from every `bifrost/*` repository on purpose: TD-383 (the Owner 10-20 「分支 B 用 agentd」) lifted it so that agentd deletes attempt branches under the runtime's rule, and `protect-repo.sh` deletes the rule where it finds one. `OWNER-STEPS-gitea-primary.md` §4 step 5 was written expecting `0 copied, 18 already there`, as if nothing were ever deleted; on 2026-10-22 03:5xZ `copy-agent-branches.sh bifrost-platform` found 12 of the 18 batch-A branches gone (Gate A drills of 10-15 and 10-16: `agent/t_01M50…`, `t_01M54…`, `t_01M557…`, `t_01M559…`) and created them again in `bifrost/bifrost-platform`; a second run said `0 copied, 18 already there`.
-- **Evidence**: the script's log (12 copied, 6 already there); `protect-repo.sh` header and its `agent/** no more (TD-383)` block; Gitea branch pages listing `main` only.
-- **Impact**: 12 old attempt branches are back (their commits are also in the archived `bifrost-agents/bifrost-platform`); nothing points at them. The step text would mislead whoever runs it next.
-- **Fix**: the Owner decides whether the 12 go again (agentd's cleanup or a one-off deletion; they stay readable in the archived repository); §4 step 5's expected result is reworded: copied may be above 0 because agentd deletes attempt branches (TD-383), and what matters is `0 not copied` and no `DIFFERS`.
-- **Ratchet**: none beyond the reworded step (a one-off batch).
-- 验收: the 12 branches are gone or kept on the Owner's word (the step's wording no longer matters: the script is deleted, 2026-10-23).
-- 审批 Owner（删分支）· 代价 S · 风险 low · repos: bifrost-trade-infra
-
 ### TD-422
 
 **P2 · runtime · recorder imports use up the runtime's hourly question quota**
@@ -2293,32 +2038,6 @@
 - **Ratchet**: a store test that a batch of N recorder imports creates one question.
 - 验收: on STG, 17 logs go in under one card.
 - 审批 无 · 代价 M · 风险 low · repos: bifrost-platform
-
-### TD-421
-
-**P2 · runtime · a branch task without `base_commit` is accepted, and agentd runs it in an empty directory**
-
-- **状态**：未开始（2026-10-22 M-113）
-- **Claim**: `propose_tasks` takes an `effect_class: branch` task with no `base_commit`. agentd then starts the executor in a workspace with no checkout (codex: `git rev-parse` exit 128, `localpath.go` not found), the executor ends "done" with nothing to hand in, and the platform refuses the persist (`409 … a branch task's result is a pushed branch`). M-113 lost five attempts (codex twice, cursor twice for 19 and 10 minutes, claude) before the coordinator stopped it; M-114 with `base_commit` passed first time.
-- **Evidence**: STG M-113 events; 06 `bifrost-agentd-stg` journal 2026-10-22 03:16–03:36Z (four `refused at computed` lines); attempt actions of `a_01M5GSRGWFHPX5DEA25X3Q5SYP`.
-- **Impact**: a malformed task burns the mission's attempt budget and vendor quota with no result and no clear reason on the Console.
-- **Fix**: the platform refuses a branch task without `base_commit` at proposal (or fills the repository's main head and says so); agentd refuses to start an executor in a workspace without a checkout and ends the attempt with that reason.
-- **Ratchet**: an API test that a branch task without `base_commit` is refused; an agentd test that an empty workspace ends the attempt before the executor starts.
-- 验收: on STG, proposing such a task is refused with the reason.
-- 审批 无 · 代价 S · 风险 low · repos: bifrost-platform
-
-### TD-420
-
-**P2 · approvals · a pipeline-run approval is created without checking that its revision exists, so the Owner can approve a ticket that can never run**
-
-- **状态**：未开始（2026-10-21 统筹线程记；#80 事故）
-- **Claim**: `request_action start_pipeline_run` signs whatever `revision` and `params.*Revision` it is given. The ref preflight (`api/internal/delivery/ref_preflight.go` `runRefPreflight`) runs only when the approved request executes. #80 (2026-10-22 01:02Z) carried `b6b565f2…a1106f`, a hand-typed full SHA whose last characters were wrong (the commit is `…a115b1`); the Owner approved it at 01:11Z, it waited on the release window, and at 01:31Z the executor refused it ("revision is missing in: bifrost-platform … mirror was synced but the ref is still not present"). The Owner had to approve a second ticket (#82) for the same release.
-- **Evidence**: approvals #80 and #82; PROD platform-workers audit log 2026-10-22 01:31:28Z; `get_delivery_revisions` shows `w31/plan-signoff-usable` at `b6b565f2368e3f5ec39d09f288bfc0fd50a115b1`.
-- **Impact**: an approval the Owner gives can be wasted, and the release it was meant to start silently waits for a second approval.
-- **Fix**: at creation, `request_action` for `start_pipeline_run` runs the same per-repo ref check on every full SHA it signs (revision and each caller-overridable `*Revision`) and refuses a missing one with the repo and the SHA; the approval page shows "revision checked at creation".
-- **Ratchet**: a test that `request_action start_pipeline_run` with a full SHA Gitea does not have is refused and no approval row is written.
-- 验收: on STG, a request with a one-character-wrong SHA is refused at creation; the right SHA creates the request.
-- 审批 无 · 代价 S · 风险 low · repos: bifrost-platform
 
 ### TD-419
 
@@ -2391,19 +2110,6 @@
 - 验收结果：PASS 2026-10-21 infra `27357ae`：push-main 在干净 worktree 里跑 infra 三目录 664 条（327 秒）后才推；platform 推送跑 go vet 与改过的包；带故意失败测试的提交被拒由 `test_push_main.py` 7 条新用例证（在改之前的脚本上都失败）
 - 审批 无（工具改动）· 代价 S · 风险 low · repos: bifrost-trade-infra
 
-### TD-412
-
-**P3 · ci · the platform's MCP server is never type-checked in CI, and main has carried a type error since 2026-10-10**
-
-- **状态**：未开始（2026-10-21 02:0x 统筹线程记；TD-411 修复线 local_21bbc6df 跑整套时撞到）
-- **Claim**: `k8s/cicd/tekton/pipeline-ci-platform.yaml` runs `tsc --noEmit`, lint, vitest and build for `console/` only; `mcp/platform` gets its tests from coordinators' local runs (`npm test`) and nothing type-checks it. `npx tsc --noEmit -p mcp/platform` fails on main: `src/writeGate.test.ts(85,20): error TS2367` ("refused" vs "direct" have no overlap), the comparison a 10-10 approvals change left behind.
-- **Evidence**: the command above on platform `fb015014`; pipeline-ci-platform.yaml:205-231 (console only); `git log -- mcp/platform/src/writeGate.test.ts` (9c8b183a, 10-10).
-- **Impact**: type errors in the MCP server (what every session's tools run) reach main unseen; the assertion at line 85 compares against a value that cannot occur, so it tests nothing.
-- **Fix**: fix the comparison so the test asserts what it means; add `npm --prefix mcp/platform ci && npx tsc --noEmit -p mcp/platform && npm --prefix mcp/platform test` to the CI pipeline (cicd apply: Owner).
-- **Ratchet**: the CI step itself.
-- 验收: CI fails on a commit with a planted MCP type error and passes on main.
-- 审批 要（应用 CI 流水线是 cicd 写入）· 代价 S · 风险 low · repos: bifrost-platform, bifrost-trade-infra
-
 ### TD-411
 
 **P1 · release · a platform release whose code needs a new agentrt migration goes out without it, and the controller fails quietly every 15 seconds**
@@ -2458,19 +2164,6 @@
 - 验收结果：PASS 2026-10-20 platform `bb6b5a3e` 在 STG：Owner 22:08 批 STG 审批单 #1（D 级），22:08:34 考试流记作废 note、带单号 `appr_4ebf3b9e0447ee79`；22:50:26 Owner 坐考，新卷发出、开始交答案
 - 审批 要（动考试包，考试冻结期内由 Owner 开口子；Owner 专用路由是新接口）· 代价 S · 风险 low · repos: bifrost-platform
 
-### TD-406
-
-**P3 · agentrt · a ready task that no executor ever could take (empty route, every candidate retired or excluded, the envelope no longer in force) waits with no card; a brief whose executors were all withdrawn too**
-
-- **状态**：未开始（2026-10-20 20:0x 统筹线程记；TD-395 修复线 local_5a7f60ae 交回时提出，笔记 td395-td399-2026-10-20.md）
-- **Claim**: TD-395's sweep blocks a ready task only when at least one candidate was withdrawn by TD-381's backoff. A task with an empty route, or whose candidates are all retired, disabled, hard-excluded or excluded on competence, or whose mission's standing envelope is no longer in force, is taken by nobody and gets no card; a brief whose executors were all withdrawn also stays ready (briefs have no cards).
-- **Evidence**: `bifrost-platform/api/internal/agentrt/store/withdrawn.go` `noneLeft` (`len(gone) == 0` returns nothing) and its two `t.role <> 'brief'`; `store/claim.go` pickTool ("A task with an empty route goes to nobody"). PROD and STG read 2026-10-21 00:1xZ: no such task now.
-- **Impact**: as TD-395's (the task waits forever and its mission never ends), with no case today.
-- **Fix**: the card's options are the Owner's to set first ("one more round" frees nothing here unless a rule or a candidate changes): a card shape for "nobody may take this" (close the task, close the mission, or wait for a rule change), and for a brief, brief.go answers its sender "no executor can answer".
-- **Ratchet**: a store test: a ready task with an empty route is marked within one sweep (a card or Needs you), not left in ready.
-- 验收: on STG, a task proposed with a route nobody serves is blocked with a card within one sweep.
-- 审批 要（卡的选项由 Owner 定）· 代价 S · 风险 low · repos: bifrost-platform
-
 ### TD-405
 
 **P1 · agentd · a retried implementation is not told why its last round failed: "Give it one more round" repeats the same mistake**
@@ -2502,6 +2195,7 @@
 **P1 · agentrt · on the agent host every database test skips: the runtime's deterministic check of agentrt and agentd work passes without running the tests that matter**
 
 - **状态**：在做（合进 platform `d360a118`（2026-10-20 23:1x，合并后整套过：Go 全部带测试库、code-health、Console 四项、MCP），等考试判完分发 STG 验收；06 上的 agentd 部分要 Owner 跑 update-agentd；06 上还要装 Postgres 和 Redis 的程序）。 此前：在做（2026-10-20 20:4x Owner 定做法：「TD-403 选每次尝试临时起一个 Postgres：在尝试自己的临时目录里 initdb，写墙里、不联网，用完即删，没有共享状态；06 上要装 Postgres 的程序」。交给 TD-404/405 修复线 local_7c7c00ad，排在那两项之后（同改 agentd 的准备步骤与执行环境）；06 上装 Postgres 程序要 Owner，排在参谋长考试之后）。 此前：未开始（2026-10-20 19:3x 统筹线程记；挑第一件交给 PROD 运行时的 Go 修复时查到）
+- **合并自 TD-388**（2026-11-05 台账清理）：a codex review of Go work cannot build Go or run database tests, so it fails work it could not check。理由：修法即 TD-403（每次尝试含复核都起临时库，"for a check, the subject's repository"）+ TD-404 Go 缓存；待 TD-403 的 STG 验收。原文在 git 历史（infra `e68e94b` 及以前的本文件）。
 - **Claim**: the agentrt and agentd tests that need Postgres take it from `AGENTRT_TEST_PG` and skip without it (`api/internal/agentrt/agentrttest/db.go:41-46`, unless `AGENTRT_TEST_REQUIRED=1`). Only the CI pipeline sets it (`k8s/cicd/tekton/pipeline-ci-platform.yaml:153`); nothing on 06 does (`scripts/agent-host`, agentd's environment). So an implementer on 06 cannot run the store tests it writes, and the deterministic check of a task (`go -C api test ./internal/agentrt/store`, `./internal/agentd`) reports `ok` with every database test skipped.
 - **Evidence**: PROD M-19 verification `sha256:2121b421…`: `go -C api test ./internal/agentd` ok in 44 s with no test database; `git grep AGENTRT_TEST_PG` in infra finds only the CI pipeline.
 - **Impact**: the runtime's acceptance of core work (store, controller, agentd) says pass where the coordinator's merged-tree suite or CI is the only real gate; a task whose regression test needs the database is accepted untested, and the review is the only reader of it.
@@ -2566,19 +2260,6 @@
 - 验收结果：PASS 2026-10-20 platform `e7a2a2b2`：`TestClaimDeadlineInCommitAnswersTheLease` 20/20（agentrtapi，36 秒）、`TestClaimReadsBackACutCommit` 20/20（store）；ci-platform-6vkdg Succeeded；STG 20:13 起跑这个提交
 - 审批 无（平台内部行为，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
-### TD-398
-
-**P2 · ci · the platform CI gives the whole `go test ./...` 120 seconds per package, and the agentrt store package now takes 66–88 s on a fast Mac and more on CI**
-
-- **状态**：未开始（2026-10-20 17:5x 统筹线程记；`ci-platform-94wzt` 在 platform 5ce3467e 上 test-api 失败：`panic: test timed out after 2m0s`，`FAIL …/agentrt/store 120.025s`；那次提交没有改 store 包）
-- **Claim**: `k8s/cicd/tekton/pipeline-ci-platform.yaml:176` runs `go test ./... -count=1 -timeout=120s`. Every lane adds store tests (TD-384, TD-389, TD-390, TD-391, TD-393); the lanes measured the package at 66, 74, 80 and 88 s locally, on a busy CI node it passes 120 s. Main goes red on commits that did not touch it.
-- **Evidence**: `ci-platform-94wzt` test-api log; the lanes' hand-backs 2026-10-20 (store 66 s → 88 s).
-- **Impact**: red CI on unrelated commits holds STG and PROD releases (both require a green `ci-*`) and costs a rerun each time.
-- **Fix**: raise the package timeout (e.g. `-timeout=300s`) in the CI pipeline and apply it (cicd write: Owner); then bring the store package back down: `t.Parallel()` where a test is still serial without a reason (TD-374's ratchet), and move the slowest DB scenarios behind a build tag run in a separate CI step.
-- **Ratchet**: a CI check that fails when one package takes over half the timeout, naming it.
-- 验收: ten CI runs of main in a row green; the store package under 60 s on CI.
-- 审批 要（应用 CI 流水线是 cicd 写入）· 代价 S · 风险 low · repos: bifrost-trade-infra, bifrost-platform
-
 ### TD-397
 
 **P2 · agentrt · nothing writes a gate verification, so no architecture row can ever be ticked**
@@ -2624,6 +2305,7 @@
 **P2 · agentd · a failed setup leaves no report and no actions: why an attempt failed is only in agentd's journal on 06**
 
 - **状态**：在做（合进 platform `d360a118`（2026-10-20 23:1x，合并后整套过：Go 全部带测试库、code-health、Console 四项、MCP），等考试判完分发 STG 验收；06 上的 agentd 部分要 Owner 跑 update-agentd；迁移 0008，PROD 上算 DDL）。 此前：在做（2026-10-20 21:3x Owner「TD-394 B」：attempt.end_how 加 prepare_failed（准备步骤、检出、旁边仓库克隆），TD-381/395 不计；连续 3 次 prepare_failed 进 blocked 出卡；迁移 0008，上 PROD 与 TD-397 的 0007 合成一张 DDL 单；旧平台拒收时 agentd 退回报 exit。实现线 local_7c7c00ad）。 此前：未开始（2026-10-20 16:4x 统筹线程记；Owner「你发现的问题需要记入债务列表，将来修复」）
+- **合并自 TD-361**（2026-11-05 台账清理）：a failure before an attempt starts (checkout, a sibling clone, the setup wrapper) is never reported: the platform sees only a lease that runs out, re-dispatches, and spends the mission's budget on the same failure。理由：修法已随 TD-394（在做）落地：准备失败以 prepare_failed 结束并上报，三次即出卡。原文在 git 历史（infra `e68e94b` 及以前的本文件）。
 - **Claim**: agentd runs a task's setup commands (for bifrost-platform: `npm ci` for bifrost-ui and the Console) before the executor; a failed setup ends the attempt with exit code 3 and, by design, no report ("no report, so the attempt failed"). The platform records only `exit_code 3, conclusion failed`; the attempt has no actions and no report artifact, and the setup's output is in agentd's journal on 06, which only the Owner can read (no `agent-06-owner.sh` subcommand reads it). PROD M-22 (the 2.2-30 Console walk) failed nine attempts this way on 2026-10-20 16:13–16:14 and the cause is still unknown.
 - **Evidence**: `bifrost-platform/api/internal/agentd/setup.go:18-38` (setupFailed = 3, no report); PROD attempts `a_01M5DJKDBAKRTBFQ867Q773K37` … `a_01M5DJNGZ7ZGA0WH8WX4YD1FE7` (exit 3, no report, `get_attempt_actions` empty).
 - **Impact**: a broken setup (registry unreachable, a write the wall refuses, a missing sibling) cannot be told apart from anything else; diagnosis needs the Owner on 06.
@@ -2702,19 +2384,6 @@
 - 验收结果：PASS 2026-10-20 platform `86dfdaef`：STG 16:16–16:18 你在 M-1 至 M-6 的卡上各点一次「Close mission」，M-4 一次取消 14 件、M-3 7 件，没有连锁出卡；新出的卡都带「Recommended: …」或「No recommendation: …」
 - 审批 不需要（Owner 13:5x 已定）· 代价 M · 风险 low · repos: bifrost-platform
 
-### TD-388
-
-**P2 · agentrt · a codex review of Go work cannot build Go or run database tests, so it fails work it could not check**
-
-- **状态**：未开始（2026-10-20 12:4x 统筹线程记；PROD M-19）
-- **Claim**: codex reviews in its own sandbox with no network; the review's workspace has no Go module cache and no PostgreSQL. On PROD M-19 (TD-360's platform half, core, written by Claude) both review rounds said "Go build, vet, store tests, and ./internal/agentrt/... were blocked by missing cached dependencies and unavailable network access … PostgreSQL is unconfigured here; these tests skip without it" and answered VERDICT: FAIL; the task was blocked. The coordinator ran the same tests with a database on the Mac: `TestPersistRefusesTheBase` and `TestSalvageRefusesTheBase` pass on the attempt (`bbdf84e1`) and fail on its base `cc8d8c51` — exactly the proof the review asked for.
-- **Evidence**: PROD question `q_b3fff27f1ec953a3`; attempt `a_01M5D4WRBQTC823TWVKCB2DFQZ`.
-- **Impact**: core Go work whose spec asks for database-backed regression proof cannot pass review, whoever writes it; rounds and quota are spent on an environment gap.
-- **Fix**: give the review attempt what the deterministic check has (the Go module cache read-only, the test database), or let the review read the deterministic check's verify.json and ask only for what it ran; the spec template says which proof the check carries.
-- **Ratchet**: a STG walk where a core store task's review runs `go test ./internal/agentrt/store/` with a database and passes.
-- 验收: on STG a core Go task's review runs the store tests with a database.
-- 审批 不需要 · 代价 M · 风险 low · repos: bifrost-platform
-
 ### TD-387
 
 **P3 · agentrt · a platform task's checks leave out code-health, so accepted work can be refused when it is merged**
@@ -2740,19 +2409,6 @@
 - **Ratchet**: a store test: a blocked card for a failing verify.json names the failing command and its exit code; one for a failed review contains its VERDICT line.
 - 验收: the test on main; the next blocked card on STG names the failing step.
 - 审批 不需要 · 代价 S · 风险 low · repos: bifrost-platform
-
-### TD-385
-
-**P2 · console · after every Console release a browser keeps the old index.html and loses its stylesheet: the page renders unstyled**
-
-- **状态**：未开始（2026-10-19 22:5x 统筹线程记；Owner 当晚两次撞上：21:4x PROD For you、22:5x STG 问题页）
-- **Claim**: `bifrost-platform/console/nginx.conf` serves `index.html` with no `Cache-Control` (only `ETag` and `Last-Modified`), so Chrome may reuse it heuristically after a release; that old page names the old hashed assets, and `location / { try_files $uri $uri/ /index.html; }` answers a missing `/assets/*.css` with `200 text/html` (index.html), which Chrome refuses as a stylesheet. The old JS is still in the cache, so the page works but has no styles. Measured 10-19: PROD and STG `GET /assets/index-NOSUCH.css` → `200 text/html`; `curl -I /` has no `cache-control`.
-- **Evidence**: `bifrost-platform/console/nginx.conf:23-25`; `bifrost-trade-infra/k8s/cicd/docker/Dockerfile.platform-console-{dist,stg}` copy it as the image's `default.conf`. `bifrost-trade-frontend/nginx.conf` is copied the same way (`Dockerfile.frontend-stg-dist`) and may have the same gap; not checked.
-- **Impact**: after each release the Owner sees a broken page until a hard reload, and cannot tell a broken release from a cached page.
-- **Fix**: `location /assets/ { try_files $uri =404; add_header Cache-Control "public, max-age=31536000, immutable"; }` and `Cache-Control: no-cache` on `index.html` (and the SPA fallback); check the Trade frontend's config the same way.
-- **Ratchet**: a test that reads `console/nginx.conf` (and the frontend's) and asserts the two rules; a probe after each release: `/assets/<missing>.css` → 404 and `/` carries `no-cache`.
-- 验收: on STG after a release, `curl -skI https://stg.ops.bifrost.lan/` shows `cache-control: no-cache` and `/assets/index-NOSUCH.css` returns 404.
-- 审批 不需要（随平台发布）· 代价 S · 风险 low · repos: bifrost-platform, bifrost-trade-frontend
 
 ### TD-384
 
@@ -2849,45 +2505,6 @@
 - 验收: `python3 -m pytest -q scripts/test_access_checks.py` passes on main, and `scripts/test_access_checks.py` is in `infraTests`.
 - 审批 不需要（测试改动）· 代价 S · 风险 low · repos: bifrost-trade-infra, bifrost-platform
 
-### TD-377
-
-**P3 · agentd · security · an executor still reads what its user can read: token files and other attempts' workspaces**
-
-- **状态**：未开始（2026-10-19 03:4x 记；你 03:3x「三件照建议」③，第 2 轮先接受）
-- **Claim**: TD-371's wall (platform `35eafb7`, Landlock) holds what an attempt writes, not what it reads. Under the same Unix user an executor reads that user's token files and every other attempt's workspace and output on the host.
-- **Evidence**: `bifrost-trade-infra/agent-config/work/multi-agent/CUT-agentd-confine-2026-10-19.md` §7 item 1; `bifrost-platform/api/internal/agentd/confine.go`.
-- **Impact**: an executor that turns on its task can copy another attempt's work or the user's credentials into its own result; the review and the platform's redaction are the remaining lines.
-- **Fix**: give the wall read rules too (Landlock read access listed per top-level directory, `/home` only the attempt's own), after measuring on 06 which home-directory files each executor really reads; or one Unix user per slot.
-- **Ratchet**: the 06 confine probe gains a read check: a file of another attempt and a token file are refused to an executor.
-- 验收: that probe check passes on 06 for codex, cursor and claude.
-- 审批 不需要（只改 agentd；06 上跑探针要你一次）· 代价 M · 风险 medium · repos: bifrost-platform, bifrost-trade-infra
-
-### TD-376
-
-**P3 · agentd · security · a process a setup command leaves behind (setsid) outlives the check and can drop a cursor hook into the workspace**
-
-- **状态**：未开始（2026-10-19 03:4x 记；你 03:3x「三件照建议」③，第 2 轮先接受）
-- **Claim**: agentd kills an attempt's process group, but a process that left the group with `setsid` during the setup step keeps running inside its own (narrow) wall. After agentd's `--refuse` check and before cursor reads its configuration it can write `.cursor/hooks.json` into the workspace; the hook then runs inside cursor's wall. `checkChanges` fails an attempt that leaves executor configuration behind, so the result is not accepted, but the hook has run.
-- **Evidence**: `bifrost-trade-infra/agent-config/work/multi-agent/CUT-agentd-confine-2026-10-19.md` §7 items 4 and 5; `bifrost-platform/api/internal/agentd/setup.go`, `run.go`.
-- **Impact**: a hostile dependency's install script can run code as cursor inside cursor's write wall; it cannot write outside the attempt's directories.
-- **Fix**: run each attempt in its own cgroup (systemd `Delegate=yes` on the agentd unit, a child cgroup per attempt) and kill the whole cgroup after setup and at the end, so nothing outlives its step.
-- **Ratchet**: a test on Linux: a setsid process started by setup is gone before the executor starts.
-- 验收: that test passes on 06 (the confine probe gains the check), with `Delegate=yes` in both agentd units.
-- 审批 要（改 06 上两个 agentd 的 systemd 单元，架构决定；你批）· 代价 M · 风险 medium · repos: bifrost-platform, bifrost-trade-infra
-
-### TD-375
-
-**P3 · agentrt · security · threads that share one token can still act as each other, and the question routes still take the session header on its word**
-
-- **状态**：未开始（2026-10-19 03:2x 记，TD-370 的修法交回时指出：绑定只区分不同的令牌）
-- **Claim**: TD-370 holds a thread's session to the token that first wrote as it. Every thread on the development Mac holds the same reporter token, so one of them can still name another's session and read its mail, acknowledge it, send and propose as it; the questions routes read `X-Bifrost-Session` for its shape only.
-- **Evidence**: `bifrost-platform/api/internal/agentrt/store/keyed.go` (the binding, platform `6964fd2`), `api/internal/server/questions_wire.go`; the lane's report (session local_af7f0365, 10-19 02:43).
-- **Impact**: a thread's mail from the Owner or the chief of staff, and the record of who proposed what; not the Owner's or a seat's identity, which come from their own tokens.
-- **Fix**: each thread gets its own token from the Console when it registers (the reporter token only registers), and the questions routes take the session from the token as the agentrt routes now do.
-- **Ratchet**: a route test: a thread token naming another thread's session is refused on every write, on `GET /messages` and on the questions routes.
-- 验收: that test passes on main, and the reporter token can no longer write as a thread.
-- 审批 不需要（只改平台）· 代价 M · 风险 low · repos: bifrost-platform
-
 ### TD-374
 
 **P2 · ci · the agentrt store package's tests run close to CI's 120 s test timeout**
@@ -2917,19 +2534,6 @@
 - 验收结果：PASS 2026-10-19 platform `d788296`（06 上 `agentd-d788296`）：`bench-20261019T060504-codex`（01:05–01:53，你在终端起的）20 道全部能跑、0 道跑不了；判对 16、判错 4（Go 8/10、TS 7/7、Python 1/2、shell 0/1）。判错的 4 道都是检查跑完给出的结论（Go 两道 `go test` 退出 1，Python、shell 各一道 pytest 未过），不是跑不了；STG `GET /api/v1/agentrt/events?stream=capability_benchmarks` 里的 results 与 samples。
 - 审批 不需要（06 上跑要你一次）· 代价 M · 风险 low · repos: bifrost-platform, bifrost-trade-infra
 
-### TD-372
-
-**P3 · agentrt · schema · a capability_score row's identity has no model provider**
-
-- **状态**：未开始（2026-10-18 19:0x 记，复核 286 B1；随下一次 agentrt 迁移一起做）
-- **Claim**: `capability_score` is unique on (executor, model, tool_version, job, task class, core, source, window_end), without `model_provider`. One executor running one model name under two providers in one in-job computation (cursor with `opus` from anthropic and from cursor-mix) makes two groups with one identity. The computation inserts with `ON CONFLICT DO NOTHING`, so the second group has no row; its sample is still in the computation's `capability_scored` event, which is what routing reads, so routing is right and only the table (the record a screen would show) misses it.
-- **Evidence**: `bifrost-platform/api/internal/agentrt/migrations/0001_core.sql:381`; `api/internal/agentrt/store/scores.go` (`ComputeScores`, the insert); `TestTwoProvidersOfOneModel`; `~/agent-work/codex-review-286/REPORT.md` item 1.
-- **Impact**: none on routing; an audit gap in the table for that pairing only, none today (no candidate pairs one executor and model name with two providers).
-- **Fix**: a migration that replaces the unique key with one that has `model_provider` after `executor_actor_id`, then the insert without `ON CONFLICT`; no data to move (append-only rows stay valid). Not done now: an agentrt migration is a Job the Owner creates on STG and PROD, with the PROD DDL approved first, and this alone is not worth that round.
-- **Ratchet**: `TestTwoProvidersOfOneModel` asserts both rows once the key has the provider.
-- 验收: `go test ./internal/agentrt/store -run TestTwoProvidersOfOneModel` with the row assertion added passes.
-- 审批 要（PROD 的 agentrt 迁移，你建 Job）· 代价 S · 风险 low · repos: bifrost-platform, bifrost-trade-infra
-
 ### TD-371
 
 **P2 · agentd · no executor shares the host until its whole process tree is held to its workspace**
@@ -2951,6 +2555,7 @@
 **P2 · agentrt · security · a thread is who its session header says: any token that may propose reads and writes as any thread**
 
 - **状态**：观察中（到 STG 上线后核对：同一线程换令牌的写入和读信箱回 403 `not_yours`；PROD 随下一张合并单）（2026-10-18 02:4x 记，复核 269 B5 在 `GET /messages/thread` 上指出；那条路由已只给 Owner 和席位，`5a7fca3`；10-19 修法进 platform main `6964fd2`、`0423a7e`，复核 320、321 收线，防线 `TestSessionHeldToItsToken`）
+- **合并自 TD-375**（2026-11-05 台账清理）：security · threads that share one token can still act as each other, and the question routes still take the session header on its word。理由：TD-370（观察中）的余项：其修法第二选项「每线程自有令牌」就是本条修法；questions 路由仍只校验头格式。原文在 git 历史（infra `e68e94b` 及以前的本文件）。
 - **Claim**: `writer()` maps a token that is neither the Owner's nor a seat's to `thread:<X-Bifrost-Session>`, and the header is checked for its shape only. A holder of the shared reporter token (every thread's) can send `X-Bifrost-Session: <another thread>` and read that thread's unread messages (`GET /messages`), acknowledge them, send as it, and propose missions and tasks recorded as it.
 - **Evidence**: `bifrost-platform/api/internal/agentrt/agentrtapi/propose.go:28` (`writer`), `api/internal/agentrt/store/propose.go:32` (`threadSession`, shape only); the questions routes take the same header the same way.
 - **Impact**: the threads on this Mac all hold the same token, so they can already act as each other; what is at stake is a thread's mail (from the Owner or the chief of staff) and the record of who proposed what (audit), not the Owner's or a seat's identity, which come from their own tokens.
@@ -2958,32 +2563,6 @@
 - **Ratchet**: a route test: a second token naming a thread the first registered is refused on every write and on `GET /messages`.
 - 验收: that test passes on main.
 - 审批 不需要（只改平台）· 代价 M · 风险 low · repos: bifrost-platform
-
-### TD-369
-
-**P3 · mcp · the platform MCP package's type check is red, and no CI task runs it**
-
-- **状态**：未开始（2026-10-18 02:0x 记，推 2.3 第 2、3 片前在分支头跑 `npm run type-check` 时看到；不是这个分支带来的）
-- **Claim**: `tsc --noEmit` in `bifrost-platform/mcp/platform` fails with TS2367 (a comparison of `"refused"` and `"direct"`, which have no overlap). `ci-platform` type-checks the Console, not the MCP package, so the error went to main unseen.
-- **Evidence**: `mcp/platform/src/writeGate.test.ts:85`, last changed on main by `9c8b183` (W-48); `k8s/cicd/tekton/pipeline-ci-platform.yaml:5` (the CI steps: go test, Console type-check, lint, test, build).
-- **Impact**: the 116 MCP tests pass (tsx does not type-check), so nothing breaks today; a type error in the served tools would ship the same way.
-- **Fix**: make the test's comparison match the write modes it means; add `npm ci && npm run type-check && npm test` for `mcp/platform` to `pipeline-ci-platform.yaml`.
-- **Ratchet**: the CI step itself.
-- 验收: `npm run type-check` in `mcp/platform` exits 0, and a ci-platform run shows the MCP step.
-- 审批 不需要 · 代价 S · 风险 low · repos: bifrost-platform, bifrost-trade-infra
-
-### TD-368
-
-**P3 · agentd · a read of the executor's log that hangs cannot be cut short**
-
-- **状态**：未开始（2026-10-18 01:5x 记，复核 266 第 3 项、267 第 2 项、268 第 2 项留下的 B；2.3 第 3 片收线时接受）
-- **Claim**: the collector reads `log.txt` with `Open` / `Seek` / `ReadAll`; a read of a regular file cannot be interrupted in Go. If the disk call never returns, the flush and the attempt time out and go on, but the collector goroutine, its open file and the tail stay until the read returns.
-- **Evidence**: `bifrost-platform/api/internal/agentd/actions.go`, `read` (the `os.Open` … `io.ReadAll` block) and `collect`; review 268 `~/agent-work/codex-review-268/REPORT.md` item 2.
-- **Impact**: low: only a regular file is read (a FIFO or link is refused), agent-work is on 06's own disk, and a hung read holds one goroutine per attempt, never a heartbeat or the hand-over. A hung local disk would stop much more than this.
-- **Fix**: read in a child process the collector can kill (or move agent-work's logs where a read deadline works), only if a hang is ever seen.
-- **Ratchet**: none yet; the regression tests hold the rest (a flush whose time ran out reads nothing, the keeper and the hand-over never wait for a read).
-- 验收: a test that blocks the read in the kernel (a FUSE file) and sees the collector end.
-- 审批 不需要 · 代价 M · 风险 low · repos: bifrost-platform
 
 ### TD-367
 
@@ -3025,45 +2604,6 @@
 - 验收: on PROD a cursor review on agent-06 runs in ask mode (its log shows the mode) and finishes in minutes; an STG attempt whose executor writes `.cursor/x` ends failed with the reason in its log tail.
 - 审批 不需要（代码改动，随平台发布）· 代价 S · 风险 low · repos: bifrost-platform
 
-### TD-363
-
-**P3 · release · push-main.sh pushes a Go repository's main without running its tests, so a session that skips the whole suite pushes main red**
-
-- **状态**：未开始（2026-10-17 记；教训 160，第三次）
-- **Claim**: push-main.sh checks the release window, fast-forward and code-health on a clean worktree, then pushes. `go test ./...` is left to the session ("go test 与 lint 照旧在推之前自己跑"). On 2026-10-17 platform `ecb28c9` went to main having passed the three touched packages and code-health, and failed `storedurability.TestNoNewStoreUnderHome` in the whole suite; CI `ci-platform-kr5tm` is red on it, `fcd2ecb` fixed it minutes later. The memory and CLAUDE.md say the same rule in words; it was missed on 10-12, 10-14 and 10-17.
-- **Evidence**: `bifrost-trade-infra/scripts/release/push-main.sh:58-83` (code-health only); `agent-config/work/multi-agent/LESSONS-from-practice.md` row 160.
-- **Impact**: main red until the next push; a deliver or release.sh run in between refuses the SHA (ci-* not Succeeded) or needs `--allow-red`.
-- **Fix**: for a Go repository (platform, plugins), run `go test ./...` in the same clean worktree push-main.sh already makes for code-health, with the neighbours CI clones (infra for platform), and push only when it passes; an explicit `--skip-tests <reason>` that is logged, as release.sh's `--allow-red`.
-- **Ratchet**: a push-main.sh test with a fake Go repository whose test fails: push-main.sh exits non-zero and pushes nothing.
-- 验收: the ratchet test; and a real push of a platform commit prints the go test summary before the push line.
-- 审批 不需要 · 代价 S · 风险 low · repos: bifrost-trade-infra
-
-### TD-362
-
-**P3 · agentd · setup.json and siblings.json stay on the host: the platform never sees which setup command failed, how long each took, or which sibling commit a task was built against**
-
-- **状态**：未开始（2026-10-17 记；06 的 STG 演练 M-9，走查会话 `local_42a46b17…` 的报告 F6）
-- **Claim**: agentd writes the setup commands' traces (time, exit code, output tail) to setup.json and the cloned siblings' commits to siblings.json in the attempt's output directory, but uploads only the report (verify.json or the executor's report) and the log tail. A setup that fails shows on the platform as exit 3 and nothing else; a setup that passes leaves no record of what was built against what.
-- **Evidence**: `bifrost-platform/api/internal/agentd/setup.go:71` (siblings.json written), `:85` (setup.json path); `api/internal/agentd/deliver.go:224-240` (only the report body is put); `~/agent-work/stg-walk-06/REPORT.md` F6.
-- **Impact**: a setup failure on the agent host is as silent as TD-361's; a review cannot tell which `bifrost-ui` commit a Console change was checked against.
-- **Fix**: put both as artifacts of the attempt (kind `verify` for setup.json so H8 scans it, with the same path rewrite agentd uses for verify.json since `9d16b6f`), and reference them from the attempt's end.
-- **Ratchet**: an agentd test that an attempt with setup commands and a sibling ends with both artifacts put and no H8 match in either.
-- 验收: on STG, a Console task's attempt shows its setup trace and sibling commits in the Console.
-- 审批 不需要 · 代价 S · 风险 low · repos: bifrost-platform
-
-### TD-361
-
-**P2 · agentd · a failure before an attempt starts (checkout, a sibling clone, the setup wrapper) is never reported: the platform sees only a lease that runs out, re-dispatches, and spends the mission's budget on the same failure**
-
-- **状态**：未开始（2026-10-17 04:0x 记；06 的 STG 演练 M-7 撞上，走查会话 `local_42a46b17…` 的报告 F4）
-- **Claim**: `agentd.Run` returns on an error before it reports the attempt's start, and the main loop only logs it. The platform keeps the attempt leased until the lease expires (stale after 2 minutes, lost after 15 more), then readies the task and dispatches it again, which fails the same way. On 2026-10-17 M-7's two attempts both died at the sibling clone (Gitea 404 on bifrost/bifrost-ui); the reason was only in the host's journald, readable by its agent user and root, and was found by lining up Gitea's access log with the lease times.
-- **Evidence**: `bifrost-platform/api/internal/agentd/run.go:115` (returns before start); `api/cmd/agentd/main.go:146` (logs and moves on); `~/agent-work/stg-walk-06/REPORT.md` F4 (M-7, attempts `a_01M54GBY6JA917ETZY8WBQ5WBC`, `a_01M54HBCEZV1MQ5V5FXKC253P4`).
-- **Impact**: each such failure costs one attempt of the mission's budget and about 17 minutes, repeats until the budget is gone, and leaves no reason in the runtime or the Console; same family as TD-349 (a refused persist leaves no trace).
-- **Fix**: agentd ends an attempt it cannot start with a conclusion such as `prepare_failed` and the error text (the attempt's end route already carries a conclusion), so the platform records it and does not re-dispatch a failure that will repeat without a change.
-- **Ratchet**: an agentd test per preparation step (checkout, sibling, setup) that the attempt ends reported, with the step and the error, not left leased; a runtime test that such an attempt is not re-dispatched on the same spec.
-- 验收: on STG, a task whose sibling cannot be cloned ends once with `prepare_failed` and the reason, visible in the Console, and is not leased again.
-- 审批 不需要 · 代价 S · 风险 low · repos: bifrost-platform
-
 ### TD-360
 
 **P1 · agentrt · an implement attempt that changed nothing is accepted: it hands in the base commit, the deterministic check passes on the base, and only a reviewer stands between it and an accepted task**
@@ -3082,6 +2622,7 @@
 **P2 · agentd · the agentd host user can read its own token files, and so can every process it starts: executors, and since 2.2's Console checks, unsandboxed agent-written code with the network**
 
 - **状态**：未开始（2026-10-16 23:4x 记；修复核 227 时撞上。不是复核 227 那次提交引入的：执行者早就以同一个用户运行）
+- **合并自 TD-377**（2026-11-05 台账清理）：security · an executor still reads what its user can read: token files and other attempts' workspaces。理由：同一机制：执行者与 agentd 同用户可读令牌文件；读规则未管（confine.go 明写）。原文在 git 历史（infra `e68e94b` 及以前的本文件）。
 - **Claim**: agentd runs as `bifrost-agentd` and keeps `agentd.token`, `agentd-git.token`, `cursor-api.key` and `claude-oauth.token` under `~bifrost-agentd/.config/bifrost`, mode 0600 owned by that user. Every process agentd starts runs as the same user and can read them: the executors (Codex's sandbox restricts writes and the network, not reads; cursor-agent is not sandboxed), and from the Console checks on (`691f803`, `f21cefa`) the deterministic check's `npm --prefix console test` and `run build`, and the setup's `npm ci` lifecycle scripts, which run code the agent wrote or a dependency ships, unsandboxed, with the network. The environment is already cut down (`AllowedEnv`; review 227 A2 for setup); the files are not.
 - **Evidence**: `bifrost-platform/agent/deploy/install-agentd.sh` (credentials: regular files the user owns, 0600); `api/internal/agentd/executors.go:27` (`allowedEnv`); `api/internal/agentrt/store/repos.go` (the Console checks); `api/internal/agentd/setup.go` (setup runs unsandboxed).
 - **Impact**: code an agent writes (or a poisoned dependency) could read the agentd token (claim and hand in work as the host), the Gitea token (push to agent branches; `main` is protected), or a vendor key, and send it out. The same code could also write the host user's `~/.gitconfig`; the sibling clone now ignores it (`f21cefa`), the task checkout and push do not.
@@ -3152,6 +2693,7 @@
 **P2 · agentrt · a ready task that no candidate may take looks like one that is waiting its turn: Progress shows nothing, `needs_you` stays 0**
 
 - **状态**：未开始（2026-10-15 17:55 统筹方记；Gate A 第二批，F-T08 与 F-T10）
+- **合并自 TD-406**（2026-11-05 台账清理）：a ready task that no executor ever could take (empty route, every candidate retired or excluded, the envelope no longer in force) waits with no card; a brief whose executors were all withdrawn too。理由：与 TD-354 同一机制（ready 任务无人可领却不出卡、needs_you 为 0）；TD-354 的修法覆盖 TD-406 的空路由/全排除情形（原 chunk3 判 DEMOTE，按跨块核对改并入）。原文在 git 历史（infra `e68e94b` 及以前的本文件）。
 - **Claim**: when every candidate of a task's job is excluded (independence, facts) or the mission's budget is spent, the task stays `ready` forever. The route says why in a `route_decided` event, but Progress lists the task nowhere and `needs_you` is 0.
 - **Measured**: MEASURED: 2026-10-15 17:55, STG platform `de64cff`: 15 review tasks ready across M-1…M-5, all with subjects written by `exec:codex`, and the only active reviewer is `reviewer/exec:codex/openai/*` (excluded: "not independent of the subject's attempts"); M-1's has waited since 14:25. `GET /agentrt/progress` → `needs_you.count` 0. M-1's T05 round 2 (budget spent) is the same shape.
 - **Evidence**: `bifrost-platform/api/internal/agentrt/store/route.go` (`exclusion`, `decide`); `store/progress.go` / `progressneeds.go` (what goes into `needs_you`).
@@ -3203,20 +2745,6 @@
 - 验收: `scale_deployment` on `bifrost-platform-stg/platform-workers` is refused or says it will be undone by Argo
 - 审批 无（平台动作，走复核）· 代价 S · 风险 low · repos: bifrost-platform
 
-### TD-350
-
-**P2 · agentrt · checks of a task with no pushed commit run their commands in an empty directory**
-
-- **状态**：未开始（2026-10-15 17:55 统筹方记；Gate A T08，F-none）
-- **Claim**: for an `effect_class: none` task the attempt pushes nothing, so the check spec the controller writes has no `commit`; agentd then makes an empty directory instead of a checkout and runs the subject's verify commands there.
-- **Measured**: MEASURED: 2026-10-15 21:42Z, STG M-3 task `t_01M50R5AESM3Q8G56DAES5VFB1`: verify `test -f api/go.mod` failed in both rounds (verify.json `"reason": "test ended 1"`), task blocked. Later probes used `true` to step around it.
-- **Evidence**: `bifrost-platform/api/internal/agentrt/store/accept.go` (`checkSpec.put` writes `commit` only when set); `api/internal/agentd/run.go` (`Run`: empty `repo` or `base` → empty directory).
-- **Impact**: any read-only task with a real verify command fails its check; the failure looks like the author's.
-- **Fix**: when the checked attempt pushed no commit, the check pins the task's `base_commit` (and repo), and the verification records that it ran on the base.
-- **Ratchet**: a store test that a check of an effect-none attempt carries the base commit; an agentd test that such a check runs in a checkout.
-- 验收: on STG, an effect-none task with verify `test -f api/go.mod` passes its deterministic check
-- 审批 无（运行时代码，走复核）· 代价 S · 风险 low · repos: bifrost-platform
-
 ### TD-349
 
 **P2 · observability · a persist the platform refuses leaves no trace: no event, no answer body, the attempt ends failed as if it had failed**
@@ -3230,48 +2758,6 @@
 - **Ratchet**: a store test that a refused persist leaves exactly one refusal event with the reason; an API test that the 409 body reaches the attempt's record.
 - 验收: on STG, a persist refused on purpose (a ref that is not the attempt's) shows its reason in `GET /agentrt/events` for the attempt
 - 审批 无（运行时代码，走复核）· 代价 S · 风险 low · repos: bifrost-platform
-
-### TD-348
-
-**P3 · observability · the API latency alert counts agentd's long-poll claim, so a healthy STG platform-api pages as slow**
-
-- **状态**：未开始（2026-10-15 13:29 统筹方记；agentd 13:23 装好后 13:25 起 STG 的 BifrostAPIHighLatency 进入 pending）
-- **Claim**: agentd claims with a long poll: the platform holds `POST /api/v1/agentrt/claim` until work is ready or the wait ends. The P99 latency alert on platform-api counts those held requests, so every idle agentd pushes P99 above 5 s.
-- **Measured**: MEASURED: 2026-10-15 13:28, Prometheus alert BifrostAPIHighLatency{namespace="bifrost-platform-stg",service="platform-api"} pending since 18:25:45Z, value 10 (s), two minutes after host mbp-dev registered (18:23:49Z).
-- **Evidence**: the alert in `bifrost-trade-infra/k8s/monitoring/` (BifrostAPIHighLatency); the claim route in `bifrost-platform/api/internal/agentrt/agentrtapi/api.go`.
-- **Impact**: a false page on STG now and on PROD once the runtime ships there (O20); real slowness of other routes is hidden behind it.
-- **Fix**: leave long-poll routes out of the latency SLI (a route label or a separate histogram for held requests), or measure the claim's wait apart from its work.
-- **Ratchet**: a rule test that a series for the claim route does not move the API latency alert.
-- 验收: with agentd idle for 15 minutes, BifrostAPIHighLatency stays inactive for bifrost-platform-stg
-- 审批 无（STG 监控规则）· 代价 S · 风险 low · repos: bifrost-trade-infra, bifrost-platform
-
-### TD-347
-
-**P2 · agentrt · agentd's "machine-wide" lock is per user: two agentd under two users on one host both run**
-
-- **状态**：未开始（2026-10-15 10:38 统筹方记；Gate A 计划 T22 ② 时读出来）
-- **Claim**: design v5 §5.2 and `api/cmd/agentd/main.go:4` say one agentd per host under a machine-wide lock. The lock is `~/.config/bifrost/agentd.lock` of the user agentd runs as, so an agentd started by another user (with any host token) takes its own lock and runs beside the launchd one.
-- **Measured**: MEASURED: 2026-10-15, platform main `296468b`, `api/internal/agentd/local.go:33-39` (`HostLockPath` joins `os.UserHomeDir()`).
-- **Evidence**: `api/internal/agentd/local.go:33`; `api/cmd/agentd/main.go:62-70`.
-- **Impact**: T22 ② (a second agentd on the same host must not take work) holds only when both run as `bifrost-agentd`; the platform's per-host cap still bounds concurrent attempts, but the local registry and takeover assume one daemon per host.
-- **Fix**: a lock outside any home (e.g. `/var/run` or `/Library/Application Support/bifrost/agentd.lock`, created by `install-agentd.sh` owned by the agentd user, mode 0644 so others can open and flock it, never write it); or agentd refuses to start unless it runs as the user the installer configured. Options to the Owner with the Gate A plan.
-- **Ratchet**: a test that two processes under two users (or two homes) on one host cannot both hold the lock.
-- 验收: with the launchd agentd running, `AGENTD_*` set and another user's home, a second `agentd` exits with "held"
-- 审批 选法要你定（锁的位置，安装脚本改动）· 代价 S · 风险 low · repos: bifrost-platform
-
-### TD-346
-
-**P2 · release · push-main.sh pushes a commit whose tests it never saw: twice on 2026-10-14 a red gate and a push sat in one command**
-
-- **状态**：未开始（2026-10-14 22:36 统筹方记；LESSONS 125、131）
-- **Claim**: `push-main.sh` checks the release window and runs code-health on a clean checkout, then pushes. It knows nothing of `go test`; the coordinator runs the tests itself, and twice the same day ran them in one command with the push (a pipe, then a `;`), so a red result pushed anyway.
-- **Measured**: MEASURED: 2026-10-14 22:36, platform main `0a220aa` pushed while `go test ./...` reported `FAIL internal/agentrt/agentrtapi` (TestControlsAndHosts, a load flake, fixed in `d178527`); the morning's code-health case is LESSONS 125.
-- **Evidence**: `bifrost-trade-infra/scripts/release/push-main.sh` (no test step); LESSONS-from-practice.md rows 125, 131.
-- **Impact**: main can carry a red suite until CI says so; the rule lives only in text.
-- **Fix**: `push-main.sh` takes `--tests <file>` (the output of the suite for exactly this commit, with its exit code) and refuses without a green one for HEAD; or it runs the repo's suite itself on the clean checkout it already makes (platform needs the database env).
-- **Ratchet**: a test of `push-main.sh` that a missing or red test result refuses the push.
-- 验收: `push-main.sh <checkout> HEAD` without a green result for HEAD exits non-zero and pushes nothing
-- 审批 无（发布脚本，随 infra）· 代价 S · 风险 low · repos: bifrost-trade-infra
 
 ### TD-345
 
@@ -3292,6 +2778,8 @@
 **P3 · testing · the MCP packages are never type-checked: CI runs their tests through tsx, which strips types, and platform main has a type error**
 
 - **状态**：未开始（2026-10-14 19:06 统筹方记；写 agent runtime 的 MCP 工具时 `tsc --noEmit` 报出；第 2 轮期间不还其余技术债，排在架构之后）
+- **合并自 TD-369**（2026-11-05 台账清理）：the platform MCP package's type check is red, and no CI task runs it。理由：与 TD-344 同一机制同一行（writeGate.test.ts:85）；类型错已修，剩 CI 步骤。原文在 git 历史（infra `e68e94b` 及以前的本文件）。
+- **合并自 TD-412**（2026-11-05 台账清理）：the platform's MCP server is never type-checked in CI, and main has carried a type error since 2026-10-10。理由：与 TD-344/TD-369 同一件：mcp/platform 无 CI 类型检查；类型错已由 e98b1487 修，剩 CI 步骤。原文在 git 历史（infra `e68e94b` 及以前的本文件）。
 - **Claim**: `mcp/platform` has a `type-check` script (`tsc --noEmit`) that no pipeline runs; `npm test` runs `node --import tsx`, which does not check types. A type error can sit on main unseen.
 - **Measured**: MEASURED: 2026-10-14, `npx tsc --noEmit -p .` in `mcp/platform` on platform main `a8027d4`: 2 errors, `src/questionTools.ts(155,27)` TS2339 and `src/writeGate.test.ts(85,20)` TS2367. The first is fixed on branch `w31/agentrt-22-routes2` (`342a448`). The second is a redundant assertion in the approvals resolve-route test; the agent guard refuses a shell command whose text names that route, so the coordinator left it for a change made outside the shell.
 - **Evidence**: `bifrost-platform/mcp/platform/package.json` (`type-check`); `bifrost-platform/mcp/platform/src/writeGate.test.ts:85`; the CI pipeline runs `test-api` and `test-console` only.
@@ -3412,26 +2900,6 @@
 - **验收**：`up{job="smartctl",host="nas"} == 1`，`count(smartctl_device_smart_status{host="nas"}) >= 3`，`BifrostNasSmartBlind` 不再 firing；并且 `smartctl_device_percentage_used{host="nas",device="nvme0"}` 有值。
 - 审批：推 infra main 由 Owner 推（冻结期）；NAS 上一步由 Owner 跑。
 
-### TD-444
-
-**P2 · NAS 存储 · 两块 SSD 镜像放常写数据和每日备份，机械盘每周汇总一次；第二块 SSD 11-03 到货后直接按此做**
-
-- **状态**：未开始（2026-11-02 统筹线程 12:0x CST：Owner 定按最终方案一次做：第二块 SSD 11-03 到货、当天装上后，不再分期。Time Machine 已于当天停用，本机改为 restic 每周白名单备份到 NAS `TimeMachine` 共享（加密、只留最新一份、约 3.7 GB），NAS 用量 1.42 TB → 0.41 TB，原推荐 A 的前提已不在。TD-489（同日重复登记）并入此条。）此前：未开始（2026-10-26 设计已出，等 Owner 选 A / B / C）。
-- **证据**：`agent-config/work/multi-agent/CUT-w68-nas-tiering-2026-10-26.md` 第 2 节。10-24 16:30 至 10-26 21:50 CDT：52 次突发、每小时 0.97 次、每次约 15 分钟、中位收 3.5 GB；占 md1 全部写入 82%、盘忙时间 79%；突发间盘忙 4.7%。突发时 md1 写等待中位 1216 ms（空闲 107 ms），`NodeDiskIOSaturation` 每晚 pending。本机 Time Machine 目标是 NAS `TimeMachine` 共享，间隔 3600 秒，家目录每小时约 1.1 GB 改动（`~/.codex`、Chrome、Codex 应用数据等未排除）。
-- **证据（2026-11-02）**：`smartctl_device_bytes_written{host="nas",device="nvme0"}` 一生 12.8 MB、24 小时增量 0（SSD 闲置）；三块机械盘 `Start_Stop_Count` 24 小时增量 0；仍在常写机械盘的：Postgres WAL 归档到 NAS 上的 MinIO（`cnpg_pg_stat_archiver_archived_count` 现 0.8 段/分钟、24 小时最高 6 段/分钟）、04 上 Prometheus 的 NFS（Write 0.39/s、Commit 0.33/s）。NAS 卷 0.41 TB：MinIO 328 GB、Prometheus 约 12 GB、其余约 74 GB。
-- **影响**：Owner 每小时听到机械盘响一阵；Prometheus WAL、MinIO WAL 归档、registry 拉镜像每小时有约 15 分钟每次写要等一秒多；三块盘常年承受不必要的随机写。
-- **修法**（Owner 2026-11-02 定）：两块同款 SSD 组成 RAID1（`/volume2`），放常写的热数据：Prometheus 与 Alertmanager 的卷（新 StorageClass，如 `nfs-fast`）、registry；也放每日备份：MinIO（WAL 与每晚基础备份）、逻辑备份、Gitea / 集群状态 / Finance 备份、行情归档的每晚副本。RAID5 机械盘放行情归档主份、本机 restic 备份，并每周从 SSD 汇总一次所有备份作长期存档，机械盘平时空闲。当天先前定的「单盘先放热数据」的第一期取消。CUT 文档第 5 节的 A（Time Machine 换 SSD）作废。
-- **第二块 SSD 到货后（Owner 2026-11-02 下单，11-03 到货当天装）**，按顺序，一步做完核对再做下一步：
-  1. （统筹）装之前：`release.sh window` 没有窗口、cicd 里没有在跑的 PipelineRun；避开每晚 21:00–23:45 CST 的备份和 22:00 起的 backup-retry。NAS 一关机，registry、Prometheus、Alertmanager、MinIO（WAL 归档）、行情归档都会断，hard 挂载的 Pod 会卡住，NAS 回来后自己恢复。
-  2. （Owner）UGOS 里正常关机 → 装进第二个 M.2 槽（同款 Kingston SNV3S1000G，装散热片）→ 开机。
-  3. （统筹）开机后核对：NAS 能 ping 通；04 上的 Prometheus、registry、market-data-api 与 02 上的 Alertmanager 都 Ready；`up{job="smartctl",host="nas"}` 为 1 且出现 nvme1，`critical_warning` 和 `media_errors` 为 0；`minio_cluster_usage_total_bytes` 有数；CNPG 的 WAL 归档追上（`cnpg_pg_stat_archiver_failed_count` 不再增长）；本机 restic 的共享能重新挂上（`last-success` 下次照常更新）。
-  4. （Owner，UGOS）先看 `/volume2` 里那约 2.2 GB 是什么、要不要留；再把 pool2 改成两块 SSD 的 RAID1：UGOS 能「加盘改 RAID1」就原地改，不能就删掉 pool2、用两块 SSD 新建 RAID1 池。做完在 UGOS 里对两块 SSD 各跑一次磁盘检测。
-  5. （统筹）RAID1 建好后核对两块盘 SMART 正常、池状态健康，再按上面「修法」搬迁：先热数据（Prometheus、Alertmanager、registry），再把每日备份改成先落 SSD、并建每周汇总到 RAID5 的任务；每一类搬之前写好怎么停、怎么回退，集群清单改动走 C 级单。
-  6. （统筹）验收：机械盘一周里只有每周汇总那一阵在忙；SSD 两块健康；从 SSD 和 RAID5 各恢复一次数据库备份和行情归档做演练。
-- **防线**：做完后加一条告警「NAS 一天里盘忙超 30% 的 5 分钟窗口超过 20 个」（`count_over_time((rate(node_disk_io_time_seconds_total{host="nas",device="sda"}[5m]) > 0.3)[1d:5m]) > 20`，warning），让「有人又往 RAID5 上放了热写」当天能看到；归档副本由 CronJob 的最近成功时间告警兜住。
-- **验收**：首次全量完成后 24 小时，CUT 第 7 节五项：盘忙超 30% 的窗口 ≤ 5/天、md1 最差写等待 < 0.3 秒、nvme0n1 每小时有写、SSD 健康 1、`NodeDiskIOSaturation` 不再 pending。
-- 审批：NAS 关机装盘、RAID1 与共享由 Owner 在 UGOS 做；集群清单改动按 C 级单；MinIO 搬家前先确认 WAL 归档不断档的切法。
-
 ### TD-445
 
 **P2 · 计划视图 PV2 · 复核修完后留下的几处**
@@ -3538,17 +3006,6 @@
 - **防线**：在修好之前：`git push` 单独一条命令、无人值守时一件事一条命令（统筹记忆 `push_alone_or_night_stalls`）；派活一律 `< /dev/null > log 2>&1` 并后台跑。修好之后：两条告警各有一条「故意挂住 → 告警到达」的验收测试。
 - **验收**：STG 上让一个模拟统筹报到后停止 31 分钟，For you 出现条目且 ntfy 收到；让一个执行者在心跳中停止输出 N+1 分钟，出现告警。
 
-### TD-455
-
-**P3 · Console / 平台 MCP · 落地卡不在问题列表里**
-
-- **状态**：未开始（2026-10-29）。
-- **证据**：落地卡 #46（`q_35be6bc99fe4c179`，requester `agentrt`，owner_duty `goal`）03:04 生成、`status=open`；同一时刻平台 MCP `list_questions` 返回空数组，`get_question` 按 id 能读到。Owner 在 Console 上能看到并作答（10:00 选 b），所以 Console 的列表口径与 MCP 的不同，或 MCP 默认过滤了 `agentrt` 发起的问题。
-- **影响**：统筹按列表找卡会漏掉落地卡（10-29 多等了 10 分钟才按 id 查到）。
-- **修法**：查 `list_questions` 的默认过滤（requester / 线程归属）；落地卡至少在不带过滤时出现，或给 MCP 加按 requester 的参数。
-- **防线**：问题列表接口测试加一条 requester=`agentrt` 的 open 卡必须出现。
-- **验收**：新建一张落地卡后 `list_questions` 能列出。
-
 ### TD-456
 
 **P3 · platform 测试 · 落地 PG 测试的启用栅栏按冻结时钟放，偶发 before_enable**
@@ -3601,17 +3058,6 @@
 - **附带**（2026-10-30 07:2x–07:4x）：PROD platform-api 连续 2 小时以上顶在 1 CPU 上限（`container_cpu_usage_seconds_total` 约 0.96–1.0，limit 1），`/landing/{op}/material` 平均同时在算约 12 个、每分钟 9 次 2xx，单次约 80 秒；Console 等得到，`handin.sh` 写死 `--max-time 40`（`handin.sh:139`）三次都超时。统筹改用 170 秒、单次请求的本地副本后 07:36–07:42 三份核心材料全部取到。修法加一条：`handin.sh material` 的超时可配（上限 180 秒），且不在超时后立即重发（服务端不会取消已在算的请求）。
 - **防线**：接口测试——同一 op 连续两次取材料第二次不再读 Git；Console 测试——单进入终态后不再发材料请求。
 - **验收**：Console 开着四张已执行单的页面时，新单的 `handin.sh material` 在 10 秒内返回。
-
-### TD-461
-
-**P2 · infra code-health · 绝对基线与实测有历史差距**
-
-- **状态**：未开始（2026-10-30，W-31 S6 §5.6）。
-- **证据**：`agent-config/scripts/code-health/scan.sh:239`、`:246`、`:298`；在 infra `70c66c5` 上离线扫描得到 shell 重复函数 10 / 基线 3、Python 重复函数 35 / 基线 1、超过 500 行文件 57 / 基线 3。设计中的旧观测为 `85f578e` 的 10、34、52，本次没有抬高 `baselines.env`。
-- **影响**：直接使用绝对基线会使 infra CI 恒红；此前 infra 没有这道交付门禁。
-- **修法**：单独分批减少重复与超长文件，降到现有绝对基线；本项不借修改基线消除历史差距。
-- **防线**：S6 `scripts/landing/coverage_infra.py` 用 M0 扫描器比较 M0 与 R；任一指标增长即拒绝；`test_ci_infra_stages.py::test_health_real_500_to_501` 验证文档越过 500 行必红，缺失/不完整结果不算通过。
-- **验收**：在完整工作区运行 `bash bifrost-trade-infra/agent-config/scripts/code-health/scan.sh --repo bifrost-trade-infra` 退出 0，且未上调任何基线。
 
 ### TD-462
 
@@ -3666,28 +3112,6 @@
 - **防线**：平台测试：一个已接受 root 的落地 CI 红，出返工而不是只能不合；选测试的规则里，加一个文件就会选上扫全仓的那组包。
 - **验收**：再遇到落地 CI 因本身提交变红时，同一 root 返工后落地，不需要「不合」卡。
 
-### TD-494
-
-**P3 · 控制器 · PROD 的 agentrt-landing-requests 一轮大约每 10 分钟超时一次，每轮都重读同一批旧审批**
-
-- **状态**：未开始（2026-11-02 22:4xZ 记，未再复测）。
-- **证据**：PROD 控制器日志当晚反复出现这一轮的 `context deadline exceeded`，列出的是同一批旧的 `appr_…`（`f439fbc4…`、`9b2d6275…`、`9c00a567…`、`ac238806…`、`5003d037…`、`9d041fc0…`），旁边还有 `approval thread inbox: will retry`。#260 批准后的落地过了 18 分钟才推 main，可能和这一轮有关（推断，未核实）。
-- **影响**：批准后的落地变慢；日志被同一批旧单刷满。
-- **修法**：已经结束的请求在这一轮里结掉或跳过，一轮只处理未结的，同一个编号只记一次日志。
-- **防线**：控制器测试：一批已结束的请求加一条新请求，一轮在期限内完成，并只处理那条新的。
-- **验收**：PROD 控制器日志连续 24 小时没有这一轮的超时；批准到推 main 的中位数在 10 分钟以内。
-
-### TD-495
-
-**P3 · Console · 新的审批单大约 50 秒后才出现在 Console**
-
-- **状态**：未开始（2026-11-02 22:47Z 记）。
-- **证据**：#261 在 22:46:52Z 建好，你在 Console 上先看了一次没找到，约 50 秒后才出现；落地那一侧当时已经是 awaiting_owner。审批列表和「你的」两处的刷新路径（轮询间隔、缓存、控制器那一轮的速度）未逐项测量。
-- **影响**：你在等一张要你批的单时，看到的是「没有」。
-- **修法**：先量清是哪一段慢；要你动手的请求几秒内出现，或者页面上写明列表是几点读的。
-- **防线**：Console 测试：列表显示读取时间；建单后下一次读取一定包含它。
-- **验收**：建单到 Console 上出现不超过 10 秒，连测 5 次。
-
 ### TD-496
 
 **P3 · Console · STG 发布和 main 的 CI 不挂在任务上，Work 页在它们跑着、甚至失败时写「Nothing running now」；B5 的阻断卡还说了一件没发生的部署**
@@ -3706,6 +3130,7 @@
 **P3 · 交付 · 没用上的交付任务永远停在 ready，交付脚本没有撤回**
 
 - **状态**：未开始（2026-11-02 记；当晚统筹用 `request_stop` 停了两个）。
+- **合并自 TD-506**（2026-11-05 台账清理）：重提的任务不挂到它替代的那个，旧的一直 ready；预算卡不看同 mission 里已接受的同步骤、同任务书的实现，写「No recommendation」（卡 #99）。理由：同一机制：被替代/没用上的交付任务一直 ready；②即 TD-497 修法，①卡片规则一并带入。原文在 git 历史（infra `e68e94b` 及以前的本文件）。
 - **证据**：`t_01M6BP9G5AR3R8A7NGAE3MD0T1`（R5:5.7-2，M-261）和 `t_01M6CZR8J8M1JKBM70XC47SKS0`（R5:5.5-8，M-267）在同一 mission 里各有一个已接受并落地的兄弟任务，自己却一直 ready。它们钉给 `external:coordinator`，没有执行器会领，但倒计时（R5:5.5-13）会把它们算成排队。`handin.sh` 没有撤回子命令；`request_stop` 停下后只有你能解。
 - **影响**：计划上多出永远不会动的「排队」，倒计时不准。
 - **修法**：`handin.sh withdraw --task …`（只限没起尝试的、自己提的任务）；或者兄弟任务的 patch 落地后，delivered-by 顺手收掉从没跑过的同组 root。
@@ -3722,17 +3147,6 @@
 - **修法**：ci-frontend 加一个会挡的 vitest 步骤；三条 CI 输出 JUnit 并留作运行结果。改 `k8s/**`，由你推。
 - **防线**：流水线测试：ci-frontend 调测试脚本；每条 CI 都有 junit 结果。
 - **验收**：一个故意失败的前端测试让 ci-frontend 变红；三条 CI 的运行结果里都能读到逐个测试的结果。
-
-### TD-499
-
-**P3 · 交付 · 交付前不在本机跑 code-health，超长的 infra 文档只在落地 CI 里才被拦**
-
-- **状态**：未开始（2026-11-01，R5:5.8-1 落地 CI 红时记）。
-- **证据**：一份 744 行的 Markdown 设计文档让 `code.oversized.rocket.infra` 从 57 变 58（infra 把超过 500 行的 `*.md` 也算进去，`agent-config/scripts/code-health/scan.sh:278-280`），落地 CI `landing-ci-infra-538b09b…` 才拦下。`handin.sh` 交付前不跑这个扫描。
-- **影响**：一次红的落地，要你多点一张卡。
-- **修法**：`handin.sh propose` 或 `run` 对目标仓库跑 `scan.sh`，比较基点和候选，有回退就拒。
-- **防线**：`test_handin.sh` 加一个 501 行 md 的用例，交付被拒。
-- **验收**：交付一份超长 infra 文档时，`handin.sh` 在推分支前就拒绝。
 
 ### TD-500
 
@@ -3790,125 +3204,12 @@
 - **防线**：保留这个测量测试作棘轮：上界大小的折叠每个 ≤ 1.5 秒。
 - **验收**：`AGENTRT_EXPLAIN_MEASURE=1 go -C api test ./internal/agentrt/store/ -run TestExplainFoldsAtTheBound -v` 在 30 万行时两个折叠各 ≤ 1.5 秒，堆峰值 ≤ 300 MB；之后才能放宽 `DefaultExplainBounds` 的行数上界。
 
-### TD-504
-
-**P3 · 计划视图 · R5:5.5-19 整页解释的测量不数折叠次数**
-
-- **状态**：未开始（2026-11-03，R5:5.5-19 复核第 13 轮 S1）。
-- **证据**（platform main `bb6af68b`）：`api/internal/agentrt/store/stepexplain_measure_test.go:190` 的 `TestExplainWholeAtScale` 记下时间、语句数和堆峰值，只断言解释的步数、时间和堆（`:318-328`）；没有断言一次解释里，每个仓库的落地折叠和 B5 折叠各只跑一次。
-- **影响**：以后哪条路径绕过共享的 `repoExplain`（`store/stepexplain.go:339`、`:488`）又折叠了一次，语句数不会变，只会表现为变慢，测量指不出原因。
-- **修法**：在解释路径的 `LandingState` / `StgReleaseState` 外面套一个只在测试里用的读取计数，断言每个事务里每个仓库各一次，并和测量结果一起打印。
-- **现在的挡板**：语句数（多 17,000 行与否都是 793）和每个仓库共享一个 `repoExplain`。折叠重复了会显在时间上，不会显在语句数上。
-- **防线**：上面的计数断言留在测量测试里。
-- **验收**：`AGENTRT_EXPLAIN_MEASURE=1 go -C api test ./internal/agentrt/store/ -run TestExplainWholeAtScale -v` 打印每个仓库的折叠次数为 1 并断言；故意多折叠一次时测试失败。
-
-### TD-505
-
-**P3 · 计划视图 · R5:5.5-19 逐项查取消的几处没有各自的回归测试**
-
-- **状态**：未开始（2026-11-03，R5:5.5-19 复核第 14 轮 S1）。
-- **证据**（platform main `bb6af68b`）：`api/internal/agentrt/store/stepexplain.go:255` `explainRework` 的三个循环（`:281`、`:296`、`:315`）和 `store/explainroot.go:54` `ExplainRootWithin` 的第一遍（`:99`）都逐项查 context；`store/stepexplain_internal_test.go:322` 的 `TestExplainRootCardsStopOnCancel` 只覆盖 `addRootCards`（`stepexplain.go:190`）和 `indexCards`（`:386`）。
-- **影响**：删掉其中任何一处检查，测试照样绿；取消或超时之后，解释可能还要扫很多项才停。
-- **修法**：每个循环一条测试，在它之前取消，断言它带着取消错误停下（rework 用预先建好的 `repoExplain` 和 `stepLanding`；第一遍用已取消的 context 加很多步骤）。
-- **防线**：这几条测试本身；每条在删掉对应检查时失败（阴性对照）。
-- **验收**：`go -C api test ./internal/agentrt/store/ -run StopOnCancel -count=1` 全过；逐一去掉这四处检查，各有一条测试失败。
-
-### TD-506
-
-**P3 · 卡片 · 重提的任务不挂到它替代的那个，旧的一直 ready；预算卡不看同 mission 里已接受的同步骤、同任务书的实现，写「No recommendation」（卡 #99）**
-
-- **状态**：未开始（2026-11-03 19:3x CST 记）。
-- **证据**：
-  - 卡 #99（M-267）：11-02 `t_01M6CZR8J8M1JKBM70XC47SKS0`（基点写错）被同 mission 的 `t_01M6CZRS2HYWPY9JF0E3RCA3GD` 替代后，一直没被取消。它钉给 `external:coordinator`，ready 了 48 小时，直到 mission 的预算把它挡住；预算卡写「No recommendation」。同一个 mission 里已有一个已接受的实现，`plan_node_id` 和 `spec_artifact_id` 都和它一样。
-  - platform main `bb6af68b`：`api/internal/agentrt/store/blockedrecommend.go:110-123` 的 `recFacts` 里没有兄弟任务；`:126` 的 `recommend` 对「只被预算挡住、mission 已超过一天」的落到 `:144-145`，不给推荐。infra `3f2b041`：`agent-config/scripts/landing/handin.sh:7`、`:189` 的 `propose` 没有「替代哪一个」的参数。
-- **影响**：重复的任务在计划上一直算排队，等预算挡住才出卡；卡上没有推荐，要你自己判断。
-- **修法**：①卡片引擎加一条规则：被挡住的任务所在 mission 里有已接受的 implement 任务、同 plan node、同任务书时，卡写「duplicate of t_…」，推荐关 mission（或「不做这件」）；②重提时记下它替代哪个任务（如 `handin.sh propose --replaces`），旧任务没起过尝试就随之撤下。第②项和 TD-497（没用上的交付 root 一直 ready、没有撤回）一起做；R5:5.6-2 的基点检查是同一类。
-- **防线**：卡片测试 `TestBlockedDuplicateRecommendsClose`：带这样一个兄弟任务的被挡任务，推荐关 mission，并点名那个兄弟任务。
-- **验收**：`go -C api test ./internal/agentrt/store/ -run TestBlockedDuplicateRecommendsClose -count=1`（设隔离的 `AGENTRT_TEST_PG`、`AGENTRT_TEST_REDIS`、`AGENTRT_TEST_REQUIRED=1`）通过；PROD 上下一张这类卡的第一行写明重复和推荐。
-
-### TD-507
-
-**P3 · NAS 备份 · MinIO 回读：一次性 MinIO 建出来后报错、按运行令牌又查不到时，当成「没有容器」删掉草稿快照（TD-444 第 5 步复核第 5 轮 S1）**
-
-- **状态**：未开始（2026-11-03 20:2x CST，复核停止线把它延后）。
-- **证据**（infra `3f2b041`）：`scripts/nas/backup-rollup/minio-readback.sh:102` 按运行令牌查容器，查询失败被 `|| true` 吞掉，`RB_CID` 为空；`:104` 于是不记容器；`:264` 把空的 `RB_CID` 当成没有容器，删掉草稿快照。
-- **影响**：`docker run` 建了容器再报错、`docker ps` 同时也失败时，容器可能还挂着这个草稿快照在跑，却没留下任何记录供下次清理。
-- **修法**：分清「查过，没有」和「查不了」。查不了时保留草稿快照，在 `pending-cleanup.list` 记 `container-unknown <token>` 和 `scratch <path> <uuid>`，下次运行确认这个令牌的容器已经不在了再清；永远不按名字删。
-- **防线**：`scripts/nas/tests/test_rollup_minio.sh` 加一个用例：替身在建容器后报错、`ps` 也失败：草稿保留，两行都挂起；下一次查询正常时两行都清掉。
-- **验收**：`bash scripts/nas/tests/run.sh test_rollup_minio.sh` 全过，新用例在 `3f2b041` 上失败。
-
-### TD-508
-
-**P3 · NAS 备份 · `pending-cleanup.list` 里缺字段的行被悄悄丢掉或改写（TD-444 第 5 步复核第 5 轮 S2）**
-
-- **状态**：未开始（2026-11-03 20:2x CST，复核停止线把它延后）。
-- **证据**（infra `3f2b041`）：`scripts/nas/backup-rollup/rollup.sh:211`：没有 uuid 的 `snapshot` 行、路径又不存在时，`drop_snapshot` 因为 `:194` 的 `[[ -d $s ]] || return 0` 返回成功，这一行就没了；`:212` 的 `scratch` 一样。`:205` 和 `minio-readback.sh:77-80` 把缺令牌的 `container <id>` 改写成 `container <id> -`。
-- **影响**：一条写坏的清理记录会被当作已清理而消失，或被改成别的样子；之后没人知道还有东西没清。
-- **修法**：按类型检查每行的列数和格式（快照和草稿：绝对路径 + uuid；容器：12–64 位十六进制 id + 令牌）。不合格的行原样保留，在日志里写 ERROR，绝不交给 `drop_*`。
-- **防线**：测试用例 `snapshot /missing`、`container <id>`、`scratch <path>`：三行都原样留下，并记 ERROR。
-- **验收**：`bash scripts/nas/tests/run.sh test_rollup.sh test_rollup_minio.sh` 全过，这三个用例在 `3f2b041` 上失败。
-
-### TD-509
-
-**P3 · 发布 · push-main 跑仓库快测试时几分钟没有输出，看着像卡住了**
-
-- **状态**：未开始（2026-11-03 20:2x CST 记）。
-- **证据**（infra `3f2b041`）：`scripts/release/push_main_tests.py:149` 的 `run` 把每个进程的输出写进文件（`:171-174`），等待循环（`:168-198`）里什么都不打印，结束后只打印失败的（`:208-215`）和一行汇总（`:219`）。`scripts/release/push-main.sh:382` 只在开跑前列一次测试路径。一次 infra 推送要静默 3–5 分钟，被当成挂了。
-- **影响**：推 main 的人分不清它是在跑还是卡住了，可能中途打断。
-- **修法**：`push_main_tests.py` 每 15 秒打印一行进度（完成 N/M、还在跑的是哪几个、各跑了多久），每个文件跑完打印一行；`push-main.sh` 开头先说「推之前要跑 k 个测试文件」。
-- **防线**：测试：跑得比间隔长的一次至少打印一行进度；失败时照样打印完整输出。
-- **验收**：`python3 -m pytest -q scripts/release/test_push_main.py` 全过，含新用例；下一次 infra 推送跑测试时，每 15 秒至少有一行进度。
-
-### TD-510
-
-**P3 · Console · 正在跑的步骤卡展开「To finish」后，同一个任务名出现两次（R5:5.5-20 复核 S2）**
-
-- **状态**：未开始（2026-11-03 23:0x CST，R5:5.5-20 第 1 轮复核的 should-fix，复核停止线把它延后）。
-- **证据**（R5:5.5-20 交付提交 075b0f9b）：`console/src/pages/shell/agents/PlanModuleDetail.tsx:115-122`：步骤在跑时 `named` 为空，`Latest task` 照常写出最新的任务；挡路的行要在 `StepWhy` 里展开后才出现（`:178`），展开与否是 `StepWhy.tsx:110` 的内部状态（`:123-130`），`PlanModuleDetail` 不知道它开着。
-- **影响**：展开后同一个任务名在卡上出现两次，不符合这一步「任务名在卡上只出现一次」的要求。
-- **修法**：把展开状态提到 `Stage`，展开时从 `Latest task` 里去掉挡路的行已经点名的任务。
-- **防线**：`stepCard` 测试：展开后任务名只出现一次。
-- **验收**：`npm --prefix console test -- src/pages/shell/agents/__tests__/stepCard.test.tsx` 全过，新用例在 075b0f9b 上失败。
-
-### TD-511
-
-**P3 · Console · `one_of` 的结论比 §4.2 的表多了一条例外（R5:5.5-20 复核 S3）**
-
-- **状态**：未开始（2026-11-03 23:0x CST，R5:5.5-20 第 1 轮复核的 should-fix，复核停止线把它延后）。
-- **证据**（R5:5.5-20 交付提交 075b0f9b）：`console/src/pages/shell/agents/explainModel.ts:382-383` 的 `anySig` 要每条路径都是「没人」才得出「Nobody is on it.」，`:385` 对 `one_of` 用它；`:369-376` 的说明先照 §4.2 的表写（有安静的、没有任务等任何一处就是 Nobody is on it），末尾另加了这条例外。设计文档 API-REQUIREMENTS-IA-v2 §4.2 不在仓库里，原文未核实。
-- **影响**：一条路径没有任务、另一条在等审批时，卡上写「Waits.」，按表应是「Nobody is on it.」；实现和设计说法不一，后来的人不知道以哪个为准。
-- **修法**：按表实现，或者请 Design 把这条例外写进 §4.2；定了之后改代码或改文档。
-- **防线**：一个样例（一条 `no_task` 路径、一条等审批的路径）把定下的规则钉住。
-- **验收**：`npm --prefix console test -- src/pages/shell/agents/__tests__/explainModel.test.tsx` 全过，含这个样例；§4.2 和 `anySig` 说法一致。
-
-### TD-512
-
-**P3 · agentd · 某个模型自己的周限额被拒时，只有厂商措辞对得上才冷却 claude 周池**
-
-- **状态**：未开始（2026-11-02 记；platform `a4c83f96` 没有关掉它，见证据）。
-- **证据**（platform main `bb6af68b`）：`api/internal/agentd/usage.go:461` 只在 `refusal != ""` 时让 `modelRefusal` 的拒绝生效。`refusal` 只有两个来源：失败的 result 文字匹配 `claudeLimit`（`:182`、`:400-402`），或者一条 `error: rate_limit` 的 assistant 消息、且主线程模型在它之后没再回答（`:406-407`、`:451-452`）。`seven_day_opus` 这类被拒事件本身（`:426-429`）不算。这个条件正是 `a4c83f96`（11-02）有意加的，防的是「换了模型接着跑的运行也冷却整个账号」，所以它没有关掉这个缺口。`:370-374` 的注释也写着，拒绝文字的形状还没在真实运行里见过。`usage_test.go` 的 `TestMeasureClaudeModelWeeklyLimits` 没有「被拒的模型事件 + 失败但措辞不认识的 result + 没有 rate_limit 消息」这个用例。
-- **影响**：厂商换个说法，或者不发 rate_limit 消息时，模型周限额被拒不冷却任何池；后面的认领照样派给 claude，一次次被拒，直到执行者因连续失败被撤下（TD-395）。
-- **修法**：判断依据从措辞改成事件：最新的模型周限额事件是 rejected、主线程模型在它之后没有回答、且运行以失败或没有 result 结束，就算这个模型的拒绝，冷却到它的重置时间；被拒后又接着回答的运行照旧不算。
-- **防线**：`usage_test.go` 两个方向的用例：上面这种运行冷却周池到该模型重置；被拒后主线程模型接着回答的运行不冷却。
-- **验收**：`go -C api test ./internal/agentd/ -run TestMeasureClaudeModelWeeklyLimits -count=1` 通过，新用例在 `bb6af68b` 上失败。
-
-### TD-513
-
-**P2 · 发布 · push-main 推 infra 时不跑文档消费者检查和 code-health，也不等 ci-infra，main 红了没人知道**
-
-- **状态**：未开始（2026-11-04 记）。
-- **证据**：推 infra 时 push-main 打印「bifrost-trade-infra has no CI of its own; no CI checked」，可每次推 infra main 都会跑 `ci-infra` 流水线。11-03 晚从 80a8a4a 起它在 consumers 段连续失败（`unregistered_consumer k8s/storage/nfs-fast/render.py:96`，TD-444 第 5 步带上 11 个未登记的消费者），约 6 小时没人发现；期间在它之上的 infra 落地（R5:5.5-12 设计稿补充）落地 CI 也失败。consumers 段读的是推送前 main 上的登记表（`scripts/landing/doc_consumers.py` 的 `main`），所以登记行必须比消费者先上 main。
-- **再现**（2026-11-04）：R5:5.5-12 S1-5 那一推（0c841a4）push-main 测试 83/83 通过、打印「has no code-health task in CI; not scanned」后推上 main，ci-infra 在 code-health 段失败：`code.duplication.rocket.infra-py 40→42`。新加的测试辅助函数 `world`（`scripts/agent-host/tests/` 又多两份，共 5 份）和 `calls`（`agent-config/scripts/landing/test_handin_sessions.py`，共 4 份）超过「同名定义不超过 3 处」。推之前在本机只对 TD-444 那几推跑过 ci-infra 各段，没对 S1-4、S1-5 的提交跑。改名后回到 40（td/513-dup-names）。
-- **影响**：infra main 的 CI 一直红，所有 infra 落地都过不去，而推的人以为是绿的。
-- **修法**：push-main 推 infra 之前，和 ci-infra 一样以推送前的 main 作基点、候选作修订跑 `doc_consumers.py --purpose push`；有未登记的消费者就拒推，并提示先单独推登记行（登记行必须比消费者先上 main：检查只信基点的登记表）。基点 main 本身已经不一致时（例如 11-03 晚那 11 个），要有一个写明原因的放行开关，否则修复它的那一推也推不上去。code-health 同理：以推送前的 main 作基点跑 `coverage_infra.py` 的 code-health 比较，指标涨了就拒推。推完像 CI_REPOS 一样等 `ci-infra` 的结果并打印出来。
-- **防线**：push-main 的测试：一个提交新加一个带 `rglob(` 的文件，不登记就被拒推。
-- **验收**：`bash scripts/release/test_push_main.sh` 通过，新用例在本条修复前失败。
-
 ### TD-514
 
 **P3 · 运行时 · 落地批准单那一环反复重读已执行的旧单，并且超时**
 
 - **状态**：在做（2026-11-04 记；修复和 TD-456 一起在 platform 分支 `td/514-456-handin`，Codex 复核 PASS，待交付落地）。
+- **合并自 TD-494**（2026-11-05 台账清理）：PROD 的 agentrt-landing-requests 一轮大约每 10 分钟超时一次，每轮都重读同一批旧审批。理由：与 TD-514（在做，分支 td/514-456-handin）同一循环 agentrt-landing-requests 重读已执行旧单；11-05 PROD 仍 24h 85 次超时，作 TD-514 上线验收基线。原文在 git 历史（infra `e68e94b` 及以前的本文件）。
 - **证据**：
   - PROD `platform-workers` 在 11-04 05:21Z 到 06:43Z 之间记了 8 条 `agentrt-landing-requests: appr_…: context deadline exceeded`（往前 10 小时内只有这 8 条），每条点名 1 到 6 张单。点名最多的都是早已执行完的旧单：#191（`approve_guardrail_landing`，10-29 22:21Z 执行，8 条里都有）、#192（同一动作，10-29 22:50Z 执行，7 条）、#193（`approve_core_landing`，10-29 23:34Z 执行，6 条）。
   - 8 条集中在两段：05:21Z–05:35Z 和 06:34Z–06:43Z，正是两次落地在跑的时候（R5:5.5-20 第 3 次 05:10Z 交付，R5:5.5-12 P-a 06:33Z 交付）。两次落地都照样走到了 awaiting_grant。
@@ -3984,18 +3285,6 @@
 - **防线**：指标进 platform-api 的 `/metrics`；超过上限时在 Telemetry 里告警。
 - **验收**：PROD 的 `/metrics` 里能读到三个直方图，并有一周的基线数。
 
-### TD-490
-
-**P2 · 落地 · platform 的落地不查 infra 的文档消费者登记表，下一件 infra 落地才红**
-
-- **状态**：未开始（2026-11-02 夜，R5:5.11-1 落地 CI 红时记）。
-- **证据**：infra 的 `scripts/landing/doc_consumers.py:69` 在 infra 的落地 CI 里也扫 platform main（`--platform-revision`），platform 文件只按 S1 字样匹配（`:26`）。platform 自己的落地 CI 不跑这一步。11-02 白天 platform 落了两件（`0865f2c0` R5:5.8-3a、`277363a4` R5:5.5-10），带进四处没登记的消费者：`api/internal/agentrt/migrations/0011_debts.sql:2`、`api/internal/agentrt/rules/debt.go:14`、`api/internal/agentrt/store/debts.go:22` 是注释引用设计文档；`console/src/pages/shell/agents/planModuleModel.tsx:367`、`:433` 是界面文字里的英文名词。当晚 R5:5.11-1（只加一份设计文档）的落地 CI `landing-ci-infra-bcd298e0…` 在 consumers 阶段红：`unregistered_consumer api/internal/agentrt/migrations/0011_debts.sql:2`。之后每一件 infra 落地都会同样红，直到登记行上 main。登记表是硬底线，只能你推。
-- **第三例**（2026-11-04）：P-a（platform `749823ef`，11:28 CST 落地）带进 `api/internal/agentthreads/collector_test.go:258`（`"work":"W-765"`，夹具里的工作号）。本机按 infra 的落地检查核对时先发现，那时还没有 infra CI 跑到它。同时核对了排队中的 platform 版本：P-c1 还会带进 `console/src/api/__fixtures__/plan-view-collector.generated.json:26`，P-c2 还会带进 `console/src/api/__tests__/pc2MixedVersions.test.ts:18`。三处都只是单词 `work`（TD-466），一次登记，没等它们落地。已经交上去的 R5:5.7-6 设计稿那件交付先停了，免得落地失败出卡。
-- **影响**：platform 一落地，infra 的落地就被挡住，要等你推登记行；挡住的是与之无关的改动；登记表只能在事后补。
-- **修法**（架构级，先问你）：A. platform 的落地检查对候选提交跑同一个 `verify`，用 infra main 的登记表，有没登记或指纹变了的消费者就拒，并说清要先登记哪一行；B. infra 的 consumers 阶段对 platform 文件只警告、不拒，由每日巡检出单；C. 维持现状，每次事后补登记。推荐 A：在 platform main 前进之前就挡住，和「先登记、再出现消费者」的设计一致。
-- **防线**：platform 落地检查的测试：候选提交加一行带 S1 字样的注释，落地被拒，拒绝原因写明文件和行；登记后放行。
-- **验收**：一件 platform 改动带进新的 S1 字样时，它自己的落地被拒；登记后落地，随后一件 infra 文档落地 CI 绿。
-
 ### TD-488
 
 **P3 · cicd · Tekton 清理 CronJob 间歇失败、不留日志；失败的 Job 让 KubeJobFailed 响到 TTL，平台又删不掉**
@@ -4029,17 +3318,6 @@
 - **防线**：同一测试；加一个阳性对照用例（夹具坏掉时这一组必须红）。
 - **验收**：`python3 -m pytest -q scripts/agent-host/test_probe_gitea_protection.py -k never_echo` 通过；把 FAST_SLEEP 链指向不存在的文件后同一命令失败。
 
-### TD-485
-
-**P3 · infra handin · propose 不核对 --base 是否存在，错的基点照样建出任务**
-
-- **状态**：未开始（2026-11-01）。
-- **证据**：2026-11-01 统筹凭记忆写 infra main 的全 SHA：`handin.sh propose --base e4eaf08b6f30…`（实际是 `e4eaf0816b4d…`），任务 `t_01M6BTX2ST0H58JBJ4V15NYD39` 照建（proposed，`base_commit` 就是错值），统筹 `request_stop` 后重建。`agent-config/scripts/landing/handin.sh:189-224` `cmd_propose` 只要求 `--base` 非空；平台 `api/internal/agentrt/store/propose.go:481-482`、`:490-498` 只查 repo 与 base_commit 有没有填，不查提交在不在。
-- **影响**：错基点的任务要到 run 或落地时才失败，白占一次任务和一次停止。
-- **修法**：propose 前在 `--repo` 的 Gitea 远端核对 base 存在且是 main 的祖先（`git ls-remote` / `git cat-file -e`，或平台 propose 时校验 base 可达）；不通过就拒并说明。
-- **防线**：`test_handin.sh` 加「不存在的 base → 拒绝，平台上没有新任务」用例。
-- **验收**：用一个不存在的 SHA 跑 `handin.sh propose`，非 0 退出且平台上没有新任务。
-
 ### TD-484
 
 **P3 · Console 计划视图 · 「过期」用服务端 as_of 对本机时钟，设备时钟快 45 秒以上就永远判过期**
@@ -4050,17 +3328,6 @@
 - **修法**：用 TanStack Query 的 `dataUpdatedAt`（本机时钟取、本机时钟比）判断读数年龄；或在响应里带服务端 `now`，记下时差后再比 `as_of`。
 - **防线**：readAge 单测：本机时钟比 as_of 快 5 分钟、刚取到的视图不算过期。
 - **验收**：单测通过；把系统时钟调快 2 分钟打开 Work 页，刚刷新的视图不显示 Stale。
-
-### TD-483
-
-**P3 · Console 指挥页 · Now、Open goals、Crew 卡和页头结论只在报错或离线时作废，不看读数年龄**
-
-- **状态**：未开始（2026-11-01，R5:5.5-4 复核时发现）。
-- **证据**：`console/src/pages/shell/owner/useOwnerYours.ts:19-21` `current()` 只在 `isError || isPaused` 时丢掉数据；`useOwnerConsole.ts:131` `runtimeError` 同样只看这两项；`OwnerConsolePage.tsx:31-45` `VerdictBanner` 显示「as of …」但结论的颜色和文字不受读数年龄影响。刷新卡住（请求一直不回、也不报错）时，旧数被当成现状。
-- **影响**：Command 页和整页结论可能说「一切正常」而读数已是很久以前的。
-- **修法**：在 `current()` 或外壳层统一加读数年龄判定（超过轮询间隔的若干倍就当未读，结论降为 Unknown 并说明多久没读到）；建议单独立项（影响 Command 与整页结论）。
-- **防线**：owner 模型单测：`dataUpdatedAt` 超过门槛时卡片与结论都显示未知。
-- **验收**：单测通过；在 DEV 上让运行时读挂起 2 分钟，页头结论变为 Unknown。
 
 ### TD-482
 
@@ -4083,17 +3350,6 @@
 - **修法**：性能断言只在不带 `-race`、不并行的专门运行里生效（`testing.Short` / build tag / 环境变量），整套里只记日志；或按 `-race` 放宽倍数。
 - **防线**：同一测试；在 ci-platform 里单独跑一次无 race 的基准步骤。
 - **验收**：`go test -race -count=3 ./internal/agentrt/store/` 三次全绿；无 race 的专门运行仍守 1 秒。
-
-### TD-480
-
-**P3 · Console 计划树 · PlanTree 把「边不在 waiting_on」推断成「Milestone verified」**
-
-- **状态**：未开始（2026-11-01；模块详情已在 R5:5.5-3 改，PlanTree 没改）。
-- **证据**：`console/src/pages/shell/agents/PlanTree.tsx:20-25`：阻塞边在 `waiting_on` 里找不到就显示 `Milestone verified`。plan-view 没有逐边 / 逐里程碑的「已验证」字段；`moduleDetailModel.tsx:546,562` 已改成 `No wait recorded`。
-- **影响**：Whole plan 折叠视图对没有等待记录的边宣称里程碑已验证，可能与事实相反。
-- **修法**：PlanTree 用与模块详情相同的说法（`No wait recorded`）；或 plan-view 给出直接字段后再显示「verified」。
-- **防线**：PlanTree 测试：边不在 `waiting_on` 时文字不含 `verified`。
-- **验收**：测试通过；Whole plan 上没有等待记录的阻塞边显示 `No wait recorded`。
 
 ### TD-479
 
@@ -4180,28 +3436,6 @@
 - **验收结果**：PASS 2026-11-02 01:29 UTC，research `badd5d6`。① apply 后 1 小时 37 分僵尸 0（新 Pod PID 1 是 `pause`，pids.current 75、峰值 205；旧 Pod 是 27,646）；② 7 个 daemon 心跳都在 30 秒内（含 QUEUED_RUN_COORDINATOR），01:00、01:30 的 event_radar 按时触发；③ 补跑共 42 个 run，01:28 跑完，同时最多 2 个，daemon `restartCount` 0，内存峰值 2.27 GB（上限 4Gi）。41 个成功，1 个失败：`research_trading_day` 的 `batch__flex_gate`（IB Flex `[1003] Statement is not available` 与 `[1018] Too many requests`，补跑时 `research_flex_morning` 与它挨得太近），按 TD-192 只挡 Flex 读者，闸门、dbt、SEPA 与各引擎都已物化；周一夜里的批次会再拉 Flex。另：日频槽的补跑落在周日，option-bars、minute-bars、corporate、related 等按「触发日不是交易日」跳过（plugin `scheduler/daily.py:2159-2172`），10-30 的 option_daily 只有 3 个标的；10-30 不再是最新交易日后（周一晚），doctor 的连续性检查按日期开回补处方（`doctor.py:718-726`，`auto_fixable`），由周二 00:45 UTC 自愈执行。
 - 审批：apply_manifest C 级（你在 Console 批）· 代价 S · 风险 low · repos: bifrost-research
 
-### TD-472
-
-**P2 · S5 · 准入策略文件里的 S5 段在 Kubernetes 1.35 上 CEL 编译不过，从未装上；main 与线上不一致**
-
-- **状态**：未开始（2026-10-31）。
-- **证据**：2026-10-31 11:17 #233（owner_run_command）对 infra main f871bc4 的 `k8s/platform-rbac/40-admission.yaml` 做服务端 dry-run 被拒：S5 模板比较处 `expected type 'string' but found 'map(string, dyn)'`、`expected type 'bool' but found 'map(string, string)'` 等类型错误，来自 10-30 的 6a9bf12、f416ea7、25d7b23（`variables.s5`）。线上 `bifrost-platform-pipelinerun` 一直是 e889aa6（10-24）版；B5 改用安装快照 971956d（分支 `install/b5-admission-2026-10-31`：e889aa6 + B5 repo-url 一条规则）装上（#234）。
-- **影响**：main 上的准入文件装不上去；S5 启用前必须修；在修好之前，任何人按 main 重装都会在 dry-run 失败（失败即不改，安全）。
-- **修法**：把 S5 段里的列表 / map 字面量改成同构（`dyn()` 包裹或逐字段比较），每次改动在集群上做服务端 dry-run；装上后 main 与线上一致，删安装快照分支。
-- **防线**：infra CI 的 statics 阶段对 `40-admission.yaml` 做与集群版本一致的 CEL 编译检查，编不过就红。
-- **验收**：`git show origin/main:k8s/platform-rbac/40-admission.yaml | kubectl apply --dry-run=server -f -` 通过。
-
-### TD-471
-
-**P2 · S5 · 检查器镜像里没有清单绑定的依赖声明文件，启用后每次检查都会报 S5_TYPE，且构建期发现不了**
-
-- **状态**：未开始（2026-10-31）。修法待 Owner 选（A / B / C）。
-- **证据**：检查器从 `/opt/s5/node_modules` 解析依赖（platform `api/internal/agentrt/rules/s5check/ts/compiler.cjs:11-13,170-178`），实读的每个声明文件 sha256 进 toolchain，与 `policies/manifest.json` 不等即拒：`ts/contracts.cjs:270`（S5_TYPE）、`:298`（S5_IMPORT_UNKNOWN）。manifest 的 toolchain 共 324 项，其中 `dependencies/*` 263 个文件 / 78 个包（`@bifrost/ui` 71 个：`dist/**/*.d.ts`、`package.json`、嵌套的 clsx / class-variance-authority；其余是 console 的 `@types/react`、radix、vitest、tanstack 等）。镜像只装 go、node、typescript（infra `docker/s5-checker/TOOLS.lock.json`、`fetch_tools.py:21-23`、`Dockerfile:6-11,19-21`），runner 只把 UI 当 bare 仓库绑 SHA、不构建 dist（`runner.py:176-195,340-341,379`）。镜像构建期的 `verify_materials.py` 与 `--ci-materials`（`materials.go:257-276`）只校 manifest、脚本、TOOLS.lock、UI pin，不校 toolchain 里的依赖文件，所以镜像会「绿着」构建出来。2026-10-31 实测：本机 `console/node_modules` + bifrost-ui c83f40b 构建产物与 263 项逐一相等，修法可行。
-- **影响**：S5 启用后没有一件落地能过检查；而规则一登记 S5 路径，platform 所有 `.ts/.tsx` 落地都要 S5 证据（`landing/s5.go:106,114`），展示类 TSX 落地会一起卡住。
-- **修法（三选一）**：A（推荐）镜像内按 `platform/console/package-lock.json` 做 `npm ci --ignore-scripts`，流水线加 `clone-ui`（`uiRevision` = `policies/ui-revision.json` 的 pin，validate-sources 一并校验）并构出 dist，组装 `/opt/s5/node_modules`；B 检查时由 fetch Task 现装（扩大联网面，违背 README:96-97「不在检查时安装」）；C 把 263 个文件 vendor 进 `rules/s5check/vendor/`，Dockerfile 直接 COPY（离线，但每次 enroll 要重新 vendor）。
-- **防线**：`docker/s5-checker/verify_materials.py` 构建期逐项比对 manifest.toolchain 的全部哈希，不等即构建失败；platform 的 `--ci-materials` 同样覆盖。
-- **验收**：S5 启用演练中一次真实检查 `passed:true`、`findings:[]`，且 toolchain 无 S5_TYPE。
-
 ### TD-470
 
 **P3 · STG agentrt · 统筹主机在 STG 领不到自己钉的任务（no_lease：no tool of the host is on the task's route）**
@@ -4247,18 +3481,6 @@
 - **防线**：infra 加一条检查：`k8s/cicd/tekton` 下 Task 步骤的 `image` 不得用 `*.svc.cluster.local` 主机。
 - **验收**：S5 启用演练中 S5 Task 的 Pod 成功拉取检查器镜像。
 
-### TD-464
-
-**P3 · handin · 报告过大被拒后 key 绑死，新 key 要等 15 分钟宽限**
-
-- **状态**：未开始（2026-10-30）。
-- **证据**：2026-10-30 15:4x S6 quick（`t_01M6796F06X57VF6T36PNFCQWV`）：`handin.sh run` 在 claim 之后上传 13 KB 报告得 HTTP 422；该 key 随即绑定到这份报告（再用同 key 报 `key is bound to a different report`），换新 key 又报 `leased, not ready`，要等旧尝试过 Grace（15 分钟，`api/internal/agentrt/store/kernel.go:44`）。
-- **第二例**（2026-11-01，统筹记）：报告里写了家目录形式的本机路径，平台按 H8 拒收（`bifrost-platform` `api/internal/agentrt/store/localpath.go:15-23`：`report` 类工件要扫描，规则与 agentd 共用）。`agent-config/scripts/landing/handin.sh:380-388` 在 claim 之前就把 key 绑定到这份报告的哈希，`:418-419` 在 claim 之后才上传，所以同样卡住：要先删掉本地绑定（`git rev-parse --git-path handin/runs/<binding>.json`）再用同一个 key 重交。修法加一条：claim 之前按平台同一规则查本机路径，命中就拒绝、不 claim。
-- **影响**：一次报告超长就白等 15 分钟以上，且要人工判断换 key。
-- **修法**：`handin.sh run` 在 claim 之前按 API 给出的上限检查报告大小，超限直接拒绝、不 claim；脚本说明里写明宽限等待。
-- **防线**：handin 的 shell 测试：超长报告在 claim 之前失败、不产生任何尝试。
-- **验收**：用一份超限报告跑 `handin.sh run`，返回大小错误且平台上没有新尝试。
-
 ### TD-463
 
 **P3 · platform AI assessment · 改为 Owner 点了才生成（Owner 2026-10-30 早上提出）**
@@ -4270,17 +3492,6 @@
 - **防线**：store 测试——未请求的单不进评估队列；Console 测试——没点按钮时不显示评估、点了后发一次请求。
 - **验收**：新建一张审批单，不点按钮则无评估；点了后页面出现评估。
 
-### TD-460
-
-**P2 · platform B5 · 首次 STG 自动发布 canary 缺「创建样本 / 收尾」的操作入口**
-
-- **状态**：未开始（2026-10-30）。
-- **证据**：B5-h 复核 767 R-01 与修复 768（codex-work-768/REPORT.md、`B5-CANARY.md`）：第一次在 STG 打开 `stg_release` 时，需要一个由平台确定名字创建的 finalizer 样本，并在演练后收尾；平台目前没有操作者可调用的入口（无平台动作 / MCP 工具 / 审批单类型）。768 写明了缺口、责任人与替代步骤，没有虚构入口。
-- **影响**：B5 在 STG 第一次开门前，canary 无法按设计自动跑完；只能用替代步骤，验收要人工核对。
-- **修法**：加一个 STG 专用、只能在 `stg_release` 首次开门流程里调用的平台动作（建样本、收尾各一），走现有审批分级；或在设计里改为由 B5 控制循环在首次 run 时自建样本并在终态收尾。二选一前先问 Owner。
-- **防线**：canary 文档里每一步都对应一个存在的平台动作；加一条文档测试（检查文档里引用的动作名都在动作表里）。
-- **验收**：在 STG 按 `B5-CANARY.md` 从头到尾跑完一次，无需替代步骤。
-
 ### TD-465
 
 **P2 · infra 落地 · 文档消费者棘轮：reader / constraint / skip 只按命中行哈希，复用已有路径变量的新读取看不见**
@@ -4291,18 +3502,6 @@
 - **修法**：`reader`、`constraint`、`skip` 三类改为对整个文件取哈希（文件任何改动都要重新核实登记）；`data`、`mention`、`token` 仍按命中行。`doc_consumers.py` 按类别选哈希方式，登记表随之重算。
 - **防线**：`scripts/landing/test_doc_policy.py` 加用例：已登记的 reader 在不改命中行的情况下加一行新读取 → 红 `consumer_changed`；同样的改动放在 mention 文件里 → 绿。
 - **验收**：`python -m pytest -q scripts/landing` 全绿，且新用例在去掉整文件哈希后变红。
-
-### TD-466
-
-**P2 · infra 落地 · 平台侧发现把单词 work 也当信号，平台任何一处新 token 都让 infra 落地整条变红**
-
-- **状态**：未开始（2026-10-30）；修法要 Owner 定。
-- **证据**：`scripts/landing/doc_consumers.py:12` 的 S1 含 `["']work["']` 和 `/work/`，`:69` 对平台检出也用 S1。平台 9997c113 有 89 个命中文件，其中 64 个登记为 `token`（JSON 键、路由 id、夹具目录名，与 infra 文档无关）。S5 落地（9997c113）一次就新增 3 个这样的文件（`api/internal/agentrt/rules/s5check/ci_test.go`、`landing_contract_test.go`、`policies/manifest.json`），每一个都会让 infra 落地红在 `unregistered_consumer`，直到 Owner 手推更新登记（登记表在硬底线）。
-- **第二例**（2026-11-01，只读 `kubectl -n cicd` 读检查 Pod 日志）：平台 R5:5.5 的 Console 改动一落地，infra 的检查就红在 consumers：`ci-infra-tjhl8`（17:26Z）`unregistered_consumer console/src/pages/shell/agents/planRoundModel.ts:45`（`formatShellHash('work', …)`，S1 的 `["']work["']` 命中路由名）；`ci-infra-djgcv`（18:59Z）`unregistered_consumer …/__tests__/workPage.test.tsx:50`；infra `fb8142e`（11-01 11:33 CST）登记了五个 Console 文件后，`landing-ci-infra-49ddb38d415c3faa5fd8d335-1`（21:04Z）又红在 `consumer_changed console/src/pages/shell/agents/workViewModel.ts`（5.5-2 与 5.5-4 之间命中行变了）；21:30Z 之后转绿。平台自己的落地不跑这项检查，红只在下一次 infra CI 才出现。
-- **影响**：平台的日常开发会不断关掉 infra 文档落地，每次都要 Owner 手推一个只为登记 token 的提交，抵消了 S6 让 Owner 不再手推 infra 的目的。
-- **修法**（二选一，先问 Owner）：A. 平台侧只认目录信号 `multi-agent|agent-config/work|work/multi`，单独的 `"work"` 与 `/work/` 不再算（平台读 infra 只经三条 Gitea 读取路径，都指向硬底线文件，§12）；B. 规则不变，但平台侧只命中 token 型信号的新增文件降为告警，不变红。推荐 A：规则简单，降级判断不依赖分类。C（2026-11-01 统筹补，可与 A 并用）：平台落地 CI 也按 infra 的登记表跑 discover / verify，红在平台交付时就出现，而不是留给下一次 infra CI。
-- **防线**：`scripts/landing/test_doc_policy.py` 加用例：平台新增一行 `"work"` → 绿（A）或告警（B）；平台新增 `agent-config/work/multi-agent/...` 引用 → 仍红 `unregistered_consumer`。
-- **验收**：在平台夹具里加一个只含 `"work"` 键的新文件，`doc_consumers.py` 不红；加一个含文档目录路径的新文件，红。
 
 ## 没覆盖到的（下一轮从这里开始）
 
