@@ -3940,6 +3940,50 @@
 - **防线**：`scripts/k3s` 的测试断言 join 脚本含 nfs-common 安装和挂载测试；节点表脚本里不出现写死的 IP 列表。
 - **验收**：加一台测试节点（或重放 07 的入集群步骤）后，它能挂 nfs-hot 和 nfs-fast；`install-nfs-common-nodes.sh` 不带参数时覆盖 `kubectl get nodes` 里的全部 amd64 节点。
 
+### TD-518
+
+**P3 · platform 测试 · relay 的超长邮箱测试在整套里重建超过锁的 5 秒，报 lock lost**
+
+- **状态**：未开始（2026-11-04 记，R5:5.5-12 P-c2 第 3 轮候选的整套 api 时碰到）。
+- **证据**：`api/internal/agentrt/relay/relay_test.go:262` `TestOverMaxLenLosesSignalsNotMessages` 先写 1200 条消息再 `Rebuild`；夹具的 `LockTTL` 是 5 秒（同文件 `setup`，`:36`）。11-04 本机整套 api（真 PostgreSQL、TZ=UTC）里这个测试跑了 34.06 秒，在 `:271` 报 `relay: lock lost; this relay no longer writes`；同一提交单独连跑 5 次全过，每次约 3 秒。改动不在 relay 包。
+- **影响**：与改动无关的红，推 main 或落地 CI 要重跑。另一面：重建期间不续锁，生产上一次重建超过锁的 TTL 也会自己停写，要先确认生产的 TTL 和重建时长。
+- **修法**：先量生产上的重建时长和 `LockTTL`；重建超过 TTL 的一半时续锁（生产问题），测试夹具给这个大测试单独放宽 TTL；或者两者都做。
+- **防线**：一条测试在重建中途让时钟走过 TTL，断言续锁后仍能写；整套里这个测试不再依赖 5 秒墙钟。
+- **验收**：`go -C api test ./internal/agentrt/relay/ -count=3` 在整套 api 同时跑的负载下三次全绿（设好 `AGENTRT_TEST_PG`、`AGENTRT_TEST_REDIS` 和 `AGENTRT_TEST_REQUIRED=1`）。
+
+### TD-519
+
+**P3 · platform agentthreads · 会话键的随机模型只覆盖 State.Apply，没覆盖 Recorder 刷盘、失败重试和提交后可见性**
+
+- **状态**：未开始（2026-11-04 记，R5:5.5-12 P-c2 落地前预审第 1、2 轮的应该改 S1）。
+- **证据**：`api/internal/agentthreads/sessions_keymeta_test.go:22` `TestSessionKeyMetadataInterleavings` 只在内存里对 `State.Apply` 打随机心跳。预审两轮找到的五处并发问题（`recorder.go` 的 `Flush`、`Admit`、`State`、`RecordHost`）都在 Recorder 和 Store 之间，靠逐个写确定性用例才抓到（`sessions_prereview_test.go`）。
+- **影响**：刷盘失败重试、刷盘与同步写交错、提交后修剪这一类顺序问题，只能等复核一例一例地找。
+- **修法**：随机模型改到 Recorder 层：存储可注入失败，刷盘可在写前、写后暂停（用 `beforeFlushWrite` / `afterFlushWrite`），操作集合含缓冲心跳、同步登记、nonce 重放、主机心跳、刷盘成功与失败；每一步后比对 `State()` 和模型。
+- **防线**：该随机模型进 agentthreads 包的测试；去掉任何一处 `waitFlushLocked` 时它能失败。
+- **验收**：`go -C api test ./internal/agentthreads/ -race -run Interleav -count=3` 全绿；对照：去掉 `State` 里的 `waitFlushLocked` 时失败。
+
+### TD-520
+
+**P3 · platform agentthreads · epoch 之前存下的旧行参与恢复时，首次看到的时间可以一直是空的**
+
+- **状态**：未开始（2026-11-04 记，R5:5.5-12 P-c2 落地前预审第 1 轮的应该改 S2）。
+- **证据**：`api/internal/agentthreads/sessionkey.go:158-167`（P-c2 第 3 轮候选上的行号；`heldKey` 只从非零的 `FirstSeenAt` 里取最早的）。P-c2 之前的二进制存下的行没有 session / epoch 和 `first_seen_at`；这样的行和新行同键恢复时，只要所有同键行都是旧行，`first_seen_at` 就一直为空。
+- **影响**：Live 的「Unlinked sessions」那一行首次看到的时间显示为空，只在升级后的过渡期出现。
+- **修法**：恢复时 `FirstSeenAt` 全为零，就用同键行里最早的 `At` 补上，并标明是补的值。
+- **防线**：一条测试用 P-c2 之前格式的行（无 epoch、无 first_seen_at）恢复，断言补上的时间等于最早的 `At`。
+- **验收**：`go -C api test ./internal/agentthreads/ -run FirstSeen -count=1` 通过，新用例在修复前失败。
+
+### TD-521
+
+**P3 · platform agentthreads · 没有心跳写入路径的延迟基线：存储写、锁等待、缓冲重放**
+
+- **状态**：未开始（2026-11-04 记，R5:5.5-12 P-c2 落地前预审第 1、2 轮的应该改 S3）。
+- **证据**（P-c2 第 3 轮候选上的行号）：`api/internal/agentthreads/recorder.go:91`、`:371`、`:530`：`Admit`、`RecordHost`、`State` 在刷盘期间都等它结束，刷盘的存储写时长直接加到心跳和列表请求上；`:537` `snapshotLocked` 每次请求把整个缓冲重放一遍，成本是缓冲长度乘行数。没有任何测量。
+- **影响**：存储一慢，心跳和 Work → Live 的列表一起变慢；看不到是哪一段。
+- **修法**：给三段各加一个直方图（存储写时长、等刷盘的时长、快照重放的时长），先量一周基线再定上限。
+- **防线**：指标进 platform-api 的 `/metrics`；超过上限时在 Telemetry 里告警。
+- **验收**：PROD 的 `/metrics` 里能读到三个直方图，并有一周的基线数。
+
 ### TD-490
 
 **P2 · 落地 · platform 的落地不查 infra 的文档消费者登记表，下一件 infra 落地才红**
