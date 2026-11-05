@@ -3285,6 +3285,17 @@
 - **防线**：指标进 platform-api 的 `/metrics`；超过上限时在 Telemetry 里告警。
 - **验收**：PROD 的 `/metrics` 里能读到三个直方图，并有一周的基线数。
 
+### TD-522
+
+**P2 · platform console · Work → Sign-offs 的「Ready for your sign-off now」把计划导入时直接标成进行中的步骤也算成「已开始」**
+
+- **状态**：未开始（2026-11-05 记）。
+- **证据**：`console/src/api/agentRuntimePlan.ts:363-372`（`signoffWaits`：`state` 不是 `planned` 就算已开始）。PROD R5 在 2026-11-05 19:2xZ 只读：R5:5.4-1、R5:5.4-2 的 `state` 是 `active`，来自 2026-11-01 04:42Z 的 `plan_node_state_changed`（`cause: legacy_imported`），两步都没有任务（`task_counts` 为空）；它们的交付（platform `8850296`、`7ec82e27`）都不在 main 上，`bifrost-build-s5-checker` 一次也没跑过。页面把这两步和真在等 owner_signoff 的 R5:5.5-15 并列在 Ready 里。
+- **影响**：Ready 的意思是「工作开始了、只差你点一下」，这两条看上去可以点；两步的完成规则只有 owner_signoff，点了就把没交付的一步记成完成。现在只能逐条提醒。
+- **修法**：「已开始」只认运行时的证据：这一步有过租约的任务，或有登记的外部工作。导入时置为 active 而没有任务的步骤列在 Not started，行上写明「导入时标为进行中，没有任务」。
+- **防线**：`workSignoffs` 的测试加一条：`state: active`、`state_event.cause: legacy_imported`、没有任务的步骤不进 Ready。
+- **验收**：PROD Work → Sign-offs 的 Ready 里没有 R5:5.4-1、R5:5.4-2，除非它们有了任务；新用例在修复前失败。
+
 ### TD-488
 
 **P3 · cicd · Tekton 清理 CronJob 间歇失败、不留日志；失败的 Job 让 KubeJobFailed 响到 TTL，平台又删不掉**
