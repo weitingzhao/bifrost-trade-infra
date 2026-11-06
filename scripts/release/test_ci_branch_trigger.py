@@ -34,11 +34,14 @@ def filters():
 
 def evaluate(expr, body):
     py = " ".join(expr.split())
+    # CEL has checks field presence without reading a possibly missing field.
+    py = re.sub(r"has\(([\w.]+)\.([\w]+)\)", r"_has(\1, '\2')", py)
     # X.matches('re') -> _m(X, 're'): CEL's matches is an RE2 search; the filters anchor theirs (TD-435)
     py = re.sub(r"([\w.]+)\.matches\(('[^']*')\)", r"_m(\1, \2)", py)
     py = py.replace("&&", " and ").replace("||", " or ").replace(".startsWith(", ".startswith(")
     py = re.sub(r"!(?!=)", " not ", py)
-    scope = {"body": Obj(body), "_m": lambda value, pattern: re.search(pattern, value) is not None}
+    scope = {"body": Obj(body), "_m": lambda value, pattern: re.search(pattern, value) is not None,
+             "_has": lambda obj, key: key in obj}
     return bool(eval(py, {"__builtins__": {}}, scope))  # noqa: S307 - our own file's filters
 
 
@@ -118,3 +121,42 @@ def test_a_platform_attempt_or_land_branch_runs_no_ci():
     # The other repositories keep their rule (bifrost-ui's attempt still runs both gates).
     assert [n for n in fired(push("bifrost-ui", attempt)) if n in CI] == ["frontend-ci-ui", "platform-ci-ui"]
     assert [n for n in fired(push("bifrost-trade-core", attempt)) if n in CI] == ["python-ci"]
+
+
+@pytest.mark.parametrize("pusher", [
+    {"login": "agentrt-lander"},
+    {"username": "agentrt-lander"},
+    {"login": "agentrt-lander", "username": "Owner"},
+    {"login": "Owner", "username": "agentrt-lander"},
+    {"login": "agentrt-lander", "username": "agentrt-lander"},
+])
+def test_lander_main_push_runs_no_second_platform_ci(pusher):
+    body = push("bifrost-platform", "refs/heads/main")
+    body["pusher"] = pusher
+    assert "platform-ci" not in fired(body)
+
+
+@pytest.mark.parametrize("pusher", [
+    None, {}, {"login": "Owner"}, {"username": "another-user"},
+    {"login": "Owner", "username": "Owner"},
+    {"login": "agentrt-lander-extra", "username": "Agentrt-lander"},
+])
+def test_other_or_missing_pusher_runs_platform_ci(pusher):
+    body = push("bifrost-platform", "refs/heads/main")
+    if pusher is not None:
+        body["pusher"] = pusher
+    assert "platform-ci" in fired(body)
+
+
+@pytest.mark.parametrize("repo, ci", [
+    ("bifrost-trade-frontend", ["frontend-ci"]),
+    ("bifrost-trade-core", ["python-ci"]),
+    ("bifrost-research", ["python-ci"]),
+    ("bifrost-ui", ["frontend-ci-ui", "platform-ci-ui"]),
+    ("bifrost-trade-infra", ["infra-ci"]),
+])
+def test_lander_push_keeps_other_repositories_ci(repo, ci):
+    body = push(repo, "refs/heads/main")
+    body["repository"]["full_name"] = f"bifrost/{repo}"
+    body["pusher"] = {"login": "agentrt-lander", "username": "agentrt-lander"}
+    assert [n for n in fired(body) if n in CI + ["infra-ci"]] == ci
