@@ -143,8 +143,10 @@ spec:
       runAfter: [clone, clone-legacy]
       # R5:5.7-1: the scope task changes chose (Tekton runs this task after it, as it
       # reads its result). full runs go vet and every Go test, as before.
-      # The scoped selector owns the suite, including store; the store share
-      # remains for the legacy console-only path.
+      # A full run (main push, daily full, a landing run with no base) splits
+      # in two side by side as before: this one is go vet and every package but
+      # ./internal/agentrt/store, test-api-store below is that package alone.
+      # An incremental landing run hands the whole selection to this one.
       params:
         - name: scope
           value: $(tasks.changes.results.api-scope)
@@ -161,8 +163,9 @@ spec:
         name: bifrost-ci-platform-test-api
     - name: test-api-store
       runAfter: [clone, clone-legacy]
-      # Retained legacy share; the task skips duplicate work when test-api runs
-      # the selector. Console scope still performs its existing safety check.
+      # ./internal/agentrt/store alone on a full run, beside test-api; on an
+      # incremental run test-api's selector picks the store tests and this
+      # one runs none. Console scope still performs its existing safety check.
       params:
         - name: scope
           value: $(tasks.changes.results.api-scope)

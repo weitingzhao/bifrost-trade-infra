@@ -175,7 +175,13 @@ exit "${SELECTOR_STATUS:-0}"
 ''')
     bins = tmp_path / 'bin'
     bins.mkdir()
-    (bins / 'go').write_text('#!/bin/sh\nexit 0\n')
+    (bins / 'go').write_text('''#!/bin/bash
+echo "go $*" >> "$GO_CALLS"
+if [ "$1" = list ]; then
+  if [ "$2" = ./internal/agentrt/store ]; then echo m/internal/agentrt/store; else printf 'm/a\\nm/internal/agentrt/store\\n'; fi
+fi
+exit 0
+''')
     (bins / 'git').write_text('''#!/bin/bash
 echo "$*" >> "$GIT_CALLS"
 case "$1" in
@@ -189,7 +195,7 @@ esac
     task = next(t for t in pipeline()['tasks'] if t['name'] == 'test-api')
     script = task['taskSpec']['steps'][0]['script'].replace('$(workspaces.source.path)', str(tmp_path))
     env = {**os.environ, 'PATH': str(bins) + ':' + os.environ['PATH'],
-           'GIT_CALLS': str(tmp_path / 'git-calls'), 'API_PART': 'rest'}
+           'GIT_CALLS': str(tmp_path / 'git-calls'), 'GO_CALLS': str(tmp_path / 'go-calls'), 'API_PART': 'rest'}
     paths = {}
     for name in ('API_SCOPE', 'FAILED_TESTS', 'API_PACKAGES', 'API_STORE_RUN', 'API_SCOPE_WHY'):
         paths[name] = tmp_path / name
@@ -201,25 +207,43 @@ esac
              ('a' * 40, '', 'fixture', 'incremental', 0, 0),
              ('a' * 40, '', 'fixture', 'incremental', 0, 1)]
     for base, request, why, scope, changed, missing in cases:
+        (tmp_path / 'go-calls').write_text('')
         run = subprocess.run(['bash'], input=script, text=True, capture_output=True,
                              env={**env, 'LANDING_BASE': base, 'API_SCOPE_REQUEST': request,
                                   'SELECTOR_CHANGED': str(changed), 'BASE_MISSING': str(missing),
                                   'SELECTOR_STATUS': '7'})
-        assert run.returncode == 7, run.stdout + run.stderr
         assert paths['API_SCOPE'].read_text() == scope
         assert paths['API_SCOPE_WHY'].read_text() == why
         packages = paths['API_PACKAGES'].read_text()
         assert 'github.com/' not in packages
-        assert len(packages.encode()) <= 1200
-        assert len(paths['API_STORE_RUN'].read_bytes()) <= 600
         assert sum(len(p.read_bytes()) for p in paths.values()) <= 4096 - 512
-        assert paths['API_STORE_RUN'].read_text().endswith('... (cut, see the log)')
-        assert paths['FAILED_TESTS'].read_text().endswith('... (cut, see the log)')
-        assert ('packages=github.com/' in run.stdout and 'store_run=TestLongPattern' in run.stdout)
+        go_calls = (tmp_path / 'go-calls').read_text()
         if scope == 'full':
+            # A full run keeps the split: part rest tests every package but
+            # store itself, side by side with part store; no selector.
+            assert run.returncode == 0, run.stdout + run.stderr
             assert packages == ''
+            assert 'packages=github.com/' not in run.stdout
+            assert 'go test m/a -count=1' in go_calls
+            assert 'm/internal/agentrt/store -count' not in go_calls
         else:
+            assert run.returncode == 7, run.stdout + run.stderr
+            assert len(packages.encode()) <= 1200
+            assert len(paths['API_STORE_RUN'].read_bytes()) <= 600
+            assert paths['API_STORE_RUN'].read_text().endswith('... (cut, see the log)')
+            assert paths['FAILED_TESTS'].read_text().endswith('... (cut, see the log)')
+            assert ('packages=github.com/' in run.stdout and 'store_run=TestLongPattern' in run.stdout)
             assert packages.endswith('... (cut, see the log)')
+    # Part store: the store package alone on a full run, nothing on an
+    # incremental one (part rest's selector picks the store tests).
+    for base, ran in (('', True), ('a' * 40, False)):
+        (tmp_path / 'go-calls').write_text('')
+        run = subprocess.run(['bash'], input=script, text=True, capture_output=True,
+                             env={**env, 'API_PART': 'store', 'LANDING_BASE': base, 'API_SCOPE_REQUEST': '',
+                                  'SELECTOR_CHANGED': '0', 'BASE_MISSING': '0', 'SELECTOR_STATUS': '7'})
+        assert run.returncode == 0, run.stdout + run.stderr
+        assert ('go test ./internal/agentrt/store -count=1' in (tmp_path / 'go-calls').read_text()) == ran
+        assert 'packages=github.com/' not in run.stdout
     calls = (tmp_path / 'git-calls').read_text()
     assert 'fetch --unshallow origin' in calls
     assert 'fetch origin ' + 'a' * 40 in calls
