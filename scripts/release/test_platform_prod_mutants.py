@@ -61,15 +61,15 @@ def test_planted_violation(tmp_path, mutation, named_test):
         before, after = {
             "resolve": ("if len(candidates) != 1:", "if not candidates:"),
             "ci": (
-                'if classify(runs, "bifrost-platform", sha, require_full=True) != "succeeded":',
+                'if classify(runs, "bifrost-platform", sha, require_full=require_full) != "succeeded":',
                 "if False:",
             ),
             "ci-console": ('if scopes in (["full"], ["console"]):\n        return scopes[0]',
                            'if scopes in (["full"], ["console"]):\n        return "full"'),
             "ci-malformed": ('    return "malformed"\n\n\ndef classify', '    return "full"\n\n\ndef classify'),
             "ci-require-full": (
-                'classify(runs, "bifrost-platform", sha, require_full=True)',
-                'classify(runs, "bifrost-platform", sha)',
+                'require_full = os.environ.get("REQUIRE_FULL_CI", "off") == "on"',
+                "require_full = False",
             ),
             "stg": ("if len(commits) != 1 or commits[0] != sha:", "if False:"),
             "latest": (

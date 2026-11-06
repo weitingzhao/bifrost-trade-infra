@@ -146,7 +146,8 @@ git show 27e4467:k8s/cicd/tekton/pipeline-deliver-platform-prod.yaml | kubectl a
 | 拒绝行里有 | 意思 | 怎么办 |
 |---|---|---|
 | `identity cannot read PipelineRuns/TaskRuns in cicd` | 检查没跑在 tekton-deliver 下 | platform 那一半还没到 PROD，或这条 run 是手建的、没给 check-source 指身份 |
-| `no exact-SHA Succeeded full CI` | 这个提交没有成功的全量 `bifrost-ci-platform`：没有 run、全量 run 是红的，或者只有 `api-scope=console` 的 run 成功（R5:5.7-1：只改 console 的分支与落地只跑一部分 Go 测试；没有 `api-scope` 结果的旧 run 算全量） | 等 CI；推上 main 的那一轮是全量的。CI 没起，先查这个提交在不在 Gitea 上（它是主仓库，推上去钩子就起 CI），再起一次 |
+| `no exact-SHA Succeeded full CI` | 开关 `requireFullCI` 为 `on` 时：这个提交没有成功的全量 `bifrost-ci-platform`：没有 run、全量 run 是红的，或者只有 `api-scope=console` 的 run 成功（R5:5.7-1：只改 console 的分支与落地只跑一部分 Go 测试；没有 `api-scope` 结果的旧 run 算全量） | 等 CI；推上 main 的那一轮是全量的。CI 没起，先查这个提交在不在 Gitea 上（它是主仓库，推上去钩子就起 CI），再起一次 |
+| `no exact-SHA Succeeded CI` | 开关 `requireFullCI`（PROD 流水线参数，默认 `off`；release.sh 读 `BIFROST_RELEASE_REQUIRE_FULL_CI`）关着时：这个提交没有成功的 `bifrost-ci-platform`，全量或部分都没有（部分 = `api-scope` 为 `console` 或落地 CI 的 `incremental`）。Owner 2026-11-06：还没有用户，PROD 不强制全量；以后打开开关，回到上一行的要求 | 等 CI；落地 CI 绿了就算 |
 | `no STG delivery` | 集群里一条 `bifrost-deliver-platform` 的 run 都没有（run 只留 7 天） | 发一次 STG |
 | `STG clone commit differs or is ambiguous` | STG 最新一次成功发布的不是这个提交 | 先把这个提交发到 STG |
 | `STG run X is False`、`is Unknown`、`is running/no Succeeded condition` | 最新一次 STG 发布失败或还在跑 | 等它结束；失败就重发 STG |

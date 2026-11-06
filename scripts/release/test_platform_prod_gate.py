@@ -88,6 +88,7 @@ def execute(
     revision="main",
     list_docs=None,
     others=None,
+    require_full="on",
 ):
     default_doc, default_task = answers()
     (tmp_path / "runs.json").write_text(json.dumps(default_doc if doc is None else doc))
@@ -147,6 +148,7 @@ else:
         "REVISION": revision,
         "UI_REVISION": "main",
         "GITEA_BASE": "http://gitea.cicd.svc.cluster.local:3000/bifrost",
+        "REQUIRE_FULL_CI": require_full,
         "COMMIT_PATH": str(tmp_path / "commit"),
         "UI_COMMIT_PATH": str(tmp_path / "ui-commit"),
         "API_DIGEST_PATH": str(tmp_path / "api-digest"),
@@ -318,6 +320,25 @@ def test_ci_refuses(tmp_path, case):
         assert classify(doc["items"], "bifrost-platform", SHA, require_full=True) != "succeeded"
     refuse(execute(tmp_path, doc, task), "CI")
     assert not (tmp_path / "commit").exists()
+
+
+@pytest.mark.parametrize("scope,ships", [("console", True), ("incremental", True), ("partial", False), ("", False)])
+def test_ci_partial_ships_with_the_full_gate_off(tmp_path, scope, ships):
+    # The Owner, 2026-11-06: with requireFullCI off a green partial run of the
+    # exact SHA ships (console, or a landing's incremental run); a malformed
+    # scope still does not.
+    doc, task = answers()
+    doc["items"][0]["status"]["results"] = [{"name": "api-scope", "value": scope}]
+    result = execute(tmp_path, doc, task, require_full="off")
+    if ships:
+        assert result.returncode == 0, result.stdout + result.stderr
+    else:
+        refuse(result, "CI")
+
+
+def test_the_full_gate_is_off_by_default():
+    params = {p["name"]: p for p in yaml.safe_load(PIPELINE.read_text())["spec"]["params"]}
+    assert params["requireFullCI"]["default"] == "off"
 
 
 def test_two_ci_one_succeeded(tmp_path):
@@ -736,7 +757,7 @@ def test_task_params_declared_and_passed():
 
     task = tasks()["check-source"]
     used = set(re.findall(r"\$\(params\.([^)]+)\)", json.dumps(task["taskSpec"])))
-    assert used == {"revision", "uiRevision", "giteaBase"}
+    assert used == {"revision", "uiRevision", "giteaBase", "requireFullCI"}
     assert used <= {p["name"] for p in task["taskSpec"]["params"]}
     assert {p["name"]: p["value"] for p in task["params"]} == {
         name: "$(params." + name + ")" for name in used

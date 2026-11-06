@@ -404,9 +404,14 @@ wait_for_ci() {
     kubectl -n "${CICD_NAMESPACE}" get pipelineruns -l tekton.dev/pipeline=bifrost-ci-frontend -o json >"${runs_fe}"
     kubectl -n "${CICD_NAMESPACE}" get pipelineruns -l tekton.dev/pipeline=bifrost-ci-platform -o json >"${runs_py}.platform"
     code=0
-    # R5:5.7-1: a release takes only a full run (no api-scope=console) as a SHA's CI.
+    # R5:5.7-1: with BIFROST_RELEASE_REQUIRE_FULL_CI=on a release takes only a full
+    # run as a SHA's CI. Off by default (the Owner, 2026-11-06: no users yet), a
+    # green partial run (console, or a landing's incremental run) counts too, as the
+    # PROD pipeline's requireFullCI does.
+    full=()
+    [[ "${BIFROST_RELEASE_REQUIRE_FULL_CI:-off}" == on ]] && full=(--require-full)
     python3 "${RELEASE_DIR}/ci_gate.py" --runs "${runs_py}" --runs "${runs_fe}" --runs "${runs_py}.platform" \
-      --require-full --allow-red "${ALLOW_RED:-}" "${pairs[@]}" || code=$?
+      ${full[@]+"${full[@]}"} --allow-red "${ALLOW_RED:-}" "${pairs[@]}" || code=$?
     if [[ "${code}" -eq 0 ]]; then
       return 0
     fi

@@ -34,6 +34,25 @@ spec:
       value: $(body.repository.clone_url)
 
 ---
+# --- TriggerBinding: a bifrost-platform push, with the commit the ref moved from ---
+# R5:5.7 CI time (Owner 2026-11-06): a platform push tests what it changed since
+# that commit (scripts/ci/test_api_scoped.sh base head); a new branch (before is
+# all zeros), a force push or any unreadable base runs the whole suite.
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerBinding
+metadata:
+  name: bifrost-gitea-push-platform
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: ci-trigger
+spec:
+  params:
+    - name: revision
+      value: $(body.after)
+    - name: base
+      value: $(body.before)
+
+---
 # --- TriggerBinding: a bifrost-ui push runs the frontend and platform gates against that ui commit ---
 # The pushed SHA is bifrost-ui's: it goes to uiRevision, and the frontend under test stays on
 # main. Bound as `revision` (the frontend's) it named a commit the frontend repo does not have,
@@ -169,6 +188,9 @@ spec:
       default: main
     - name: uiRevision
       default: main
+    # The commit a push moved from; empty for a ui push (the whole suite).
+    - name: base
+      default: ""
   resourcetemplates:
     - apiVersion: tekton.dev/v1
       kind: PipelineRun
@@ -188,6 +210,8 @@ spec:
             value: $(tt.params.revision)
           - name: uiRevision
             value: $(tt.params.uiRevision)
+          - name: base
+            value: $(tt.params.base)
           # W-31 B5: explicit, not a template param a payload could set.
           - name: repo-url
             value: http://gitea.cicd.svc.cluster.local:3000/bifrost/bifrost-platform.git
@@ -328,7 +352,7 @@ spec:
                    (!has(body.pusher.username) || body.pusher.username != 'agentrt-lander'))) &&
                 body.repository.name == 'bifrost-platform'
       bindings:
-        - ref: bifrost-gitea-push
+        - ref: bifrost-gitea-push-platform
       template:
         ref: bifrost-ci-platform-template
     # L1: bifrost-ui — the Console builds against it too, so a ui push runs the platform

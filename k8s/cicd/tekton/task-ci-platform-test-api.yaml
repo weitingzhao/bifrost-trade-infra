@@ -46,13 +46,16 @@ spec:
       volumeMounts:
         - name: pgdata
           mountPath: /pgdata
+      # R5:5.7 CI time (2026-11-06): the store share spent 13.5 min against
+      # one CPU here; the same tests take 6.5 min on a Mac with the server
+      # below unbounded and not syncing to disk.
       computeResources:
         requests:
-          cpu: 100m
-          memory: 256Mi
+          cpu: 500m
+          memory: 512Mi
         limits:
-          cpu: "1"
-          memory: 1Gi
+          cpu: "4"
+          memory: 2Gi
       readinessProbe:
         exec:
           command: [test, -f, /pgdata/roles-ready]
@@ -64,7 +67,9 @@ spec:
         trap 'cat /pgdata/log 2>/dev/null || true' EXIT
         export PATH="/usr/lib/postgresql/17/bin:$PATH" LC_ALL=C
         initdb -D /pgdata/data -U postgres --auth=trust -E UTF8 --locale=C >/dev/null
-        pg_ctl -D /pgdata/data -l /pgdata/log -o "-c listen_addresses=127.0.0.1 -p 5432 -k /pgdata" -w start >/dev/null
+        # A throwaway server: nothing outlives the run, so it never waits for
+        # the disk (fsync, full-page writes, synchronous commit all off).
+        pg_ctl -D /pgdata/data -l /pgdata/log -o "-c listen_addresses=127.0.0.1 -p 5432 -k /pgdata -c fsync=off -c full_page_writes=off -c synchronous_commit=off -c max_connections=300" -w start >/dev/null
         psql -h 127.0.0.1 -p 5432 -U postgres -d postgres -X -v ON_ERROR_STOP=1 -q \
           -c "CREATE ROLE agentrt_owner_dev LOGIN" -c "CREATE ROLE platform_agentrt_dev LOGIN" \
           -c "CREATE ROLE platform_agentrt_stg LOGIN" -c "CREATE ROLE agent_reader LOGIN"
@@ -136,13 +141,15 @@ spec:
           value: $(results.api-store-run.path)
         - name: API_SCOPE_WHY_RESULT
           value: $(results.api-scope-why.path)
+      # Go runs as many tests at once as it has CPUs (GOMAXPROCS follows this
+      # limit); most of them wait on the database above (R5:5.7 CI time).
       computeResources:
         requests:
-          cpu: 250m
+          cpu: 500m
           memory: 512Mi
         limits:
-          cpu: "2"
-          memory: 2Gi
+          cpu: "4"
+          memory: 3Gi
       script: |
         #!/usr/bin/env bash
         set -euo pipefail
@@ -319,7 +326,7 @@ spec:
         fi
 
         cd "${ws}/bifrost-platform"
-        revision="$(git rev-parse HEAD)"
+        revision=""
         base="${LANDING_BASE:-}"
         why=""
         if [ "${API_SCOPE_REQUEST:-}" = full ]; then
@@ -329,6 +336,9 @@ spec:
         elif [[ ! "$base" =~ ^[0-9a-f]{40}$ ]]; then
           why="invalid base"
         else
+          # Only a run with a base reads the checkout's commit: a full run
+          # needs none.
+          revision="$(git rev-parse HEAD)"
           git_read() {
             GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0 \
               GIT_CONFIG_COUNT=3 \
@@ -360,7 +370,7 @@ spec:
           printf '%s' "$why" > "$API_SCOPE_WHY_RESULT"
           cd api
           if [ "${part}" = store ]; then
-            echo "==> go test ${STORE_PACKAGE} (part store, full: ${why})"
+            echo "==> go test ${STORE_PACKAGE} (part store); full: ${why}"
             go test "${STORE_PACKAGE}" -count=1 -timeout=900s
             echo "==> Go API tests passed (part store)"
             exit 0
@@ -371,7 +381,7 @@ spec:
             store_import="$(go list "${STORE_PACKAGE}")"
             # Import paths have no spaces: one per line, then go test takes them as words.
             packages="$(go list ./... | grep -vxF "${store_import}")"
-            echo "==> go test: $(printf '%s\n' "${packages}" | wc -l | tr -d ' ') packages, every one but ${store_import} (part rest, full: ${why})"
+            echo "==> go test: $(printf '%s\n' "${packages}" | wc -l | tr -d ' ') packages, every one but ${store_import} (part rest); full: ${why}"
             # shellcheck disable=SC2086
             go test ${packages} -count=1 -timeout=900s
             echo "==> Go API tests passed (part rest)"
