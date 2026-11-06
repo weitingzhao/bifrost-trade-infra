@@ -392,12 +392,10 @@ spec:
           echo "==> Go API tests passed"
           exit 0
         fi
-        # Incremental: the selector below owns the suite, the store package
-        # included; the store share has nothing left to run.
-        if [ "${part}" = store ]; then
-          echo "==> incremental scope: part rest's selector runs the store tests it picks"
-          exit 0
-        fi
+        # Incremental: each share runs its part of the selection side by side,
+        # as a full run does (part store the store tests it picks, part rest
+        # the other packages); test_api_scoped.sh reads API_SCOPED_PART.
+        case "${part}" in store|rest) export API_SCOPED_PART="${part}" ;; esac
         echo "==> go vet ./..."
         (cd api && go vet ./...)
 

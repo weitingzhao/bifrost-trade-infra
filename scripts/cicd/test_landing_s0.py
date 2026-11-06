@@ -234,16 +234,22 @@ esac
             assert paths['FAILED_TESTS'].read_text().endswith('... (cut, see the log)')
             assert ('packages=github.com/' in run.stdout and 'store_run=TestLongPattern' in run.stdout)
             assert packages.endswith('... (cut, see the log)')
-    # Part store: the store package alone on a full run, nothing on an
-    # incremental one (part rest's selector picks the store tests).
-    for base, ran in (('', True), ('a' * 40, False)):
-        (tmp_path / 'go-calls').write_text('')
+    # Part store: the store package alone on a full run; on an incremental one
+    # the selector with API_SCOPED_PART=store (its share of the selection).
+    (tmp_path / 'go-calls').write_text('')
+    run = subprocess.run(['bash'], input=script, text=True, capture_output=True,
+                         env={**env, 'API_PART': 'store', 'LANDING_BASE': '', 'API_SCOPE_REQUEST': '',
+                              'SELECTOR_CHANGED': '0', 'BASE_MISSING': '0', 'SELECTOR_STATUS': '7'})
+    assert run.returncode == 0, run.stdout + run.stderr
+    assert 'go test ./internal/agentrt/store -count=1' in (tmp_path / 'go-calls').read_text()
+    assert 'packages=github.com/' not in run.stdout
+    (scripts / 'test_api_scoped.sh').write_text('#!/bin/bash\necho "part=${API_SCOPED_PART:-none}"\nprintf incremental > "$API_SCOPE_RESULT"\n')
+    for part in ('store', 'rest'):
         run = subprocess.run(['bash'], input=script, text=True, capture_output=True,
-                             env={**env, 'API_PART': 'store', 'LANDING_BASE': base, 'API_SCOPE_REQUEST': '',
-                                  'SELECTOR_CHANGED': '0', 'BASE_MISSING': '0', 'SELECTOR_STATUS': '7'})
+                             env={**env, 'API_PART': part, 'LANDING_BASE': 'a' * 40, 'API_SCOPE_REQUEST': '',
+                                  'SELECTOR_CHANGED': '0', 'BASE_MISSING': '0', 'SELECTOR_STATUS': '0'})
         assert run.returncode == 0, run.stdout + run.stderr
-        assert ('go test ./internal/agentrt/store -count=1' in (tmp_path / 'go-calls').read_text()) == ran
-        assert 'packages=github.com/' not in run.stdout
+        assert f'part={part}' in run.stdout
     calls = (tmp_path / 'git-calls').read_text()
     assert 'fetch --unshallow origin' in calls
     assert 'fetch origin ' + 'a' * 40 in calls
