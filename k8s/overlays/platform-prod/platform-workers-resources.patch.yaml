@@ -1,0 +1,21 @@
+# platform-workers on PROD (2026-11-06): after the R5:5.7 release at 09:28 CDT (platform
+# 5661d6c4) the workers ran at the 1-core CPU limit (0.99 cores; 0.74 at peak before) and were
+# OOMKilled once at 512Mi (09:57 CDT, while the first landing of the new lane was in its
+# drill). Several loops then took 12-30 s a pass (facts-rules, landing-drill, STG release).
+# 2 cores and 1536Mi, as platform-api has since 10-31, give headroom while the slow passes
+# are found and fixed. The node has ample allocatable memory.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-workers
+spec:
+  template:
+    spec:
+      containers:
+        - name: platform-api
+          resources:
+            requests:
+              memory: 256Mi
+            limits:
+              cpu: "2"
+              memory: 1536Mi
