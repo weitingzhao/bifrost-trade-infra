@@ -46,7 +46,11 @@ def test_t50_receives_a_pinned_baseline_before_api_tests():
     env = {e["name"]: e.get("value") for e in step["env"]}
     assert env["AGENTRT_T50_LEGACY_SRC"] == "$(workspaces.source.path)/" + params["subdir"] + "/api"
     assert env["AGENTRT_TEST_REQUIRED"] == "1"
-    assert all("valueFrom" not in e for e in step["env"])
+    credentials = {e['name']: e['valueFrom']['secretKeyRef'] for e in step['env'] if 'valueFrom' in e}
+    assert credentials == {
+        'GIT_USERNAME': {'name': 'gitea-ci-reader', 'key': 'username'},
+        'GIT_PASSWORD': {'name': 'gitea-ci-reader', 'key': 'password'},
+    }
     assert "when" not in legacy and "onError" not in legacy
 
 
@@ -67,6 +71,14 @@ def test_vet_only_defect_stops_the_actual_ci_script(tmp_path):
     for args in [("build", "./..."), ("test", "./...")]:
         r = subprocess.run(["go", *args], cwd=api, env=env, capture_output=True, text=True)
         assert r.returncode == 0, r.stderr
+    scripts = api.parent / "scripts/ci"
+    scripts.mkdir(parents=True)
+    (scripts / "test_api_scoped.sh").write_text('cd api\ngo test ./...\n')
+    subprocess.run(["git", "init", "-q", str(api.parent)], check=True)
+    subprocess.run(["git", "-C", str(api.parent), "-c", "user.name=Test", "-c",
+                    "user.email=test@example.invalid", "commit", "--allow-empty", "-qm", "fixture"], check=True)
+    for name in ("API_SCOPE", "FAILED_TESTS", "API_PACKAGES", "API_STORE_RUN", "API_SCOPE_WHY"):
+        env[name + "_RESULT"] = str(tmp_path / name)
     spec = pipeline()
     task = next(t for t in spec["tasks"] if t["name"] == "test-api")
     script = task["taskSpec"]["steps"][0]["script"].replace("$(workspaces.source.path)", str(tmp_path))
@@ -121,3 +133,118 @@ def test_ci_default_has_no_credential_or_pod_creation_grants():
             assert not (resources & {"secrets", "*"} and verbs & {"get", "list", "watch", "*"}), binding
             assert not (resources & {"pods", "deployments", "jobs", "pipelineruns", "taskruns", "roles", "rolebindings", "*"}
                         and verbs & {"create", "update", "patch", "*"}), binding
+
+
+def test_api_scope_params_and_results():
+    spec = pipeline()
+    task = next(t for t in spec['tasks'] if t['name'] == 'test-api')
+    for params in (spec['params'], task['taskSpec']['params']):
+        by_name = {p['name']: p for p in params}
+        for name in ('base', 'api-scope-request'):
+            assert by_name[name]['type'] == 'string'
+            assert by_name[name]['default'] == ''
+    for name in ('test-api', 'test-api-store'):
+        share = next(t for t in spec['tasks'] if t['name'] == name)
+        params = {p['name']: p['value'] for p in share['params']}
+        for param in ('base', 'api-scope-request'):
+            assert params[param] == '$(params.' + param + ')'
+    results = {r['name']: r['value'] for r in spec['results']}
+    declared = {r['name'] for r in task['taskSpec']['results']}
+    for name in ('api-scope', 'failed-tests', 'api-packages', 'api-store-run', 'api-scope-why'):
+        assert name in declared
+        assert results[name] == '$(tasks.test-api.results.' + name + ')'
+
+
+def test_api_scope_execution_and_result_budget(tmp_path):
+    """Exercise the manifest shell with a selector fixture, no Go or network."""
+    root = tmp_path / 'bifrost-platform'
+    (root / 'api').mkdir(parents=True)
+    scripts = root / 'scripts/ci'
+    scripts.mkdir(parents=True)
+    (scripts / 'test_api_scoped.sh').write_text('''#!/bin/bash
+printf '%s' "${API_SCOPE_REQUEST:-incremental}" > "$API_SCOPE_RESULT"
+[ "${API_SCOPE_REQUEST:-}" = full ] || printf incremental > "$API_SCOPE_RESULT"
+printf 'packages='
+for i in {1..100}; do printf 'github.com/weitingzhao/bifrost-platform/api/internal/pkg%s ' "$i"; done
+printf '\\nstore_run='
+printf 'TestLongPattern%.0s' {1..100}
+printf '\\nwhy=fixture\\nscope=%s\\n' "$(cat "$API_SCOPE_RESULT")"
+printf 'failure%.0s' {1..500} > "$FAILED_TESTS_RESULT"
+printf 'why=test output must not become a result\\n'
+exit "${SELECTOR_STATUS:-0}"
+''')
+    bins = tmp_path / 'bin'
+    bins.mkdir()
+    (bins / 'go').write_text('''#!/bin/bash
+echo "go $*" >> "$GO_CALLS"
+if [ "$1" = list ]; then
+  if [ "$2" = ./internal/agentrt/store ]; then echo m/internal/agentrt/store; else printf 'm/a\\nm/internal/agentrt/store\\n'; fi
+fi
+exit 0
+''')
+    (bins / 'git').write_text('''#!/bin/bash
+echo "$*" >> "$GIT_CALLS"
+case "$1" in
+rev-parse) if [ "$2" = --is-shallow-repository ]; then echo true; else printf 'b%.0s' {1..40}; fi ;;
+cat-file) exit "${BASE_MISSING:-0}" ;;
+diff) exit "${SELECTOR_CHANGED:-0}" ;;
+esac
+''')
+    for path in bins.iterdir():
+        path.chmod(0o755)
+    task = next(t for t in pipeline()['tasks'] if t['name'] == 'test-api')
+    script = task['taskSpec']['steps'][0]['script'].replace('$(workspaces.source.path)', str(tmp_path))
+    env = {**os.environ, 'PATH': str(bins) + ':' + os.environ['PATH'],
+           'GIT_CALLS': str(tmp_path / 'git-calls'), 'GO_CALLS': str(tmp_path / 'go-calls'), 'API_PART': 'rest'}
+    paths = {}
+    for name in ('API_SCOPE', 'FAILED_TESTS', 'API_PACKAGES', 'API_STORE_RUN', 'API_SCOPE_WHY'):
+        paths[name] = tmp_path / name
+        env[name + '_RESULT'] = str(paths[name])
+    cases = [('', '', 'no base (main push)', 'full', 0, 0),
+             ('INVALID', '', 'invalid base', 'full', 0, 0),
+             ('a' * 40, 'full', 'API_SCOPE_REQUEST=full', 'full', 0, 0),
+             ('a' * 40, '', 'selector changed', 'full', 1, 0),
+             ('a' * 40, '', 'fixture', 'incremental', 0, 0),
+             ('a' * 40, '', 'fixture', 'incremental', 0, 1)]
+    for base, request, why, scope, changed, missing in cases:
+        (tmp_path / 'go-calls').write_text('')
+        run = subprocess.run(['bash'], input=script, text=True, capture_output=True,
+                             env={**env, 'LANDING_BASE': base, 'API_SCOPE_REQUEST': request,
+                                  'SELECTOR_CHANGED': str(changed), 'BASE_MISSING': str(missing),
+                                  'SELECTOR_STATUS': '7'})
+        assert paths['API_SCOPE'].read_text() == scope
+        assert paths['API_SCOPE_WHY'].read_text() == why
+        packages = paths['API_PACKAGES'].read_text()
+        assert 'github.com/' not in packages
+        assert sum(len(p.read_bytes()) for p in paths.values()) <= 4096 - 512
+        go_calls = (tmp_path / 'go-calls').read_text()
+        if scope == 'full':
+            # A full run keeps the split: part rest tests every package but
+            # store itself, side by side with part store; no selector.
+            assert run.returncode == 0, run.stdout + run.stderr
+            assert packages == ''
+            assert 'packages=github.com/' not in run.stdout
+            assert 'go test m/a -count=1' in go_calls
+            assert 'm/internal/agentrt/store -count' not in go_calls
+        else:
+            assert run.returncode == 7, run.stdout + run.stderr
+            assert len(packages.encode()) <= 1200
+            assert len(paths['API_STORE_RUN'].read_bytes()) <= 600
+            assert paths['API_STORE_RUN'].read_text().endswith('... (cut, see the log)')
+            assert paths['FAILED_TESTS'].read_text().endswith('... (cut, see the log)')
+            assert ('packages=github.com/' in run.stdout and 'store_run=TestLongPattern' in run.stdout)
+            assert packages.endswith('... (cut, see the log)')
+    # Part store: the store package alone on a full run, nothing on an
+    # incremental one (part rest's selector picks the store tests).
+    for base, ran in (('', True), ('a' * 40, False)):
+        (tmp_path / 'go-calls').write_text('')
+        run = subprocess.run(['bash'], input=script, text=True, capture_output=True,
+                             env={**env, 'API_PART': 'store', 'LANDING_BASE': base, 'API_SCOPE_REQUEST': '',
+                                  'SELECTOR_CHANGED': '0', 'BASE_MISSING': '0', 'SELECTOR_STATUS': '7'})
+        assert run.returncode == 0, run.stdout + run.stderr
+        assert ('go test ./internal/agentrt/store -count=1' in (tmp_path / 'go-calls').read_text()) == ran
+        assert 'packages=github.com/' not in run.stdout
+    calls = (tmp_path / 'git-calls').read_text()
+    assert 'fetch --unshallow origin' in calls
+    assert 'fetch origin ' + 'a' * 40 in calls
+    assert '-- scripts/ci/test_api_scoped.sh api/cmd/testscope api/internal/testscope' in calls

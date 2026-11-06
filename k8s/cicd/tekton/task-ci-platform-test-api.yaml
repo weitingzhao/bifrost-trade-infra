@@ -1,9 +1,6 @@
-# Task test-api of bifrost-ci-platform (pipeline-ci-platform.yaml): go vet and the Go tests,
-# every one, or with api-scope=console only those that read files outside api/ (R5:5.7-1).
-# R5:5.7-5: part splits the full run in two that run side by side, each with its own
-# PostgreSQL and Redis: store is ./internal/agentrt/store alone (527 s of the 16.7-minute
-# run on 11-05), rest is go vet and every other package. Together they are every package
-# once. all (the default) is the run as before.
+# API test task of bifrost-ci-platform. The selector runs the full or incremental
+# suite and records its scope; console scope keeps the existing reader checks.
+# The legacy store share does no duplicate work when the selector owns the suite.
 apiVersion: tekton.dev/v1
 kind: Task
 metadata:
@@ -20,7 +17,19 @@ spec:
     - name: part
       type: string
       default: all
-      description: all, store (./internal/agentrt/store only) or rest (go vet and every other package)
+      description: Legacy share identity; store skips when the scoped selector owns the suite
+    - name: base
+      type: string
+      default: ""
+    - name: api-scope-request
+      type: string
+      default: ""
+  results:
+    - name: api-scope
+    - name: failed-tests
+    - name: api-packages
+    - name: api-store-run
+    - name: api-scope-why
   workspaces:
     - name: source
   # The agent runtime's database and Redis tests (W-31 2.1) need a real
@@ -101,6 +110,32 @@ spec:
         # R5:5.7-5: all, store or rest.
         - name: API_PART
           value: $(params.part)
+        # The clone does not persist credentials; history fetches need the same
+        # read-only identity, supplied only as an HTTP header to git.
+        - name: GIT_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: gitea-ci-reader
+              key: username
+        - name: GIT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: gitea-ci-reader
+              key: password
+        - name: LANDING_BASE
+          value: $(params.base)
+        - name: API_SCOPE_REQUEST
+          value: $(params.api-scope-request)
+        - name: API_SCOPE_RESULT
+          value: $(results.api-scope.path)
+        - name: FAILED_TESTS_RESULT
+          value: $(results.failed-tests.path)
+        - name: API_PACKAGES_RESULT
+          value: $(results.api-packages.path)
+        - name: API_STORE_RUN_RESULT
+          value: $(results.api-store-run.path)
+        - name: API_SCOPE_WHY_RESULT
+          value: $(results.api-scope-why.path)
       computeResources:
         requests:
           cpu: 250m
@@ -111,11 +146,18 @@ spec:
       script: |
         #!/usr/bin/env bash
         set -euo pipefail
+        git_auth="$(printf '%s:%s' "${GIT_USERNAME:-}" "${GIT_PASSWORD:-}" | base64 | tr -d '\n')"
+        unset GIT_USERNAME GIT_PASSWORD
         ws="$(workspaces.source.path)"
         cd "${ws}/bifrost-platform/api"
         part="${API_PART:-all}"
         case "${part}" in all|store|rest) ;; *) echo "unknown part ${part}"; exit 1 ;; esac
         STORE_PACKAGE=./internal/agentrt/store
+        export LC_ALL=C
+        printf full > "$API_SCOPE_RESULT"
+        for result in "$FAILED_TESTS_RESULT" "$API_PACKAGES_RESULT" "$API_STORE_RUN_RESULT" "$API_SCOPE_WHY_RESULT"; do
+          : > "$result"
+        done
 
         echo "==> go mod download"
         go mod download
@@ -134,7 +176,7 @@ spec:
         # devsession/catalog_repo_test.go joins ../../.. (".") with config/sessions-catalog.yaml;
         # codehealth/scanner.go walks up to ".", the workspace of a running platform-api.
         CONSOLE_SCOPE_KNOWN="api/internal/devsession/catalog_repo_test.go=. api/internal/codehealth/scanner.go=."
-        if [ "${API_SCOPE:-full}" = "console" ]; then
+        if [ "${API_SCOPE:-full}" = "console" ] && [ -z "${LANDING_BASE:-}" ] && [ "${API_SCOPE_REQUEST:-}" != full ]; then
           scope_check="$(mktemp -d)"
           cat > "${scope_check}/main.go" <<'GO'
         package main
@@ -258,6 +300,8 @@ spec:
           printf 'module scopecheck\n\ngo 1.21\n' > "${scope_check}/go.mod"
           # shellcheck disable=SC2086
           if found="$(cd "${scope_check}" && GOFLAGS= go run . "${ws}/bifrost-platform" ${CONSOLE_SCOPE_PACKAGES} -- ${CONSOLE_SCOPE_KNOWN} 2>&1)"; then
+            printf console > "$API_SCOPE_RESULT"
+            printf '%s' 'console scope' > "$API_SCOPE_WHY_RESULT"
             # Both parts run this same check on the same checkout, so they agree: the
             # console packages are not the store package, and store runs nothing here.
             if [ "${part}" = store ]; then
@@ -274,30 +318,112 @@ spec:
           echo "${found}"
         fi
 
-        # 900s: agentrt/store alone takes ~230s on a dev Mac with its PostgreSQL
-        # tests (W-31 core landing block); 300s timed out on the CI node.
+        cd "${ws}/bifrost-platform"
+        revision="$(git rev-parse HEAD)"
+        base="${LANDING_BASE:-}"
+        why=""
+        if [ "${API_SCOPE_REQUEST:-}" = full ]; then
+          why="API_SCOPE_REQUEST=full"
+        elif [ -z "$base" ]; then
+          why="no base (main push)"
+        elif [[ ! "$base" =~ ^[0-9a-f]{40}$ ]]; then
+          why="invalid base"
+        else
+          git_read() {
+            GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0 \
+              GIT_CONFIG_COUNT=3 \
+              GIT_CONFIG_KEY_0=http.http://gitea.cicd.svc.cluster.local:3000/.extraHeader \
+              GIT_CONFIG_VALUE_0="Authorization: Basic $git_auth" \
+              GIT_CONFIG_KEY_1=http.followRedirects GIT_CONFIG_VALUE_1=false \
+              GIT_CONFIG_KEY_2=credential.helper GIT_CONFIG_VALUE_2= git "$@"
+          }
+          # A bare-SHA shallow clone lacks the ancestry the selector needs.
+          # Fetch failure is allowed: the selector explains an unreadable base.
+          if [ "$(git rev-parse --is-shallow-repository)" = true ]; then
+            git_read fetch --unshallow origin || true
+          fi
+          if ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+            git_read fetch origin "$base" || true
+          fi
+          if git cat-file -e "${base}^{commit}" 2>/dev/null; then
+            if ! git diff --quiet "$base" "$revision" -- scripts/ci/test_api_scoped.sh api/cmd/testscope api/internal/testscope; then
+              why="selector changed"
+            fi
+          fi
+        fi
+        unset git_auth
+        if [ -n "$why" ]; then
+          # A full run keeps the two shares side by side (R5:5.7-5): part store
+          # tests the store package alone, part rest every other package, so a
+          # full run takes as long as before. Only an incremental landing run
+          # hands the whole suite to the selector below.
+          printf '%s' "$why" > "$API_SCOPE_WHY_RESULT"
+          cd api
+          if [ "${part}" = store ]; then
+            echo "==> go test ${STORE_PACKAGE} (part store, full: ${why})"
+            go test "${STORE_PACKAGE}" -count=1 -timeout=900s
+            echo "==> Go API tests passed (part store)"
+            exit 0
+          fi
+          echo "==> go vet ./..."
+          go vet ./...
+          if [ "${part}" = rest ]; then
+            store_import="$(go list "${STORE_PACKAGE}")"
+            # Import paths have no spaces: one per line, then go test takes them as words.
+            packages="$(go list ./... | grep -vxF "${store_import}")"
+            echo "==> go test: $(printf '%s\n' "${packages}" | wc -l | tr -d ' ') packages, every one but ${store_import} (part rest, full: ${why})"
+            # shellcheck disable=SC2086
+            go test ${packages} -count=1 -timeout=900s
+            echo "==> Go API tests passed (part rest)"
+            exit 0
+          fi
+          echo "==> go test ./... (full: ${why})"
+          go test ./... -count=1 -timeout=900s
+          echo "==> Go API tests passed"
+          exit 0
+        fi
+        # Incremental: the selector below owns the suite, the store package
+        # included; the store share has nothing left to run.
         if [ "${part}" = store ]; then
-          echo "==> go test ${STORE_PACKAGE} (part store)"
-          go test "${STORE_PACKAGE}" -count=1 -timeout=900s
-          echo "==> Go API tests passed (part store)"
+          echo "==> incremental scope: part rest's selector runs the store tests it picks"
           exit 0
         fi
-
         echo "==> go vet ./..."
-        go vet ./...
+        (cd api && go vet ./...)
 
-        if [ "${part}" = rest ]; then
-          store_import="$(go list "${STORE_PACKAGE}")"
-          # Import paths have no spaces: one per line, then go test takes them as words.
-          packages="$(go list ./... | grep -vxF "${store_import}")"
-          echo "==> go test: $(printf '%s\n' "${packages}" | wc -l | tr -d ' ') packages, every one but ${store_import} (part rest)"
-          # shellcheck disable=SC2086
-          go test ${packages} -count=1 -timeout=900s
-          echo "==> Go API tests passed (part rest)"
-          exit 0
-        fi
-
-        echo "==> go test ./..."
-        go test ./... -count=1 -timeout=900s
-
-        echo "==> Go API tests passed"
+        log="$(mktemp)"
+        # Preserve the selector's exit status while retaining its first four
+        # key=value lines, including on test failure. Print all values in full.
+        set +e
+        bash scripts/ci/test_api_scoped.sh "$base" "$revision" 2>&1 |
+          awk -v why="$why" 'NR <= 4 && /^why=/ && why != "" { $0 = "why=" why } { print }' |
+          tee "$log"
+        status=${PIPESTATUS[0]}
+        set -e
+        header="$(head -n 4 "$log")"
+        packages="$(printf '%s\n' "$header" | sed -n 's/^packages=//p' | sed 's|github.com/weitingzhao/bifrost-platform/api/||g')"
+        store_run="$(printf '%s\n' "$header" | sed -n 's/^store_run=//p')"
+        reason="$(printf '%s\n' "$header" | sed -n 's/^why=//p')"
+        if [ "$(cat "$API_SCOPE_RESULT")" = full ]; then packages=""; fi
+        cut_result() {
+          local value="$1" limit="$2" target="$3" suffix="... (cut, see the log)"
+          if [ "${#value}" -gt "$limit" ]; then
+            printf '%s%s' "${value:0:limit-${#suffix}}" "$suffix" > "$target"
+          else
+            printf '%s' "$value" > "$target"
+          fi
+        }
+        cut_result "$packages" 1200 "$API_PACKAGES_RESULT"
+        cut_result "$store_run" 600 "$API_STORE_RUN_RESULT"
+        printf '%s' "$reason" > "$API_SCOPE_WHY_RESULT"
+        # No results-from=sidecar-logs feature flag is configured in k8s/cicd.
+        # Reserve 512 bytes for Tekton's JSON result names/framing as well.
+        used=$(wc -c < "$API_SCOPE_RESULT")
+        for result in "$API_PACKAGES_RESULT" "$API_STORE_RUN_RESULT" "$API_SCOPE_WHY_RESULT"; do
+          used=$((used + $(wc -c < "$result")))
+        done
+        remaining=$((4096 - 512 - used))
+        if [ "$remaining" -gt 3500 ]; then remaining=3500; fi
+        cut_result "$(cat "$FAILED_TESTS_RESULT")" "$remaining" "$FAILED_TESTS_RESULT"
+        rm -f "$log"
+        exit "$status"

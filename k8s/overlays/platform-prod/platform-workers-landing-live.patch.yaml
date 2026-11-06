@@ -32,6 +32,15 @@ spec:
             # to stop new landings in every repository.
             - name: AGENTRT_LANDING_LIVE_REPOS
               value: "bifrost-platform,bifrost-trade-infra"
+            # R5:5.7 countdown 20: a platform landing CI names its base M0, so
+            # test-api runs only the tests the change touches, and the daily
+            # full run asks for the whole suite. Both params are declared by the
+            # bifrost-ci-platform Pipeline in k8s/cicd/tekton, applied by an
+            # apply_manifest card: apply that card before these workers send them.
+            - name: AGENTRT_LANDING_CI_BASE_PARAM
+              value: "on"
+            - name: AGENTRT_FULL_CI_PARAM
+              value: "on"
             - name: AGENTRT_LANDER_USERNAME_FILE
               value: /etc/bifrost/lander/username
             - name: AGENTRT_LANDER_PASSWORD_FILE
