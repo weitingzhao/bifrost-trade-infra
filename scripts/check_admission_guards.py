@@ -156,7 +156,7 @@ def review_545_static(admission: str) -> list[str]:
     pipeline = APPLY_PIPELINE.read_text()
     tier_at = pipeline.find("tier=$(sh /checks/apply-manifest-check.sh")
     refusal_at = pipeline.find(F1_REFUSAL)
-    apply_at = pipeline.find("kubectl apply -f /tmp/normalized.json")
+    apply_at = pipeline.find("sh /tmp/apply-manifest-ownership.sh")
     if not (0 <= tier_at < refusal_at < apply_at):
         problems.append("apply-manifest pipeline: no tier C/D refusal between the tier check and kubectl apply (review 545 F1)")
     return problems

@@ -71,6 +71,8 @@ elif name == "kubectl":
         print("{}")
     elif a[0] == "get":
         print("")
+    elif a[0] == "apply" and "--dry-run=server" in a:
+        sys.exit(0)
     elif a[0] == "apply":
         shutil.copyfile(a[a.index("-f") + 1], r / "applied.json")
     elif a[0] == "diff":
