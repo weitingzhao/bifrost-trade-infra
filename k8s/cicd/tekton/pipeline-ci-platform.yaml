@@ -31,12 +31,17 @@ spec:
       value: $(tasks.clone-ui.results.commit)
     - name: infra-commit
       value: $(tasks.clone-infra.results.commit)
-    # R5:5.7-1: how much of the Go tests this run ran (task changes): full, or console
-    # (only those a console change can reach). Never empty: changes writes full first.
-    # A release takes only a full run as a commit's CI (scripts/release/ci_gate.py
-    # --require-full); a run without this result is from before it and ran in full.
+    # What test-api actually ran: full, incremental, or the console reader checks.
     - name: api-scope
-      value: $(tasks.changes.results.api-scope)
+      value: $(tasks.test-api.results.api-scope)
+    - name: failed-tests
+      value: $(tasks.test-api.results.failed-tests)
+    - name: api-packages
+      value: $(tasks.test-api.results.api-packages)
+    - name: api-store-run
+      value: $(tasks.test-api.results.api-store-run)
+    - name: api-scope-why
+      value: $(tasks.test-api.results.api-scope-why)
   params:
     - name: revision
       type: string
@@ -63,6 +68,12 @@ spec:
     - name: repo-url
       type: string
       default: http://gitea.cicd.svc.cluster.local:3000/bifrost/bifrost-platform.git
+    - name: base
+      type: string
+      default: ""
+    - name: api-scope-request
+      type: string
+      default: ""
   workspaces:
     - name: source
   tasks:
@@ -105,8 +116,7 @@ spec:
       workspaces:
         - name: output
           workspace: source
-    # T50 compiles the real pre-0010 API. The candidate's shallow clone has no
-    # historical objects, and the test step has no Git credentials to fetch them.
+    # T50 compiles the real pre-0010 API from its own pinned checkout.
     - name: clone-legacy
       taskRef:
         name: bifrost-git-clone-gitea
@@ -133,12 +143,15 @@ spec:
       runAfter: [clone, clone-legacy]
       # R5:5.7-1: the scope task changes chose (Tekton runs this task after it, as it
       # reads its result). full runs go vet and every Go test, as before.
-      # R5:5.7-5: split in two that run side by side, each with its own PostgreSQL and
-      # Redis: this one is go vet and every package but ./internal/agentrt/store (part
-      # rest), test-api-store below is that package alone; together every package once.
+      # The scoped selector owns the suite, including store; the store share
+      # remains for the legacy console-only path.
       params:
         - name: scope
           value: $(tasks.changes.results.api-scope)
+        - name: base
+          value: $(params.base)
+        - name: api-scope-request
+          value: $(params.api-scope-request)
         - name: part
           value: rest
       workspaces:
@@ -148,12 +161,15 @@ spec:
         name: bifrost-ci-platform-test-api
     - name: test-api-store
       runAfter: [clone, clone-legacy]
-      # R5:5.7-5: ./internal/agentrt/store alone (527 s of the 16.7-minute test-api on
-      # 11-05), beside test-api. With api-scope=console it runs no test when the scope
-      # check passes, as test-api decides on the same checkout.
+      # Retained legacy share; the task skips duplicate work when test-api runs
+      # the selector. Console scope still performs its existing safety check.
       params:
         - name: scope
           value: $(tasks.changes.results.api-scope)
+        - name: base
+          value: $(params.base)
+        - name: api-scope-request
+          value: $(params.api-scope-request)
         - name: part
           value: store
       workspaces:
