@@ -3356,6 +3356,20 @@
   - 下一次 cicd 定义改动只有 Console 上的批单，没有执行卡；
   - 之后一周，执行卡里没有能由平台动作完成的。
 
+### TD-525
+
+**P3 · platform 测试 · `TestProgressETAFromHistory` 在整套测试满负荷时偶尔失败：惯常耗时算成 99 秒，期望 100**
+
+- **状态**：未开始（2026-11-05 记）。
+- **证据**：`api/internal/agentrt/store/progresseta_test.go:44`。
+  - 2026-11-06 00:00Z 前后，platform `7c4692c2`（R5:5.7-5 第 3 片分支）上，本机带 PostgreSQL 和 Redis 跑整个 api 套件时，子用例 `3` 失败：`basis` 是 `usual_s:99`，期望 100。
+  - 同一提交单独跑这个用例通过。这个提交没有改 store 包的进度代码。
+  - 用例从任务实际经过的时间算「惯常耗时」，用 `reflect.DeepEqual` 要求整秒相等。并行负载重时，耗时会差一秒。
+- **影响**：整套测试偶尔误报红，交付前要多花一次重跑去确认。
+- **修法**：给任务时间用固定时钟，或让用例在 `usual_s` 上允许 ±1 秒（`earliest` 和 `latest` 已经有容差）。
+- **防线**：修后连续跑 20 次 `-count=20 -run TestProgressETAFromHistory`（加并行负载）不失败。
+- **验收**：上面的命令全过；整套测试里不再出现这条失败。
+
 ### TD-488
 
 **P3 · cicd · Tekton 清理 CronJob 间歇失败、不留日志；失败的 Job 让 KubeJobFailed 响到 TTL，平台又删不掉**
