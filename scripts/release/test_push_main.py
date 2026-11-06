@@ -177,7 +177,7 @@ class _Fixture(unittest.TestCase):
 
 class PushMain(_Fixture):
     def test_at_the_baseline_pushes(self) -> None:
-        self._big_files(0, _baseline("OVERSIZED_PLATFORM_BASELINE"))
+        self._big_files(0, 2)
         head = _git(self.work, "rev-parse", "HEAD")
         r = self._push()
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -185,22 +185,31 @@ class PushMain(_Fixture):
         self.assertEqual(_git(self.work, "worktree", "list").count("\n"), 0, "the scan worktree was left behind")
 
     def test_over_the_baseline_is_refused(self) -> None:
+        # A scan that fails (a metric over its baseline) refuses the push.
         before = self._remote_main()
-        self._big_files(0, _baseline("OVERSIZED_PLATFORM_BASELINE") + 1)
-        r = self._push()
+        self._big_files(0, 1)
+        scan = Path(self._tmp.name) / "scan-over.sh"
+        scan.write_text('#!/bin/sh\necho "code-health: fixture metric increased (1 > baseline 0)" >&2\nexit 1\n')
+        scan.chmod(0o755)
+        r = self._push(env=self._env(PUSH_MAIN_SCAN=str(scan)))
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertIn("code-health refused", r.stderr)
-        self.assertIn("files over 800 lines", r.stderr)
+        self.assertIn("fixture metric increased", r.stderr)
         self.assertEqual(self._remote_main(), before)
         self.assertEqual(_git(self.work, "worktree", "list").count("\n"), 0, "the scan worktree was left behind")
 
     def test_the_scan_reads_the_commit_not_the_working_tree(self) -> None:
-        # An uncommitted file over the line (another session's edit) does not
-        # count; a committed one does.
-        self._big_files(0, _baseline("OVERSIZED_PLATFORM_BASELINE"))
-        (self.work / "wip.go").write_text("package x\n" + "// line\n" * 801)
+        # The scan reads the commit's tree: a file only staged in the working
+        # tree (another session's edit) is not in what it scans.
+        self._big_files(0, 1)
+        scan = Path(self._tmp.name) / "scan-wip.sh"
+        scan.write_text('#!/bin/sh\nwhile [ $# -gt 0 ]; do case "$1" in --root) root="$2"; shift 2;; '
+                        '--repo) repo="$2"; shift 2;; *) shift;; esac; done\n'
+                        '[ ! -e "$root/$repo/wip.go" ] || { echo "code-health: wip.go was scanned" >&2; exit 1; }\n')
+        scan.chmod(0o755)
+        (self.work / "wip.go").write_text("package x\n")
         _git(self.work, "add", "wip.go")
-        r = self._push()
+        r = self._push(env=self._env(PUSH_MAIN_SCAN=str(scan)))
         self.assertEqual(r.returncode, 0, r.stderr)
 
     def test_an_open_window_refuses(self) -> None:

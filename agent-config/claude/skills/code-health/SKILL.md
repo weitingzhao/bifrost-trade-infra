@@ -1,11 +1,11 @@
 ---
 name: code-health
 description: >-
-  代码健康度棘轮（duplication / oversized files / contract coverage / image spread）。
+  代码健康度棘轮（duplication / contract coverage / image spread）。
   Use when a code-health check fails, when lowering a baseline in baselines.env,
   when adding a metric to scan.sh, when reading Ops Console → Code Health, or when
   deciding whether a conclusion rests on verified code or on stale memory.
-parity-id: code-health-v10
+parity-id: code-health-v11
 ---
 
 # 代码健康度棘轮
@@ -20,10 +20,10 @@ parity-id: code-health-v10
 
 | Domain | Repos | Metrics |
 |--------|-------|---------|
-| Rocket | `bifrost-platform` · `bifrost-ui` · **`bifrost-trade-infra`** | oversized · infra shell/py dup |
-| Satellite | `bifrost-trade-frontend` · `bifrost-trade-api` · `bifrost-trade-core` · `bifrost-trade-worker` | dup · oversized · FE contract |
-| Research | `bifrost-research` | dup · oversized · image tiers |
-| Subcontractors | `bifrost-platform-plugin{,-market-data,-flex-query}` | dup · oversized |
+| Rocket | `bifrost-platform` · `bifrost-ui` · **`bifrost-trade-infra`** | infra shell/py dup |
+| Satellite | `bifrost-trade-frontend` · `bifrost-trade-api` · `bifrost-trade-core` · `bifrost-trade-worker` | dup · FE contract |
+| Research | `bifrost-research` | dup · image tiers |
+| Subcontractors | `bifrost-platform-plugin{,-market-data,-flex-query}` | dup |
 
 **Out of scope（须在 Console Coverage 列出）**：`Research-workspace`（无 `.git`）· `bifrost-trade-socket`（已 Archive/移出）· `bifrost-analytics`（并入 research dbt，不在 multi-root）
 - 规划 lens：`bifrost-platform/console/src/lib/code-health/codeHealthLens.ts`（slack / at ceiling / paydown / **Posture Summary**）
@@ -112,7 +112,6 @@ Live Re-scan 环境（可选）：`BIFROST_WORKSPACE_ROOT`（stocks 根）、`PL
 | 指标 | 口径 | 为什么这么定 |
 |------|------|-------------|
 | duplicated function names | 有 >3 处定义的**不同函数名个数**；排除 tests 与 dunder | 数的是「重复的概念」。加第 52 个 `_run` 不触发（框架接口不算腐化），出现一个**新的**重复名才触发 |
-| files over 800 lines | git 跟踪的源文件行数 | 大到没人能通读的文件，就是下一个重复函数被写出来的地方 |
 | API modules without schema | `src/api/*.ts` 里没接 `withValidation` / `lib/schemas` 的 | 两个 payload 独立发布后，没契约的端点漂移了没人知道 |
 | research image tiers | `bifrost-research/k8s` 里不同的镜像 tag 数 | 每多一档，就多一个组件在跑没人追踪的代码 |
 
