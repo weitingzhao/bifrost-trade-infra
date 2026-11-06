@@ -28,6 +28,12 @@ spec:
     - name: giteaBase
       type: string
       default: http://gitea.cicd.svc.cluster.local:3000/bifrost
+    # The Owner, 2026-11-06: whether only a full CI run of the exact SHA lets it
+    # ship. "off" while there are no users (a green partial run, as countdown
+    # 20's landing CI gives, is enough); "on" brings the full-run gate back.
+    - name: requireFullCI
+      type: string
+      default: "off"
     - name: platformApiImage
       type: string
       default: registry.cicd.svc.cluster.local:5000/bifrost-platform-api:prod
@@ -90,6 +96,8 @@ spec:
           value: $(params.uiRevision)
         - name: giteaBase
           value: $(params.giteaBase)
+        - name: requireFullCI
+          value: $(params.requireFullCI)
       taskSpec:
         params:
           - name: revision
@@ -97,6 +105,8 @@ spec:
           - name: uiRevision
             type: string
           - name: giteaBase
+            type: string
+          - name: requireFullCI
             type: string
         results:
           - name: commit
@@ -124,6 +134,8 @@ spec:
                 value: $(params.uiRevision)
               - name: GITEA_BASE
                 value: $(params.giteaBase)
+              - name: REQUIRE_FULL_CI
+                value: $(params.requireFullCI)
               - name: COMMIT_PATH
                 value: $(results.commit.path)
               - name: UI_COMMIT_PATH
@@ -229,6 +241,10 @@ spec:
                       return "full"
                   if scopes in (["full"], ["console"]):
                       return scopes[0]
+                  # A landing run that tested what its change reaches (countdown 20) is a
+                  # partial run, as console is: a success, and not a full run.
+                  if scopes == ["incremental"]:
+                      return "console"
                   return "malformed"
 
 
@@ -521,9 +537,12 @@ spec:
                           )
                           condition = "CI"
                           runs = pipeline_runs("bifrost-ci-platform")
-                          # R5:5.7-1: a full run (no api-scope=console) decides what ships.
-                          if classify(runs, "bifrost-platform", sha, require_full=True) != "succeeded":
-                              raise ValueError("no exact-SHA Succeeded full CI")
+                          # R5:5.7-1: with REQUIRE_FULL_CI=on only a full run (no partial
+                          # api-scope) decides what ships. Off (the Owner, 2026-11-06: no
+                          # users yet), a green partial run of the exact SHA does too.
+                          require_full = os.environ.get("REQUIRE_FULL_CI", "off") == "on"
+                          if classify(runs, "bifrost-platform", sha, require_full=require_full) != "succeeded":
+                              raise ValueError("no exact-SHA Succeeded full CI" if require_full else "no exact-SHA Succeeded CI")
                           condition = "STG"
                           stg = latest_stg(pipeline_runs("bifrost-deliver-platform"))
                           task = stg_child(stg, "clone-platform", "clone")

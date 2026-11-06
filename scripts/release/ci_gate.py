@@ -83,6 +83,10 @@ def _scope(run: dict) -> str:
         return "full"
     if scopes in (["full"], ["console"]):
         return scopes[0]
+    # A landing run that tested what its change reaches (countdown 20) is a
+    # partial run, as console is: a success, and not a full run.
+    if scopes == ["incremental"]:
+        return "console"
     return "malformed"
 
 

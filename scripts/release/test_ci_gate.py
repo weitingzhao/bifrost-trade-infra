@@ -96,11 +96,18 @@ def test_release_and_the_prod_gate_require_a_full_run(tmp_path) -> None:
     args = ["python3", gate, "--runs", str(runs), f"bifrost-platform={SHA}"]
     assert subprocess.run(args, capture_output=True).returncode == 0
     assert subprocess.run(args + ["--require-full"], capture_output=True).returncode == 2
+    # A landing's incremental run is a partial run too (countdown 20).
+    runs.write_text(json.dumps({"items": [_platform("True", "incremental")]}))
+    assert subprocess.run(args, capture_output=True).returncode == 0
+    assert subprocess.run(args + ["--require-full"], capture_output=True).returncode == 2
     release = open(os.path.join(here, "release.sh")).read()
-    assert release.count('ci_gate.py" --runs') == 1 and "--require-full --allow-red" in release
+    # The Owner, 2026-11-06: release.sh asks for a full run only with the switch on.
+    assert release.count('ci_gate.py" --runs') == 1
+    assert '[[ "${BIFROST_RELEASE_REQUIRE_FULL_CI:-off}" == on ]] && full=(--require-full)' in release
     # push-main counts a console run when no full one has finished (a lane's commit has no other).
     push_main = [line for line in open(os.path.join(here, "push-main.sh")).read().splitlines()
                  if "ci_gate.py" in line and not line.lstrip().startswith("#")]
     assert push_main and not any("--require-full" in line for line in push_main)
     prod = open(os.path.join(here, "platform_prod_gate.py")).read()
-    assert 'classify(runs, "bifrost-platform", sha, require_full=True)' in prod
+    assert 'classify(runs, "bifrost-platform", sha, require_full=require_full)' in prod
+    assert 'require_full = os.environ.get("REQUIRE_FULL_CI", "off") == "on"' in prod
