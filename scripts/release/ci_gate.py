@@ -19,6 +19,10 @@ console runs count: as succeeded for a push to main (push-main.sh: a lane's
 commit gets only console runs until it is on main), as console (wait for a full
 run, exit 2) with --require-full, which a release asks for (release.sh, the
 platform PROD source gate).
+
+Reuse runs carry tested-by. Only a listed, earlier, green original with no reuse
+edge and identical platform-tree, ui-commit and infra-commit supplies their scope.
+Legacy runs without reuse evidence retain their existing interpretation.
 """
 
 from __future__ import annotations
@@ -26,6 +30,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from datetime import datetime
 from typing import Iterable, Optional
 
 
@@ -90,6 +95,46 @@ def _scope(run: dict) -> str:
     return "malformed"
 
 
+def _results(run: dict, name: str) -> list:
+    return [r.get("value") for r in (run.get("status") or {}).get("results") or []
+            if isinstance(r, dict) and r.get("name") == name]
+
+
+def _original(run: dict, runs: list[dict]) -> Optional[dict]:
+    """Resolve one reuse edge, failing closed on missing or ambiguous evidence."""
+    names = _results(run, "tested-by")
+    if len(names) != 1 or not isinstance(names[0], str) or not names[0]:
+        return None
+    candidates = [r for r in runs if (r.get("metadata") or {}).get("name") == names[0]
+                  and (r.get("metadata") or {}).get("namespace") == (run.get("metadata") or {}).get("namespace")]
+    if len(candidates) != 1:
+        return None
+    original = candidates[0]
+    if (_pipeline_name(run) != "bifrost-ci-platform"
+            or _pipeline_name(original) != "bifrost-ci-platform"
+            or _succeeded(original) != "True" or _results(original, "tested-by")):
+        return None
+    for name in ("platform-tree", "ui-commit", "infra-commit"):
+        values = _results(run, name)
+        if len(values) != 1 or not isinstance(values[0], str) or not values[0] or values != _results(original, name):
+            return None
+    try:
+        before, after = [datetime.fromisoformat(r["metadata"]["creationTimestamp"].replace("Z", "+00:00"))
+                         for r in (original, run)]
+        if before.tzinfo is None or after.tzinfo is None or before >= after:
+            return None
+    except (AttributeError, KeyError, TypeError, ValueError):
+        return None
+    return original
+
+
+def _effective_scope(run: dict, runs: list[dict]) -> str:
+    if not _results(run, "tested-by"):
+        return _scope(run)
+    original = _original(run, runs)
+    return _scope(original) if original is not None else "malformed"
+
+
 def classify(runs: Iterable[dict], repo: str, sha: str, require_full: bool = False) -> str:
     """Return succeeded, failed, missing, malformed, or (require_full) console for repo@sha.
 
@@ -97,6 +142,7 @@ def classify(runs: Iterable[dict], repo: str, sha: str, require_full: bool = Fal
     and with require_full not as a success (console: a full run is still owed).
     A run with a malformed api-scope counts for nothing; when nothing else
     finished, the answer is malformed."""
+    runs = list(runs)
     seen = {(scope, state): False for scope in ("full", "console", "malformed") for state in ("True", "False")}
     for run in runs:
         if _pipeline_name(run) not in CI_PIPELINES:
@@ -106,9 +152,9 @@ def classify(runs: Iterable[dict], repo: str, sha: str, require_full: bool = Fal
             continue
         state = _succeeded(run)
         if state == "True":
-            seen[(_scope(run), "True")] = True
+            seen[(_effective_scope(run, runs), "True")] = True
         elif state == "False":
-            seen[(_scope(run), "False")] = True
+            seen[(_effective_scope(run, runs), "False")] = True
     if seen[("full", "True")]:
         return "succeeded"
     if seen[("full", "False")]:
@@ -125,12 +171,20 @@ def classify(runs: Iterable[dict], repo: str, sha: str, require_full: bool = Fal
 def gate(runs: Iterable[dict], pairs: list[tuple[str, str]], allow_red: str,
          require_full: bool = False) -> tuple[int, str]:
     """pairs is (repo, sha). allow_red empty means a red or missing run refuses."""
+    runs = list(runs)
     lines = []
     worst = 0
     for repo, sha in pairs:
         state = classify(runs, repo, sha, require_full)
         lines.append(f"{repo} {sha} ci={state}")
         if state == "succeeded":
+            for run in runs:
+                params = _params(run)
+                if (_repo(run, params) == repo and params.get("revision") == sha
+                        and _succeeded(run) == "True" and _results(run, "tested-by")
+                        and _effective_scope(run, runs) in (("full",) if require_full else ("full", "console"))):
+                    original = _original(run, runs)
+                    lines.append(f"  tested by {original['metadata']['name']}")
             continue
         if state == "console":
             lines.append("  only console-scope runs (api-scope=console) succeeded; a release needs a full run "

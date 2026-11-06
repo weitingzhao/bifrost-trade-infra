@@ -111,3 +111,73 @@ def test_release_and_the_prod_gate_require_a_full_run(tmp_path) -> None:
     prod = open(os.path.join(here, "platform_prod_gate.py")).read()
     assert 'classify(runs, "bifrost-platform", sha, require_full=require_full)' in prod
     assert 'require_full = os.environ.get("REQUIRE_FULL_CI", "off") == "on"' in prod
+
+
+def _reuse_pair(scope="full"):
+    original = _platform(scope=scope)
+    original["spec"]["params"][0]["value"] = "b" * 40
+    original["metadata"].update(name="original", creationTimestamp="2026-11-06T10:00:00Z")
+    reuse = _platform(scope="full")
+    reuse["metadata"].update(name="reuse", creationTimestamp="2026-11-06T11:00:00Z")
+    for run in (original, reuse):
+        run["status"]["results"] += [
+            {"name": name, "value": value}
+            for name, value in (("platform-tree", "c" * 40), ("ui-commit", "d" * 40),
+                                ("infra-commit", "e" * 40))]
+    reuse["status"]["results"].append({"name": "tested-by", "value": "original"})
+    return original, reuse
+
+
+def test_reuse_full_green_and_release_output():
+    from ci_gate import gate
+    original, reuse = _reuse_pair()
+    assert classify([reuse, original], "bifrost-platform", SHA, True) == "succeeded"
+    code, output = gate(iter([reuse, original]), [("bifrost-platform", SHA)], "", True)
+    assert code == 0
+    assert "tested by original" in output
+
+
+def test_reuse_rejects_invalid_originals():
+    import copy
+    original, reuse = _reuse_pair()
+    variants = []
+    red = copy.deepcopy(original)
+    red["status"]["conditions"][0]["status"] = "False"
+    variants.append([red, reuse])
+    for name in ("platform-tree", "ui-commit", "infra-commit"):
+        other = copy.deepcopy(original)
+        next(r for r in other["status"]["results"] if r["name"] == name)["value"] = "f" * 40
+        variants.append([other, reuse])
+    chain = copy.deepcopy(original)
+    chain["status"]["results"].append({"name": "tested-by", "value": "older"})
+    variants.append([chain, reuse])
+    for timestamp in ("2026-11-06T12:00:00Z", "2026-11-06T11:00:00Z", "invalid", None):
+        later = copy.deepcopy(original)
+        later["metadata"]["creationTimestamp"] = timestamp
+        variants.append([later, reuse])
+    variants += [[reuse], [original, copy.deepcopy(original), reuse]]
+    for runs in variants:
+        assert classify(runs, "bifrost-platform", SHA, True) != "succeeded"
+
+
+def test_reuse_inherits_original_scope():
+    original, reuse = _reuse_pair("incremental")
+    assert classify([original, reuse], "bifrost-platform", SHA) == "succeeded"
+    assert classify([original, reuse], "bifrost-platform", SHA, True) == "console"
+
+
+def test_reuse_requires_unambiguous_identity_results():
+    import copy
+    original, reuse = _reuse_pair()
+    for name in ("platform-tree", "ui-commit", "infra-commit", "tested-by"):
+        for remove in (True, False):
+            bad = copy.deepcopy(reuse)
+            results = bad["status"]["results"]
+            item = next(r for r in results if r["name"] == name)
+            if remove:
+                if name == "tested-by":
+                    continue
+                results.remove(item)
+            else:
+                results.append(item.copy())
+            assert classify([original, bad], "bifrost-platform", SHA, True) != "succeeded"

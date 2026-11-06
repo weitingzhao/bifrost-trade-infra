@@ -66,7 +66,7 @@ def test_planted_violation(tmp_path, mutation, named_test):
             ),
             "ci-console": ('if scopes in (["full"], ["console"]):\n        return scopes[0]',
                            'if scopes in (["full"], ["console"]):\n        return "full"'),
-            "ci-malformed": ('    return "malformed"\n\n\ndef classify', '    return "full"\n\n\ndef classify'),
+            "ci-malformed": ('    return "malformed"\n\n\ndef _results', '    return "full"\n\n\ndef _results'),
             "ci-require-full": (
                 'require_full = os.environ.get("REQUIRE_FULL_CI", "off") == "on"',
                 "require_full = False",
