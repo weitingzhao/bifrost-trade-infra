@@ -27,8 +27,10 @@ def test_actual_clone_results_are_auditable():
                          ("infra-commit", "clone-infra")]:
         assert results[result] == "$(tasks." + task + ".results.commit)"
         assert tasks[task]["taskRef"]["name"] == "bifrost-git-clone-gitea"
+    assert [r["name"] for r in spec["results"]].count("platform-tree") == 1
+    assert results["platform-tree"] == "$(tasks.clone.results.tree)"
     clone = yaml.safe_load((PIPELINE.parent / "task-git-clone-gitea.yaml").read_text())
-    assert any(r["name"] == "commit" for r in clone["spec"]["results"])
+    assert {"commit", "tree"} <= {r["name"] for r in clone["spec"]["results"]}
 
 
 def test_t50_receives_a_pinned_baseline_before_api_tests():

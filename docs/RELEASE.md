@@ -93,6 +93,11 @@ scripts/release/release-check.sh diff old.json new.json --allow <file>
 
 `bifrost-deliver-platform-prod` 在 mirror-sync 后、clone 前拒绝两种情况：平台提交没有整 SHA 匹配的 Succeeded `bifrost-ci-platform`，或无法证明 STG 克隆了同一整 SHA。STG 只取 `bifrost-deliver-platform` 中创建时间最新的一条（同时间拒绝），它必须成功，且其它每条都必须在它**创建之前**就已结束（completionTime 严格早于它的 creationTimestamp，即不许交叠）；在途、缺失或不能解析的时间、和它交叠过的 run 都拒绝，并在拒绝行里点名。含义：验证过的那次之后，只要又起过一次 STG 发布（哪怕它没碰到 STG 就失败），PROD 就被拒，直到再成功发一次 STG。查询失败或证据畸形也拒绝。
 
+Platform CI records the actual checkout identities in pipeline results: `platform-commit`,
+`platform-tree` (the 40-hex output of `git rev-parse HEAD^{tree}` from the platform
+clone), `ui-commit`, and `infra-commit`. Only the platform tree is exposed; the UI
+and infra commit results pin the other checkouts.
+
 没有 allow-red。覆盖检查的途径是 Owner 应用此前版本的 Pipeline 定义。上线顺序是先把包含 check-source 身份接线的 platform 发到 PROD 并核对，再由 Owner 在没有平台发布在途、没有未结 PROD 发布单时应用 `k8s/cicd/tekton/pipeline-deliver-platform-prod.yaml`；反过来会拒绝每次平台 PROD 发布。回退由 Owner 重新应用此前版本的同一 Pipeline 文件。
 
 **正式环境不再构建，按 STG 核对过的摘要部署**（TD-335，W-31 3.4 ①，Owner 2026-10-21「D3 A」；切法 `agent-config/work/multi-agent/CUT-release-speedup-2026-10-22.md`）。`check-source` 认定的那条 STG run，它的 `rollout` 核对过的 api、console 两个摘要（只在 Pod 真跑着之后才写），就是 PROD 发布的那一对；同一条 run 的 `clone-ui` 提交必须等于这张单子的 uiRevision。`agentrt-schema` 按这对里的 api 摘要查迁移，`promote-images` 把 `:prod` 挪到这一对（给 tag 的读者：Owner 的迁移 Job、registry 的保留集），`gitops-sync`（任务 `bifrost-argocd-pin-sync-platform`）在同一次 patch 里把应用 `bifrost-platform-prod` 的 `spec.source.kustomize.images` 钉到这两个摘要并发出同步、等这一次同步完成，`rollout` 以 `requireSpecDigest=true` 核对：三个 Deployment 的 spec 写着这个摘要，Pod 的 imageID 也是它（workers 用 API 摘要）。读取不是原子快照，不保证读完之后的状态。之后成立的是：Deployment 写的是摘要，Pod 重启拉的还是这一对，`:prod` 被谁改写都不改变 PROD 跑什么（TD-331）。STG 同样按本次构建的摘要钉住（TD-419）。

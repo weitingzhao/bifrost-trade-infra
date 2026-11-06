@@ -153,6 +153,7 @@ def run_clone(fixture, task="task-git-clone-gitea.yaml", **values):
     script = yaml.safe_load((TEKTON / task).read_text())["spec"]["steps"][0]["script"]
     script = re.sub(r"\$\(workspaces\.[^.]+\.path\)", str(root / "workspace"), script)
     script = script.replace("$(results.commit.path)", str(root / "result"))
+    script = script.replace("$(results.tree.path)", str(root / "tree-result"))
     # Model the next process in this shell; ordinary child processes must not
     # inherit raw credentials or header config after git completes.
     script += '\nenv > "' + str(root / "next-env") + '"\n'
@@ -169,6 +170,11 @@ def test_clone_real_bare_repo_has_no_credentials(clone_fixture, revision):
     result = run_clone(clone_fixture, **values)
     assert result.returncode == 0, result.stdout + result.stderr
     assert (root / "result").read_text() == sha
+    tree = (root / "tree-result").read_text()
+    assert re.fullmatch(r"[0-9a-f]{40}", tree)
+    assert tree == subprocess.check_output(
+        ["git", "-C", str(root / "workspace/repo"), "rev-parse", "HEAD^{tree}"],
+        text=True).strip()
     calls = [json.loads(line) for line in (root / "calls").read_text().splitlines()]
     remote_calls = [c for c in calls if "fetch" in c["args"] or "clone" in c["args"]]
     assert remote_calls

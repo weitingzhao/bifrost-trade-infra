@@ -27,6 +27,8 @@ spec:
   results:
     - name: platform-commit
       value: $(tasks.clone.results.commit)
+    - name: platform-tree
+      value: $(tasks.clone.results.tree)
     - name: ui-commit
       value: $(tasks.clone-ui.results.commit)
     - name: infra-commit

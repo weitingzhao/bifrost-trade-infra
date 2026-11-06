@@ -24,6 +24,8 @@ spec:
       description: >-
         Full SHA of the commit checked out (git rev-parse HEAD). The deliver
         pipelines pass core's to the image builds as BIFROST_CORE_SHA (TD-37).
+    - name: tree
+      description: Full 40-hex tree SHA of the checkout (git rev-parse HEAD^{tree}).
   workspaces:
     - name: output
   steps:
@@ -110,5 +112,7 @@ spec:
         head_sha="$(git rev-parse HEAD)"
         echo "=== HEAD ${head_sha} ==="
         printf '%s' "${head_sha}" > "$(results.commit.path)"
+        tree_sha="$(git rev-parse HEAD^{tree})"
+        printf '%s' "${tree_sha}" > "$(results.tree.path)"
         git log -1 --oneline
         ls -la
