@@ -252,65 +252,8 @@ py_dup_metric bifrost-trade-infra rocket \
 fi
 
 # ---------------------------------------------------------------- metric 2
-# Files over N lines. A file nobody can hold in their head is where the next
-# duplicate gets written, because finding the existing helper costs more than
-# retyping it.
-# Product repos: 800 lines · TS/Py/Go. Infra: 500 · + shell/YAML/Markdown
-# (governance host almost never hits 800).
-oversized() {
-  local repo="$1"
-  local threshold="${2:-800}"
-  local files
-  files="$(tracked "$repo" '*.ts' '*.tsx' '*.py' '*.go')" || return 2
-  count_large_files "$repo" "$files" "$threshold" | sort -rn
-}
-
-count_large_files() {
-  local repo="$1" files="$2" threshold="$3" file count
-  while IFS= read -r -d '' file; do
-    count="$(wc -l < "$ROOT/$repo/$file")" || return 2
-    # Shell-escape display paths to keep one offender per output line, even
-    # when the real Git path contains tabs, newlines, quotes or spaces.
-    if [[ "$count" -gt "$threshold" ]]; then printf '%s %q\n' "$count" "$file"; fi
-  done < "$files"
-}
-
-oversized_infra() {
-  local repo="$1"
-  local threshold="${2:-500}"
-  local files
-  files="$(tracked "$repo" '*.ts' '*.tsx' '*.py' '*.go' '*.sh' '*.yml' '*.yaml' '*.md')" || return 2
-  count_large_files "$repo" "$files" "$threshold" | sort -rn
-}
-
-# id domain repo baseline_var label_suffix
-while IFS='|' read -r id domain repo var suffix; do
-  [[ -z "$id" ]] && continue
-  want "$repo" || continue
-  big="$(oversized "$repo")"
-  n=$(printf '%s' "$big" | grep -c . || true)
-  add_metric "$id" "files over 800 lines ($suffix)" "$domain" "$repo" "$n" "$var" \
-    "largest: $(printf '%s\n' "$big" | head -2 | awk '{printf "%s(%s) ", $2, $1}')" "$big"
-done <<'OVERSIZED_SPECS'
-code.oversized.rocket|rocket|bifrost-platform|OVERSIZED_PLATFORM_BASELINE|platform
-code.oversized.rocket.ui|rocket|bifrost-ui|OVERSIZED_UI_BASELINE|ui
-code.oversized.satellite|satellite|bifrost-trade-frontend|OVERSIZED_FRONTEND_BASELINE|frontend
-code.oversized.satellite.trade-api|satellite|bifrost-trade-api|OVERSIZED_TRADE_API_BASELINE|trade-api
-code.oversized.satellite.trade-core|satellite|bifrost-trade-core|OVERSIZED_TRADE_CORE_BASELINE|trade-core
-code.oversized.satellite.trade-worker|satellite|bifrost-trade-worker|OVERSIZED_TRADE_WORKER_BASELINE|trade-worker
-code.oversized.research|research|bifrost-research|OVERSIZED_RESEARCH_BASELINE|research
-code.oversized.subcontractors.plugin|subcontractors|bifrost-platform-plugin|OVERSIZED_PLUGIN_BASELINE|plugin
-code.oversized.subcontractors.market-data|subcontractors|bifrost-platform-plugin-market-data|OVERSIZED_MARKET_DATA_BASELINE|market-data
-code.oversized.subcontractors.flex-query|subcontractors|bifrost-platform-plugin-flex-query|OVERSIZED_FLEX_QUERY_BASELINE|flex-query
-OVERSIZED_SPECS
-
-if want bifrost-trade-infra; then
-infra_big="$(oversized_infra bifrost-trade-infra 500)"
-infra_big_n=$(printf '%s' "$infra_big" | grep -c . || true)
-add_metric code.oversized.rocket.infra "files over 500 lines (infra)" rocket bifrost-trade-infra \
-  "$infra_big_n" OVERSIZED_INFRA_BASELINE \
-  "largest: $(printf '%s\n' "$infra_big" | head -2 | awk '{printf "%s(%s) ", $2, $1}')" "$infra_big"
-fi
+# Files over N lines: deleted (Owner 2026-11-06, R5:5.7). It caught no defect
+# and every change that grew a file past it had to be split by hand.
 
 # ---------------------------------------------------------------- metric 2b
 # Page files sitting loose at a domain's top level, summed across domains.
@@ -442,6 +385,20 @@ if [[ "$DO_REPORT" -eq 1 ]]; then
 fi
 
 if [[ -z "$metrics_json" ]]; then
+  # Repos no metric covers since the 800-line ratchet went (Owner 2026-11-06):
+  # a scan restricted to them has nothing to check, which is a pass that says
+  # so. An empty result for any other scan is still a failure.
+  NO_METRIC_REPOS=" bifrost-platform bifrost-ui "
+  if [[ -n "$REPO_FILTER" && -z "$not_measured" ]]; then
+    uncovered=1
+    for r in ${REPO_FILTER//,/ }; do
+      printf '%s' "$NO_METRIC_REPOS" | grep -q " $r " || uncovered=0
+    done
+    if [[ "$uncovered" -eq 1 ]]; then
+      echo "code-health: no metric covers $REPO_FILTER; nothing to check"
+      exit 0
+    fi
+  fi
   echo "code-health: no metric was produced — treating as failure, not as a pass" >&2
   exit 2
 fi
