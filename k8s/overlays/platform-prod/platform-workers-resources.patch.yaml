@@ -4,6 +4,10 @@
 # drill). Several loops then took 12-30 s a pass (facts-rules, landing-drill, STG release).
 # 2 cores and 1536Mi, as platform-api has since 10-31, give headroom while the slow passes
 # are found and fixed. The node has ample allocatable memory.
+# 18:30 CDT the same day: at 2 cores the workers used 1.3 on average and were CPU-throttled
+# in 42% of periods; the landing drill's git fetches then timed out every pass and no
+# landing was claimed (dozens of stale landing operations replayed each pass). 4 cores
+# while those operations are settled (R5 phase 2 step 1); node ubt-k3s-04 has 16, ~12% busy.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -17,5 +21,5 @@ spec:
             requests:
               memory: 256Mi
             limits:
-              cpu: "2"
+              cpu: "4"
               memory: 1536Mi
