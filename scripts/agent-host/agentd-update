@@ -1,0 +1,58 @@
+#!/bin/bash
+# Fixed privileged entry point. No environment or caller-selected paths/commands.
+set -euo pipefail
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+unset BASH_ENV ENV CDPATH
+umask 077
+fail() { echo "agentd-update: $*" >&2; exit 1; }
+rollback=false
+if [[ $# == 1 && $1 == --rollback ]]; then
+  rollback=true
+elif [[ $# != 2 || ! $1 =~ ^[0-9a-f]{40}$ || ! $2 =~ ^[0-9a-f]{64}$ ]]; then
+  fail 'usage: agentd-update <commit> <sha256> | agentd-update --rollback'
+fi
+[[ $EUID == 0 ]] || fail 'run with sudo -n'
+cd /usr/local/libexec/bifrost
+# The directory and every file here are root-owned and not deploy-writable.
+exec 9>/run/lock/bifrost-agentd-update.lock
+flock -x 9
+current=$(readlink -e agentd) || fail 'current binary missing'
+[[ -f $current && -x $current ]] || fail 'current binary invalid'
+# Bootstrap the old regular executable into the version store before replacing it.
+if [[ ! -L agentd ]]; then
+  oldsha=$(sha256sum agentd); oldsha=${oldsha%% *}
+  install -o root -g root -m 0755 agentd "agentd-bootstrap-$oldsha"
+  current="$PWD/agentd-bootstrap-$oldsha"
+fi
+work=$(mktemp -d .agentd-update.XXXXXXXX)
+trap 'rm -rf -- "$work"' EXIT
+if $rollback; then
+  target=$(readlink -e agentd.previous) || fail 'no previous version'
+  [[ $target == "$PWD/agentd-"* && -f $target && -x $target ]] || fail 'invalid previous version'
+else
+  target="$PWD/agentd-$1-$2"
+  # Read authentication, if needed, only from this root-managed curl config.
+  # -q disables ~/.curlrc; proxy variables and caller curl settings are removed.
+  env -i PATH="$PATH" curl -q --config /etc/bifrost/agentd-update.curl \
+    --fail --silent --show-error --connect-timeout 15 --max-time 180 \
+    --proto '=http,https' --output "$work/binary" \
+    "http://192.168.10.73:30300/api/packages/bifrost/generic/agentd/$1/agentd-linux-amd64"
+  printf '%s  %s\n' "$2" "$work/binary" | sha256sum --check --status || fail 'sha256 mismatch'
+  install -o root -g root -m 0755 "$work/binary" "$work/version"
+  mv -fT "$work/version" "$target"
+fi
+[[ $target != "$current" ]] || { echo 'agentd-update: already installed'; exit 0; }
+# Atomic link replacements; previous stays available even if restart fails.
+ln -s "$current" "$work/previous"
+mv -fT "$work/previous" agentd.previous
+ln -s "$target" "$work/current"
+mv -fT "$work/current" agentd
+systemctl restart bifrost-agentd.service
+for ((attempt=0; attempt<30; attempt++)); do
+  if systemctl is-active --quiet bifrost-agentd.service; then
+    echo 'agentd-update: active (previous version retained)'
+    exit 0
+  fi
+  sleep 2
+done
+fail 'unit did not become active; run agentd-update --rollback'

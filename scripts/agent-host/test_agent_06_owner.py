@@ -105,35 +105,14 @@ class StopStart(unittest.TestCase):
         self.assertIn("say prod, stg, or nothing for both", r.stderr)
         self.assertFalse((self.units / "calls").exists())
 
-    def update(self, fail: str = "") -> subprocess.CompletedProcess:
-        # copy and prepare are stubbed (they would scp and run prepare on 06); the binary is a
-        # file under HOME that matches the agentd.sha256 written for it
-        build = Path(self.env["HOME"]) / "build"
-        build.mkdir(exist_ok=True)
-        (build / "agentd-x").write_text("agentd")
-        (build / "agentd.sha256").write_text(subprocess.run(["shasum", "-a", "256", "agentd-x"], cwd=build, capture_output=True, text=True).stdout)
-        stub = (f'BINARY="{build}/agentd-x"; HERE="{build}"; '
-                'step_copy() { echo copy >> "$FAKE_UNITS/calls"; [ "$FAIL" != copy ]; }; '
-                'step_prepare() { echo prepare >> "$FAKE_UNITS/calls"; [ "$FAIL" != prepare ]; }; ')
-        script = f'source "{HERE / "agent-06-owner.sh"}"; node_ssh() {{ bash -c "$1"; }}; {stub} step_update_agentd'
-        return subprocess.run(["bash", "-c", script], env={**self.env, "FAIL": fail}, capture_output=True, text=True, timeout=60)
-
-    def test_update_agentd_stops_copies_prepares_starts(self) -> None:
+    def test_update_agentd_is_retired_without_touching_host(self) -> None:
         for u in ("bifrost-agentd.service", "bifrost-agentd-stg.service"):
             (self.units / u).write_text("")
-        r = self.update()
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        calls = [" ".join(c.split()[:2]) if c.startswith("systemctl") else c for c in (self.units / "calls").read_text().splitlines()]
-        order = [c for c in calls if c in ("systemctl stop", "copy", "prepare", "systemctl enable")]
-        self.assertEqual(order, ["systemctl stop", "copy", "prepare", "systemctl enable"])
-        self.assertEqual(self.active(), {"bifrost-agentd.service", "bifrost-agentd-stg.service"})
-
-    def test_update_agentd_stops_at_a_failed_copy(self) -> None:
-        r = self.update(fail="copy")
+        r = self.run_step("step_update_agentd")
         self.assertNotEqual(r.returncode, 0)
-        self.assertIn("both agentd services are stopped", r.stderr)
-        self.assertNotIn("prepare", (self.units / "calls").read_text())
-        self.assertEqual(self.active(), set())
+        self.assertIn("deploy_agentd card on the Console", r.stderr)
+        self.assertFalse((self.units / "calls").exists())
+        self.assertEqual(self.active(), {"bifrost-agentd.service", "bifrost-agentd-stg.service"})
 
     def test_confine_probe_runs_as_that_agent_user(self) -> None:
         for env, user in (("prod", "bifrost-agentd"), ("stg", "bifrost-agentd-stg")):
@@ -146,20 +125,6 @@ class StopStart(unittest.TestCase):
         r = self.run_step("step_confine_probe")
         self.assertEqual(r.returncode, 1)
         self.assertFalse((self.units / "calls").exists())
-
-    def test_update_agentd_refuses_a_binary_that_does_not_match(self) -> None:
-        for u in ("bifrost-agentd.service", "bifrost-agentd-stg.service"):
-            (self.units / u).write_text("")
-        build = Path(self.env["HOME"]) / "build"
-        build.mkdir(exist_ok=True)
-        (build / "agentd-x").write_text("agentd")
-        (build / "agentd.sha256").write_text("0" * 64 + "  agentd-x\n")
-        script = f'source "{HERE / "agent-06-owner.sh"}"; node_ssh() {{ bash -c "$1"; }}; BINARY="{build}/agentd-x"; HERE="{build}"; step_update_agentd'
-        r = subprocess.run(["bash", "-c", script], env=self.env, capture_output=True, text=True, timeout=60)
-        self.assertNotEqual(r.returncode, 0)
-        self.assertIn("nothing was stopped", r.stderr)
-        self.assertEqual(self.active(), {"bifrost-agentd.service", "bifrost-agentd-stg.service"})
-
 
     def stg_vendors(self, fail: str = "", fail_sudo: bool = False) -> subprocess.CompletedProcess:
         # The real step_vendor_creds and send_secret; only the Mac's credential files (fixtures of the right shape),

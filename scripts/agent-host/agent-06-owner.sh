@@ -24,9 +24,8 @@
 #   stop [prod|stg]       stop that agentd service, or both (before prepare
 #                         runs again)
 #   start [prod|stg]      enable and start that agentd service, or both
-#   update-agentd         put a new agentd build (agentd.sha256) on 06: check
-#                         the binary, stop both services, copy, prepare,
-#                         start both and check them running
+#   install-update-helper  install the fixed root helper and deploy sudo rule
+#   update-agentd         retired; use a deploy_agentd card on the Console
 #   stg-vendors           give the STG agentd claude and cursor-agent too: stop
 #                         both, copy, prepare, vendor-creds stg, start both
 #   bench codex           run the benchmark question set with codex on 06 (the
@@ -621,15 +620,17 @@ step_start() {
   fi
 }
 
-# update-agentd: the binary is checked before anything stops; a step that
-# fails stops the rest, with both services left stopped (run it again).
+# Updates are now requested and reviewed through the Console.
 step_update_agentd() {
-  (cd "$(dirname "$BINARY")" && shasum -a 256 -c "$HERE/agentd.sha256") || die "$BINARY does not match agentd.sha256; nothing was stopped"
-  step_stop
-  step_copy || die "copy failed; both agentd services are stopped (run update-agentd again)"
-  step_prepare || die "prepare failed; both agentd services are stopped (run update-agentd again)"
-  step_start
-  say "agentd on 06 is now $(basename "$BINARY")"
+  die "updates are now a deploy_agentd card on the Console"
+}
+
+step_install_update_helper() {
+  local installer
+  installer=$(cat "$HERE/install-update-helper.sh")
+  # Shell-quote the fixed repository script; helper bytes travel only on stdin.
+  printf -v installer '%q' "$installer"
+  node_ssh "sudo bash -c $installer" < "$HERE/agentd-update"
 }
 
 # stg-vendors: the STG agentd offers claude and cursor as well (Owner
@@ -764,9 +765,10 @@ if [ -z "$step" ]; then
 fi
 shift
 case "$step" in
-  check | leave | uninstall | delete-node | copy | prepare | codex-login | vendor-creds | git-token | host-check | secret | stop | start | update-agentd | stg-vendors | bench | bench-log | exam | exam-log | retire-mac | probe-protection | confine-probe | test-db-tools) ;;
+  check | leave | uninstall | delete-node | copy | prepare | codex-login | vendor-creds | git-token | host-check | secret | stop | start | install-update-helper | update-agentd | stg-vendors | bench | bench-log | exam | exam-log | retire-mac | probe-protection | confine-probe | test-db-tools) ;;
   *) die "unknown step: $step" ;;
 esac
+[ "$step" != update-agentd ] || step_update_agentd
 fn=step_$(echo "$step" | tr - _)
 # Every step but retire-mac (this Mac only) connects to 06.
 [ "$step" = retire-mac ] || key_agent_start
