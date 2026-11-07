@@ -183,11 +183,10 @@ spec:
       taskRef:
         name: bifrost-ci-platform-test-api
     - name: test-console
-      # 3 × 157s = 471s, rounded up to 8m0s. TD-313.
-      # 157s is the slowest full step measured in node:20-slim at --cpus=2
-      # and --memory=4g on 2026-10-11 (the other run was 150s). The 8m0s
-      # includes scheduling and image pull.
-      timeout: 8m0s
+      # A ceiling for a hung step, not a speed check. 2026-11-06 measured
+      # full runs took 6.2-7.8 min on a busy cluster, and two runs of one
+      # commit hit the old 8m0s (TD-313's 3 x 157s) with nothing wrong.
+      timeout: 20m0s
       runAfter: [clone, clone-ui]
       workspaces:
         - name: source
