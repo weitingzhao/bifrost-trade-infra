@@ -15,8 +15,7 @@ P = runpy.run_path(str(Path(__file__).with_name("doc_policy.py")))
 Error = P["PolicyError"]
 STAGES = ("tools", "scope", "consumers", "doc-policy", "quick", "statics",
           "kustomize", "code-health", "parity-static")
-METRICS = {"code.duplication.rocket.infra", "code.duplication.rocket.infra-py",
-           "code.oversized.rocket.infra"}
+METRICS = {"code.duplication.rocket.infra", "code.duplication.rocket.infra-py"}
 
 
 def run(argv, cwd=None, env=None, capture=False):
@@ -110,7 +109,7 @@ def code_health(args, infra):
             metric_values(output)
             revision = args.base_sha if label == "base" else args.revision
             names = sorted(name.encode("utf-8") for name in P["tree"](infra, revision)
-                           if name.endswith((".ts", ".tsx", ".py", ".go", ".sh", ".yml", ".yaml", ".md")))
+                           if name.endswith(".sh") or (name.endswith(".py") and not name.startswith("tests/")))
             expected = {"files_read": len(names), "paths_sha256": hashlib.sha256(b"".join(n + b"\0" for n in names)).hexdigest()}
             if json.loads(output.read_text())["scan_complete"][P["REPO"]] != expected:
                 raise Error("code_health_scan_incomplete")

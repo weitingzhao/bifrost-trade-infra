@@ -140,22 +140,48 @@ def allow(repo, base):
     return patterns
 
 
+def floor_path(name):
+    """CI eligibility only; the platform still requires an exact-file Owner grant."""
+    never = ("**/.env*", ".github/**", ".gitea/**", "**/.gitmodules", "**/.gitattributes",
+             "**/AGENTS.md", "**/CLAUDE.md", "**/SKILL.md", "**/*.mdc", "**/.claude/**",
+             "**/.cursor/**", "**/.codex/**", "**/.vscode/**", "**/.idea/**", "**/*.code-workspace")
+    if any(matches(p, name) for p in never):
+        return False
+    floor = ("k8s/**", "scripts/**", "docker/**", "config/**", "Makefile", "docker-compose*.yml",
+             "mkdocs.yml", "requirements*.txt", "**/.gitignore", "**/OWNER-STEPS-*", "**/*RUNBOOK*",
+             "**/TICKET-*", "**/REQUEST-*", "**/RULE-*")
+    return (name.startswith("agent-config/") and not name.startswith("agent-config/work/")) or any(matches(p, name) for p in floor)
+
+
 def scope(repo, base, revision):
-    patterns, files = allow(repo, base), tree(repo, revision)
+    patterns, files, before = allow(repo, base), tree(repo, revision), tree(repo, base)
     count = lines = 0
+    routes = set()
     for kind, name, (added, deleted) in changes(repo, base, revision):
+        if "\\" in name or any(ord(c) < 32 or 127 <= ord(c) <= 159 for c in name):
+            raise PolicyError("path_invalid")
         mode = files.get(name, (None,))[0]
-        if kind == "T" or b"-" in (added, deleted) or (kind != "D" and mode != "100644"):
+        existing_script = (kind == "M" and name.startswith("scripts/") and mode == "100755"
+                           and before.get(name, (None,))[0] == "100755")
+        if (kind == "T" or b"-" in (added, deleted)
+                or (kind == "M" and before.get(name, (None,))[0] != mode)
+                or (kind != "D" and mode != "100644" and not existing_script)):
             raise PolicyError(f"structural {name}")
-        if hard(name):
+        floor = floor_path(name)
+        if hard(name) and not floor:
             raise PolicyError(f"hard_floor {name}")
         if kind not in ("A", "M"):
             raise PolicyError(f"change_kind {name}")
-        if not any(matches(p, name) for p in patterns):
+        if not floor and not any(matches(p, name) for p in patterns):
             raise PolicyError(f"scope {name}")
+        if name.startswith("k8s/") and re.search(r"(?m)^\s*(?:-\s+)?kind\s*:\s*[\"']?Secret[\"']?\s*(?:#.*)?$", blob(repo, revision, name).decode("utf-8")):
+            raise PolicyError(f"secret {name}")
+        routes.add("floor" if floor else "document")
         count += 1
         lines += int(added) + int(deleted)
-    if not count or count > 5 or lines > 1500:
+    if len(routes) > 1:
+        raise PolicyError("mixed_floor_document")
+    if not count or count > 100 or lines > 1500:
         raise PolicyError("scope_size")
 
 

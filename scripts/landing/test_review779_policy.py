@@ -82,19 +82,19 @@ def test_a01_short_or_indented_marker_cannot_hide_heading(ci_workspace, not_a_fe
     assert 'owner_claim_removed' in result.stderr and 'owner_claim_unlinked' in result.stderr
 
 
-@pytest.mark.parametrize('violation,stage,error', [
-    ('Owner 决定 A\n', 'doc-policy', 'owner_claim_unlinked'),
-    ('line\n' * 501, 'code-health', 'code_health_regressed'),
+@pytest.mark.parametrize('name,violation,stage,error', [
+    (DOC, 'Owner 决定 A\n', 'doc-policy', 'owner_claim_unlinked'),
+    ('scripts/duplicate.sh', 'duplicate_fixture() { :; }\n' * 4, 'code-health', 'code_health_regressed'),
 ])
-def test_b01_push_checks_endpoints_not_restored_intermediate_commit(ci_workspace, tmp_path, violation, stage, error):
+def test_b01_push_checks_endpoints_not_restored_intermediate_commit(ci_workspace, tmp_path, name, violation, stage, error):
     args, infra, platform = ci_workspace
     args.purpose = 'push'
     git(infra, 'checkout', '--detach', args.base_sha)
-    put(infra, DOC, violation)
+    put(infra, name, violation)
     bad = args.revision = commit(infra)
     result = invoke_stage(args, stage)
     assert result.returncode == 1 and error in result.stderr, result.stdout + result.stderr
-    put(infra, DOC, 'Restored\n')
+    put(infra, name, 'Restored\n')
     commit(infra)
     put(infra, DOC, 'Final ordinary text\n')
     args.revision = commit(infra)

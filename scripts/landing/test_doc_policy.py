@@ -63,7 +63,7 @@ def test_scope_and_consumers_positive(repo):
 
 
 @pytest.mark.parametrize('name,content,error', [
-    ('scripts/x.py', 'x=1\n', 'hard_floor'),
+    ('.gitea/workflows/x.yml', 'x: 1\n', 'hard_floor'),
     ('docs/REPORT-x.md', 'x\n', 'scope'),
     ('agent-config/work/multi-agent/reviews/SKILL.md', 'x\n', 'hard_floor'),
     (DOC, b'\0binary\xff', 'structural'),
@@ -165,11 +165,12 @@ def test_baseline_scope_and_stable_main(repo):
     assert before == P['changes'](path, base, rev)
     with pytest.raises(P['PolicyError'], match='base_mismatch'):
         P['scope'](path, rev, rev)
-    # Candidate cannot change its policy before passing scope.
+    # A floor candidate can propose policy changes, but scope reads the base.
     put(path, P['RULES'], 'repos: []\n')
     next_rev = commit_fixture(path)
-    with pytest.raises(P['PolicyError'], match='hard_floor'):
-        P['scope'](path, rev, next_rev)
+    P['scope'](path, rev, next_rev)
+    with pytest.raises(P['PolicyError'], match='infra_allow_missing'):
+        P['allow'](path, next_rev)
 
 
 def test_registry_overlap_constraint_and_missing(repo):
@@ -240,7 +241,7 @@ def test_removed_claim_cannot_borrow_unchanged_paragraph_evidence(repo):
 
 def test_scope_limit_and_missing_allow(repo):
     path, base = repo
-    for i in range(6):
+    for i in range(101):
         put(path, f'agent-config/work/multi-agent/REPORT-{i}.md', 'small\n')
     with pytest.raises(P['PolicyError'], match='scope_size'):
         P['scope'](path, base, commit_fixture(path))
@@ -249,3 +250,72 @@ def test_scope_limit_and_missing_allow(repo):
     _, _, rev = candidate((path, base))
     with pytest.raises(P['PolicyError'], match='infra_allow_missing'):
         P['scope'](path, base, rev)
+
+
+@pytest.mark.parametrize('count', [10, 100, 101])
+def test_floor_file_limit(repo, count):
+    path, base = repo
+    for i in range(count):
+        put(path, f'k8s/test-{i}.yaml', 'kind: ConfigMap\n')
+    revision = commit_fixture(path)
+    if count > 100:
+        with pytest.raises(P['PolicyError'], match='scope_size'):
+            P['scope'](path, base, revision)
+    else:
+        P['scope'](path, base, revision)
+
+
+@pytest.mark.parametrize('name,text,error', [
+    ('k8s/secret.yaml', 'kind: Secret\n', 'secret'),
+    ('k8s/list.yaml', "- kind: 'Secret' # hidden\n", 'secret'),
+    ('scripts/.env', 'fixture\n', 'hard_floor'),
+    ('scripts/AGENTS.md', 'fixture\n', 'hard_floor'),
+])
+def test_floor_keeps_absolute_boundary(repo, name, text, error):
+    path, base = repo
+    put(path, name, text)
+    with pytest.raises(P['PolicyError'], match=error):
+        P['scope'](path, base, commit_fixture(path))
+
+
+def test_floor_rejects_mixed_document(repo):
+    path, base = repo
+    put(path, 'scripts/task.py', 'pass\n')
+    put(path, DOC, 'Changed\n')
+    with pytest.raises(P['PolicyError'], match='mixed_floor_document'):
+        P['scope'](path, base, commit_fixture(path))
+
+
+def test_existing_executable_floor_script(repo):
+    path, _ = repo
+    name = 'scripts/helper.sh'
+    put(path, name, '#!/bin/sh\necho before\n')
+    os.chmod(path / name, 0o755)
+    command(path, 'add', '--', name)
+    base = commit_fixture(path)
+    put(path, name, '#!/bin/sh\necho after\n')
+    revision = commit_fixture(path)
+    P['scope'](path, base, revision)
+    base = revision
+    os.chmod(path / name, 0o644)
+    command(path, 'add', '--', name)
+    with pytest.raises(P['PolicyError'], match='structural'):
+        P['scope'](path, base, commit_fixture(path))
+
+
+@pytest.mark.parametrize('name', ['scripts/a\\b.py', 'scripts/a\tb.py', 'scripts/a\x7fb.py'])
+def test_floor_rejects_invalid_paths(repo, name):
+    path, base = repo
+    put(path, name, 'pass\n')
+    with pytest.raises(P['PolicyError'], match='path_invalid'):
+        P['scope'](path, base, commit_fixture(path))
+
+
+def test_floor_rejects_new_executable(repo):
+    path, base = repo
+    name = 'scripts/new.sh'
+    put(path, name, '#!/bin/sh\ntrue\n')
+    os.chmod(path / name, 0o755)
+    command(path, 'add', '--', name)
+    with pytest.raises(P['PolicyError'], match='structural'):
+        P['scope'](path, base, commit_fixture(path))

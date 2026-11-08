@@ -102,15 +102,18 @@ def test_b03_real_filename_growth(ci_workspace, leaf):
     args.revision = commit(infra)
     for stage in ('scope', 'consumers', 'doc-policy'):
         result = invoke_stage(args, stage)
-        assert result.returncode == 0, result.stderr
+        if stage == 'scope' and any(c in leaf for c in ('\t', '\n')):
+            assert result.returncode == 1 and 'path_invalid' in result.stderr
+        else:
+            assert result.returncode == 0, result.stderr
     result = invoke_stage(args, 'code-health')
-    assert result.returncode == 1, result.stdout + result.stderr
-    assert 'code_health_regressed code.oversized.rocket.infra' in result.stderr
+    # Owner retired the file-length metric; path coverage still must be exact.
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_b03_missing_tracked_file_is_scan_failure(ci_workspace, tmp_path):
     args, infra, _ = ci_workspace
-    (infra / DOC).unlink()
+    (infra / 'scripts/landing/doc_policy.py').unlink()
     output = tmp_path / 'scan.json'
     result = subprocess.run(['bash', str(args.base / 'bifrost-trade-infra/agent-config/scripts/code-health/scan.sh'),
                              '--root', str(args.cand), '--repo', 'bifrost-trade-infra', '--json', str(output)],

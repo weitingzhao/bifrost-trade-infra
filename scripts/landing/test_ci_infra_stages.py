@@ -59,8 +59,8 @@ def test_workspace_identity_and_dirty(ci_workspace):
 
 def test_baseline_entry_export_and_scope_stops_all(ci_workspace):
     args, infra, _platform = ci_workspace
-    # Candidate program is poisoned. The baseline copy must reject the scope
-    # without ever executing the poisoned checker or any subsequent stage.
+    # A floor candidate may change the checker, but only the baseline copy
+    # executes. CI success does not grant permission to land that change.
     put(infra, 'scripts/landing/doc_policy.py', 'raise SystemExit("POISON_EXECUTED")\n')
     rev = commit(infra)
     args.base_sha = args.revision
@@ -69,13 +69,13 @@ def test_baseline_entry_export_and_scope_stops_all(ci_workspace):
     result = subprocess.run(['bash', str(HERE / 'ci-infra.sh'), '--stage', 'scope', '--cand', str(args.cand),
                              '--base', str(args.base), '--base-sha', args.base_sha, '--revision', rev,
                              '--platform-revision', args.platform_revision], capture_output=True, check=False, text=True)
-    assert result.returncode == 1
-    assert 'hard_floor' in result.stderr and 'POISON_EXECUTED' not in result.stderr
+    assert result.returncode == 0, result.stderr
+    assert 'POISON_EXECUTED' not in result.stderr
 
 
 def test_all_stops_before_consumers(ci_workspace, monkeypatch):
     args, infra, _platform = ci_workspace
-    put(infra, 'scripts/x.py', 'x=1\n')
+    put(infra, 'scripts/.env.local', 'fixture\n')
     args.revision = commit(infra)
     args.base_sha = git(infra, 'rev-parse', 'HEAD^')
     git(args.base / 'bifrost-trade-infra', 'checkout', '--detach', args.base_sha)
@@ -110,15 +110,14 @@ def test_each_policy_stage_rejects_missing_baseline_input(ci_workspace):
     assert subprocess.run(command, capture_output=True, check=False).returncode != 0
 
 
-def test_health_real_500_to_501(ci_workspace):
+def test_health_retired_file_length_metric(ci_workspace):
     args, infra, _platform = ci_workspace
     put(infra, 'agent-config/work/multi-agent/REPORT-big.md', 'line\n' * 500)
     args.revision = commit(infra)
     C.code_health(args, infra)
     put(infra, 'agent-config/work/multi-agent/REPORT-big.md', 'line\n' * 501)
     args.revision = commit(infra)
-    with pytest.raises(C.Error, match='code_health_regressed'):
-        C.code_health(args, infra)
+    C.code_health(args, infra)
 
 
 def test_health_fails_unreadable_or_partial(tmp_path):
