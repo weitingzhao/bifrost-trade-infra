@@ -26,7 +26,78 @@ spec:
         the PipelineRun's name, only for the Job's annotation. The Pipeline passes its
         context.pipelineRun.name: Tekton substitutes that in a Pipeline, not in a Task
         (STG 2026-10-22 01:45Z: the step got the literal text and refused)
+  results:
+    - name: agentd-ci-evidence
+      description: Successful CI name and exact platform, UI and infra commits.
+  workspaces:
+    - name: ci-source
+      optional: true
   steps:
+    # This STG task already uses tekton-deliver, which can read PipelineRuns.
+    # Pass only the selected receipt to packaging, never the cluster run list.
+    - name: agentd-ci-evidence
+      image: alpine/k8s:1.31.4
+      env:
+        - name: CI_SOURCE_BOUND
+          value: $(workspaces.ci-source.bound)
+        - name: CI_SOURCE
+          value: $(workspaces.ci-source.path)
+        - name: CI_RESULT
+          value: $(results.agentd-ci-evidence.path)
+      script: |
+        #!/usr/bin/env python3
+        import json
+        import os
+        import re
+        import subprocess
+        from pathlib import Path
+
+        def values(run, section):
+            result = {}
+            for item in run.get(section, []):
+                key = item["name"]
+                if key in result:
+                    raise ValueError("duplicate evidence field")
+                result[key] = item["value"]
+            return result
+
+        def evidence(runs, commit, ui, infra):
+            if not all(re.fullmatch(r"[0-9a-f]{40}", value) for value in (commit, ui, infra)):
+                raise ValueError("full input commits required")
+            for run in runs:
+                spec, status = run.get("spec", {}), run.get("status", {})
+                if spec.get("pipelineRef", {}).get("name") != "bifrost-ci-platform":
+                    continue
+                if not any(c.get("type") == "Succeeded" and c.get("status") == "True"
+                           for c in status.get("conditions", [])):
+                    continue
+                params, results = values(spec, "params"), values(status, "results")
+                if (params.get("repo-url") != "http://gitea.cicd.svc.cluster.local:3000/bifrost/bifrost-platform.git"
+                        or params.get("revision") != commit or results.get("platform-commit") != commit
+                        or results.get("ui-commit") != ui or results.get("infra-commit") != infra):
+                    continue
+                if results.get("tested-by") or results.get("api-scope") not in ("full", "incremental"):
+                    continue
+                return run["metadata"]["name"]
+            raise ValueError("no successful CI for the exact delivery inputs; do not start another CI here")
+
+        def main():
+            result = Path(os.environ["CI_RESULT"])
+            if os.environ["CI_SOURCE_BOUND"] != "true":
+                result.write_text("{}")
+                return
+            source = Path(os.environ["CI_SOURCE"])
+            def head(repo):
+                return subprocess.check_output(["git", "-C", source / repo, "rev-parse", "HEAD"], text=True).strip()
+            commit, ui, infra = (head(repo) for repo in ("bifrost-platform", "bifrost-ui", "bifrost-trade-infra"))
+            runs = json.loads(subprocess.check_output([
+                "kubectl", "-n", "cicd", "get", "pipelineruns", "-l", "tekton.dev/pipeline=bifrost-ci-platform", "-o", "json",
+            ]))["items"]
+            ci = evidence(runs, commit, ui, infra)
+            result.write_text(json.dumps({"commit": commit, "ui": ui, "infra": infra, "ci": ci}))
+
+        if __name__ == "__main__":
+            main()
     - name: migrate
       image: alpine/k8s:1.31.4
       env:

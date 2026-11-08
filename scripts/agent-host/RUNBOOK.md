@@ -39,9 +39,11 @@ configuration path, unit name, or executable from the caller.
 
 ## One CI, ordinary CD publication
 
-The STG delivery's `agentd-package` task runs after its rollout succeeds. It
-requires a successful platform CI whose platform, UI and infra results match
-the three actual delivery clones. It does not start CI or repeat tests. The
+The STG migration task uses its existing PipelineRun read access to select a
+successful CI for the actual platform, UI and infra clones. It passes only the
+matching commits and CI run name to `agentd-package`, which checks them again
+after rollout. Packaging runs with the default task identity and uses the
+dedicated package credential only for upload. The
 cloned platform must still be main when publication preparation begins; a moved
 main fails explicitly instead of silently publishing another commit or starting CI.
 

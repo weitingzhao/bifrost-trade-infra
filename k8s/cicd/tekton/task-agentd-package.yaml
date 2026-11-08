@@ -14,6 +14,8 @@ spec:
       type: string
     - name: infraCommit
       type: string
+    - name: ciEvidence
+      type: string
   results:
     - name: agentd-commit
     - name: agentd-sha256
@@ -29,6 +31,8 @@ spec:
           value: $(params.uiCommit)
         - name: INFRA_COMMIT
           value: $(params.infraCommit)
+        - name: CI_EVIDENCE
+          value: $(params.ciEvidence)
         - name: GIT_USERNAME
           valueFrom:
             secretKeyRef: {name: gitea-ci-reader, key: username}
@@ -48,8 +52,7 @@ spec:
           git ls-remote http://gitea.cicd.svc.cluster.local:3000/bifrost/bifrost-platform.git refs/heads/main)
         unset auth
         test "${main%%[[:space:]]*}" = "$PLATFORM_COMMIT" || { echo 'Main moved; no package published and no CI started' >&2; exit 1; }
-        kubectl -n cicd get pipelineruns -o json > "$src/agentd-ci-evidence.json"
-        python3 "$src/bifrost-trade-infra/scripts/release/agentd_package.py" evidence "$src/agentd-package" < "$src/agentd-ci-evidence.json"
+        python3 "$src/bifrost-trade-infra/scripts/release/agentd_package.py" accept-evidence "$src/agentd-package"
     - name: build
       image: golang:1.25-bookworm
       env:

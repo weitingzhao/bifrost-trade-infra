@@ -7,9 +7,27 @@ from pathlib import Path
 import pytest
 import yaml
 
-from agentd_package import PACKAGE, evidence, publish
+from agentd_package import PACKAGE, delivery_proof, publish
 
 P, U, INFRA = "a" * 40, "b" * 40, "c" * 40
+TEKTON = Path(__file__).resolve().parents[2] / "k8s/cicd/tekton"
+
+
+def evidence(runs, commit, ui, infra):
+    task = yaml.safe_load((TEKTON / "task-agentrt-migrate-stg.yaml").read_text())
+    selector = next(step for step in task["spec"]["steps"] if step["name"] == "agentd-ci-evidence")
+    scope = {"__name__": "fixture"}
+    exec(compile(selector["script"], "agentd-ci-evidence", "exec"), scope)
+    return scope["evidence"](runs, commit, ui, infra)
+
+
+def test_package_accepts_only_the_matching_receipt():
+    receipt = {"commit": P, "ui": U, "infra": INFRA, "ci": "landing-ci-one"}
+    assert delivery_proof(receipt, P, U, INFRA) == receipt
+    with pytest.raises(ValueError, match="exact delivery inputs"):
+        delivery_proof(dict(receipt, infra="d" * 40), P, U, INFRA)
+    with pytest.raises(ValueError, match="invalid CI run"):
+        delivery_proof(dict(receipt, ci=""), P, U, INFRA)
 
 
 def green():
@@ -82,6 +100,8 @@ def test_only_cd_upload_step_receives_the_publisher_secret():
     cd = yaml.safe_load((tekton / "pipeline-deliver-platform.yaml").read_text())
     package = next(t for t in cd["spec"]["tasks"] if t["name"] == "agentd-package")
     assert package["runAfter"] == ["rollout"]
+    assert {"name": "ciEvidence", "value": "$(tasks.agentrt-migrate.results.agentd-ci-evidence)"} in package["params"]
+    assert all("kubectl" not in step["script"] for step in task["spec"]["steps"])
     assert "agentd-package" not in (tekton / "pipeline-ci-platform.yaml").read_text()
     assert "go test" not in (tekton / "task-agentd-package.yaml").read_text()
 

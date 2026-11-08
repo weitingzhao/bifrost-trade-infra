@@ -69,7 +69,8 @@ def test_stg_pipeline_migrates_before_promotion_sync_and_rollout():
     p = tasks(STG_PIPELINE)
     m = p["agentrt-migrate"]
     assert m["taskRef"] == {"name": "bifrost-agentrt-migrate-stg"}
-    assert m["runAfter"] == ["build-platform-api"]
+    assert m["runAfter"] == ["build-platform-api", "clone-ui"]
+    assert m["workspaces"] == [{"name": "ci-source", "workspace": "build-context"}]
     assert m["params"] == [
         {"name": "apiDigest", "value": "$(tasks.build-platform-api.results.digest)"},
         {"name": "deliverRun", "value": "$(context.pipelineRun.name)"},
@@ -95,7 +96,7 @@ def task_spec():
 
 
 def stg_script():
-    (step,) = task_spec()["steps"]
+    step = next(step for step in task_spec()["steps"] if step["name"] == "migrate")
     return step["script"]
 
 
@@ -103,7 +104,7 @@ def test_stg_task_is_stg_only():
     spec = task_spec()
     # The namespace is not a param: nothing a caller passes moves the Job elsewhere.
     assert [p["name"] for p in spec["params"]] == ["apiDigest", "deliverRun"]
-    (step,) = spec["steps"]
+    step = next(step for step in spec["steps"] if step["name"] == "migrate")
     assert step["env"] == [
         {"name": "API_DIGEST", "value": "$(params.apiDigest)"},
         {"name": "DELIVER_RUN", "value": "$(params.deliverRun)"},

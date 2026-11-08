@@ -17,39 +17,6 @@ PACKAGE = "http://gitea.cicd.svc.cluster.local:3000/api/packages/bifrost-agentd-
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 
 
-def values(run, section):
-    result = {}
-    for item in run.get(section, []):
-        key = item["name"]
-        if key in result:
-            raise ValueError("duplicate evidence field")
-        result[key] = item["value"]
-    return result
-
-
-def evidence(runs, commit, ui, infra):
-    """Require an actual successful CI of the exact three cloned inputs."""
-    if not all(SHA.fullmatch(x) for x in (commit, ui, infra)):
-        raise ValueError("full input commits required")
-    for run in runs:
-        spec, status = run.get("spec", {}), run.get("status", {})
-        if spec.get("pipelineRef", {}).get("name") != "bifrost-ci-platform":
-            continue
-        if not any(c.get("type") == "Succeeded" and c.get("status") == "True"
-                   for c in status.get("conditions", [])):
-            continue
-        params, results = values(spec, "params"), values(status, "results")
-        if (params.get("repo-url") != "http://gitea.cicd.svc.cluster.local:3000/bifrost/bifrost-platform.git"
-                or params.get("revision") != commit or results.get("platform-commit") != commit
-                or results.get("ui-commit") != ui or results.get("infra-commit") != infra):
-            continue
-        # Reuse/skip protocols are deliberately not extended by this closeout.
-        if results.get("tested-by") or results.get("api-scope") not in ("full", "incremental"):
-            continue
-        return run["metadata"]["name"]
-    raise ValueError("no successful CI for the exact delivery inputs; do not start another CI here")
-
-
 class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         raise ValueError("package redirect refused")
@@ -87,15 +54,26 @@ def publish(commit, binary, username, password, request=None):
     return digest
 
 
+def delivery_proof(proof, commit, ui, infra):
+    if not all(SHA.fullmatch(x) for x in (commit, ui, infra)):
+        raise ValueError("full input commits required")
+    if not isinstance(proof, dict) or tuple(proof.get(k) for k in ("commit", "ui", "infra")) != (commit, ui, infra):
+        raise ValueError("CI receipt does not match the exact delivery inputs")
+    ci = proof.get("ci")
+    if not isinstance(ci, str) or not re.fullmatch(r"[a-z0-9][a-z0-9.-]{0,252}", ci):
+        raise ValueError("invalid CI run in delivery receipt")
+    return {"commit": commit, "ui": ui, "infra": infra, "ci": ci}
+
+
 def main():
     mode, directory = sys.argv[1:]
     out = Path(directory)
-    if mode == "evidence":
+    if mode == "accept-evidence":
         commit, ui, infra = (os.environ[k] for k in ("PLATFORM_COMMIT", "UI_COMMIT", "INFRA_COMMIT"))
-        ci = evidence(json.load(sys.stdin)["items"], commit, ui, infra)
+        proof = delivery_proof(json.loads(os.environ["CI_EVIDENCE"]), commit, ui, infra)
         out.mkdir(parents=True, exist_ok=True)
-        (out / "evidence.json").write_text(json.dumps({"commit": commit, "ci": ci}))
-        print(f"Reuse CI {ci} for agentd {commit}; no tests requested")
+        (out / "evidence.json").write_text(json.dumps(proof))
+        print(f"Reuse CI {proof['ci']} for agentd {commit}; no tests requested")
     elif mode == "publish":
         proof = json.loads((out / "evidence.json").read_text())
         digest = publish(proof["commit"], (out / "agentd-linux-amd64").read_bytes(),

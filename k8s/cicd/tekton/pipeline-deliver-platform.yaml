@@ -158,7 +158,7 @@ spec:
     # TD-411: the agentrt migrations of the api image just built (by digest) run on
     # STG's database before anything else moves; a Job that fails stops the run here.
     - name: agentrt-migrate
-      runAfter: [build-platform-api]
+      runAfter: [build-platform-api, clone-ui]
       # a backstop: the step bounds itself to AGENTRT_MIGRATE_WAIT_S (960 s) (review 503)
       timeout: 20m
       taskRef:
@@ -168,6 +168,9 @@ spec:
           value: $(tasks.build-platform-api.results.digest)
         - name: deliverRun
           value: $(context.pipelineRun.name)
+      workspaces:
+        - name: ci-source
+          workspace: build-context
     # Only now does :stg point at what this run built (review 498 A1).
     - name: promote-images
       runAfter: [agentrt-migrate, build-platform-console]
@@ -228,6 +231,8 @@ spec:
           value: $(tasks.clone-ui.results.commit)
         - name: infraCommit
           value: $(tasks.clone-infra.results.commit)
+        - name: ciEvidence
+          value: $(tasks.agentrt-migrate.results.agentd-ci-evidence)
       workspaces:
         - name: source
           workspace: build-context
