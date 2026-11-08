@@ -36,7 +36,7 @@ else
   env -i PATH="$PATH" curl -q --config /etc/bifrost/agentd-update.curl \
     --fail --silent --show-error --connect-timeout 15 --max-time 180 \
     --proto '=http,https' --output "$work/binary" \
-    "http://192.168.10.73:30300/api/packages/bifrost/generic/agentd/$1/agentd-linux-amd64"
+    "http://192.168.10.73:30300/api/packages/bifrost-agentd-publisher/generic/agentd/$1/agentd-linux-amd64"
   printf '%s  %s\n' "$2" "$work/binary" | sha256sum --check --status || fail 'sha256 mismatch'
   install -o root -g root -m 0755 "$work/binary" "$work/version"
   mv -fT "$work/version" "$target"

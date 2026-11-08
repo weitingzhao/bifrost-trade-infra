@@ -8,6 +8,11 @@ metadata:
   labels:
     bifrost.io/purpose: platform-deliver
 spec:
+  results:
+    - name: agentd-commit
+      value: $(tasks.agentd-package.results.agentd-commit)
+    - name: agentd-sha256
+      value: $(tasks.agentd-package.results.agentd-sha256)
   description: >-
     Mirror-sync bifrost-platform → build platform-api + platform-console images →
     run STG's agentrt migrations with the api image built → pin
@@ -211,3 +216,18 @@ spec:
           value: "true"
         - name: recordApplication
           value: none
+    # Reuse the landing CI; never run another main CI just to obtain a package.
+    - name: agentd-package
+      runAfter: [rollout]
+      taskRef:
+        name: bifrost-agentd-package
+      params:
+        - name: platformCommit
+          value: $(tasks.clone-platform.results.commit)
+        - name: uiCommit
+          value: $(tasks.clone-ui.results.commit)
+        - name: infraCommit
+          value: $(tasks.clone-infra.results.commit)
+      workspaces:
+        - name: source
+          workspace: build-context

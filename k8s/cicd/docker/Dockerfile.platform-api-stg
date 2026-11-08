@@ -20,7 +20,8 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o /stg-release-probe ./cmd/stg-release-pr
 FROM alpine:3.20
 # git: the STG landing drill (W-31 4.1 S2) clones, replays and pushes land/stg/**
 # with the git binary (landinggit); PROD runs the same image and never enables it.
-RUN apk add --no-cache ca-certificates git
+# deploy_agentd already invokes ssh; include its runtime client.
+RUN apk add --no-cache ca-certificates git openssh-client
 COPY --from=builder /platform-api /usr/local/bin/platform-api
 COPY --from=builder /stg-release-probe /usr/local/bin/stg-release-probe
 

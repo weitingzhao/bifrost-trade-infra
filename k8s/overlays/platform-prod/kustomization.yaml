@@ -36,6 +36,7 @@ configMapGenerator:
       - config/patrol-skills/cert-expiry-check.yaml
 
 patches:
+  - path: platform-agentd-deploy.patch.yaml
   - path: platform-serviceaccount.patch.yaml
   - path: images-pull-always.patch.yaml
   - path: platform-workers-env.patch.yaml

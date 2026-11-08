@@ -1,0 +1,66 @@
+# Provision the dedicated Secret and install the fixed host helper before activation.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-api
+spec:
+  template:
+    spec:
+      containers:
+        - name: platform-api
+          env:
+            - name: AGENTD_PACKAGE_READER_DIR
+              value: /etc/bifrost/agentd-package-reader
+            - name: AGENTD_PACKAGE_SHA256_URL
+              value: http://gitea.cicd.svc.cluster.local:3000/api/packages/bifrost-agentd-publisher/generic/agentd/{commit}/agentd.sha256
+            - name: AGENTD_DEPLOY_TARGETS
+              value: agent-06=deploy@192.168.10.79
+          volumeMounts:
+            - name: agentd-package-reader
+              mountPath: /etc/bifrost/agentd-package-reader
+              readOnly: true
+            - name: agentd-deploy-ssh
+              mountPath: /root/.ssh
+              readOnly: true
+      volumes:
+        - name: agentd-package-reader
+          secret:
+            secretName: agentd-package-reader
+            defaultMode: 0400
+        - name: agentd-deploy-ssh
+          secret:
+            secretName: agentd-deploy-ssh
+            defaultMode: 0400
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-workers
+spec:
+  template:
+    spec:
+      containers:
+        - name: platform-api
+          env:
+            - name: AGENTD_PACKAGE_READER_DIR
+              value: /etc/bifrost/agentd-package-reader
+            - name: AGENTD_PACKAGE_SHA256_URL
+              value: http://gitea.cicd.svc.cluster.local:3000/api/packages/bifrost-agentd-publisher/generic/agentd/{commit}/agentd.sha256
+            - name: AGENTD_DEPLOY_TARGETS
+              value: agent-06=deploy@192.168.10.79
+          volumeMounts:
+            - name: agentd-package-reader
+              mountPath: /etc/bifrost/agentd-package-reader
+              readOnly: true
+            - name: agentd-deploy-ssh
+              mountPath: /root/.ssh
+              readOnly: true
+      volumes:
+        - name: agentd-package-reader
+          secret:
+            secretName: agentd-package-reader
+            defaultMode: 0400
+        - name: agentd-deploy-ssh
+          secret:
+            secretName: agentd-deploy-ssh
+            defaultMode: 0400
