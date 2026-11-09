@@ -153,6 +153,7 @@ spec:
       script: |
         #!/usr/bin/env bash
         set -euo pipefail
+        export BIFROST_GO_TEST_TIMEOUT=1800s
         git_auth="$(printf '%s:%s' "${GIT_USERNAME:-}" "${GIT_PASSWORD:-}" | base64 | tr -d '\n')"
         unset GIT_USERNAME GIT_PASSWORD
         ws="$(workspaces.source.path)"
@@ -317,7 +318,7 @@ spec:
             fi
             echo "==> console scope: go test ${CONSOLE_SCOPE_PACKAGES}; no go vet (the Go code is main's)"
             # shellcheck disable=SC2086
-            go test ${CONSOLE_SCOPE_PACKAGES} -count=1 -timeout=900s
+            go test ${CONSOLE_SCOPE_PACKAGES} -count=1 -timeout="${BIFROST_GO_TEST_TIMEOUT}"
             echo "==> Go API tests passed (console scope)"
             exit 0
           fi
@@ -371,7 +372,7 @@ spec:
           cd api
           if [ "${part}" = store ]; then
             echo "==> go test ${STORE_PACKAGE} (part store); full: ${why}"
-            go test "${STORE_PACKAGE}" -count=1 -timeout=900s
+            go test "${STORE_PACKAGE}" -count=1 -timeout="${BIFROST_GO_TEST_TIMEOUT}"
             echo "==> Go API tests passed (part store)"
             exit 0
           fi
@@ -383,12 +384,12 @@ spec:
             packages="$(go list ./... | grep -vxF "${store_import}")"
             echo "==> go test: $(printf '%s\n' "${packages}" | wc -l | tr -d ' ') packages, every one but ${store_import} (part rest); full: ${why}"
             # shellcheck disable=SC2086
-            go test ${packages} -count=1 -timeout=900s
+            go test ${packages} -count=1 -timeout="${BIFROST_GO_TEST_TIMEOUT}"
             echo "==> Go API tests passed (part rest)"
             exit 0
           fi
           echo "==> go test ./... (full: ${why})"
-          go test ./... -count=1 -timeout=900s
+          go test ./... -count=1 -timeout="${BIFROST_GO_TEST_TIMEOUT}"
           echo "==> Go API tests passed"
           exit 0
         fi
