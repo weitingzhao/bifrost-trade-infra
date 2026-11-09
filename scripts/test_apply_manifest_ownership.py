@@ -20,12 +20,12 @@ elif '--dry-run=server' in a:
  (p/'n').write_text(str(n+1))
  m=os.environ['MANAGER'] if n==0 else os.environ.get('LATER', os.environ['MANAGER'])
  if m:
-  for manager in m.split(','): print('conflict with "'+manager+'": .spec',file=sys.stderr)
+  for manager in m.split(','): print(os.environ.get('CONFLICT_PREFIX', 'conflict with')+' "'+manager+'": .spec',file=sys.stderr)
   sys.exit(1)
 '''
 
 class Ownership(unittest.TestCase):
-    def run_case(self, manager, ns='cicd', kind='Task', op='Update', annotation=True, later=None):
+    def run_case(self, manager, ns='cicd', kind='Task', op='Update', annotation=True, later=None, plural=False, mode='apply'):
         with tempfile.TemporaryDirectory() as d:
             p=Path(d)
             (p/'kubectl').write_text(FAKE)
@@ -34,7 +34,8 @@ class Ownership(unittest.TestCase):
             (p/'objects').write_text(json.dumps([{'namespace':ns,'kind':kind,'name':'probe','tier':'C'}]))
             env=dict(os.environ, PROBE=d, MANAGER=manager, OP=op, ANNOTATIONS=json.dumps({'kubectl.kubernetes.io/last-applied-configuration':'{}'} if annotation else {}), KUBECTL=str(p/'kubectl'))
             if later is not None: env['LATER']=later
-            r=subprocess.run(['sh',str(HELPER),'apply',str(p/'render'),str(p/'objects')],env=env,capture_output=True,text=True)
+            if plural: env['CONFLICT_PREFIX']='error: Apply failed with 2 conflicts: conflicts with'
+            r=subprocess.run(['sh',str(HELPER),mode,str(p/'render'),str(p/'objects')],env=env,capture_output=True,text=True)
             calls=[json.loads(s) for s in (p/'calls').read_text().splitlines()]
             return r, calls, json.loads((p/'objects').read_text())
 
@@ -65,3 +66,24 @@ class Ownership(unittest.TestCase):
             self.assertNotEqual(r.returncode,0)
             self.assertFalse(any(a[0]=='apply' and '--dry-run=server' not in a for a in c))
             self.assertFalse(any('--force-conflicts' in a for a in c))
+
+    def test_plural_conflict_from_real_kubectl(self):
+        r, calls, objects = self.run_case('kubectl-client-side-apply', plural=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(objects[0]['ownership'], 'migrate')
+        self.assertTrue(any('--force-conflicts' in call for call in calls))
+
+    def test_plural_conflict_still_refuses_foreign_manager(self):
+        for manager in ('foreign', 'kubectl-client-side-apply,foreign'):
+            r, calls, _ = self.run_case(manager, plural=True)
+            self.assertNotEqual(r.returncode, 0)
+            self.assertFalse(any('--force-conflicts' in call for call in calls))
+            self.assertFalse(any(call[0] == 'apply' and '--dry-run=server' not in call for call in calls))
+
+    def test_plural_plan_is_read_only(self):
+        r, calls, objects = self.run_case('kubectl-client-side-apply', plural=True, mode='plan')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(objects[0]['ownership'], 'migrate')
+        self.assertTrue(any(call[0] == 'diff' and '--force-conflicts' in call for call in calls))
+        self.assertFalse(any(call[0] == 'annotate' for call in calls))
+        self.assertFalse(any(call[0] == 'apply' and '--dry-run=server' not in call for call in calls))

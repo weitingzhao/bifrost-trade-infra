@@ -19,7 +19,7 @@ classify() {
   fi
   # Only recognized SSA conflicts may enter the migration path. Errors such as
   # admission failures, missing permissions or transport failures remain errors.
-  managers=$(sed -n 's/.*conflict with "\([^"]*\)".*/\1/p' "$work/error" | sort -u)
+  managers=$(sed -n 's/.*conflicts\{0,1\} with "\([^"]*\)".*/\1/p' "$work/error" | sort -u)
   if [ "$eligible" != true ] || [ -z "$managers" ]; then
     cat "$work/error" >&2
     return 1
