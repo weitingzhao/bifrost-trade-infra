@@ -153,10 +153,39 @@ def test_other_or_missing_pusher_runs_platform_ci(pusher):
     ("bifrost-trade-core", ["python-ci"]),
     ("bifrost-research", ["python-ci"]),
     ("bifrost-ui", ["frontend-ci-ui", "platform-ci-ui"]),
-    ("bifrost-trade-infra", ["infra-ci"]),
+    ("bifrost-trade-infra", []),
 ])
 def test_lander_push_keeps_other_repositories_ci(repo, ci):
     body = push(repo, "refs/heads/main")
     body["repository"]["full_name"] = f"bifrost/{repo}"
     body["pusher"] = {"login": "agentrt-lander", "username": "agentrt-lander"}
     assert [n for n in fired(body) if n in CI + ["infra-ci"]] == ci
+
+
+@pytest.mark.parametrize("pusher", [
+    {"login": "agentrt-lander"},
+    {"username": "agentrt-lander"},
+    {"login": "agentrt-lander", "username": "Owner"},
+    {"login": "Owner", "username": "agentrt-lander"},
+    {"login": "agentrt-lander", "username": "agentrt-lander"},
+])
+def test_lander_main_push_runs_no_second_infra_ci(pusher):
+    body = push("bifrost-trade-infra", "refs/heads/main")
+    body["repository"]["full_name"] = "bifrost/bifrost-trade-infra"
+    body["pusher"] = pusher
+    assert "infra-ci" not in fired(body)
+    body["ref"] = "refs/heads/feature/example"
+    assert "infra-ci" in fired(body)
+
+
+@pytest.mark.parametrize("pusher", [
+    None, {}, {"login": "Owner"}, {"username": "another-user"},
+    {"login": "Owner", "username": "Owner"},
+    {"login": "agentrt-lander-extra", "username": "Agentrt-lander"},
+])
+def test_other_or_missing_pusher_runs_infra_ci(pusher):
+    body = push("bifrost-trade-infra", "refs/heads/main")
+    body["repository"]["full_name"] = "bifrost/bifrost-trade-infra"
+    if pusher is not None:
+        body["pusher"] = pusher
+    assert "infra-ci" in fired(body)

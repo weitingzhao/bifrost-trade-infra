@@ -308,6 +308,7 @@ spec:
         - ref: bifrost-gitea-push-ui
       template:
         ref: bifrost-ci-frontend-template
+    # Landing CI already checked the commit promoted to main by agentrt-lander.
     - name: infra-ci
       interceptors:
         - ref:
@@ -316,6 +317,9 @@ spec:
             - name: filter
               value: >-
                 body.repository.full_name == 'bifrost/bifrost-trade-infra' &&
+                (body.ref != 'refs/heads/main' || !has(body.pusher) ||
+                  ((!has(body.pusher.login) || body.pusher.login != 'agentrt-lander') &&
+                   (!has(body.pusher.username) || body.pusher.username != 'agentrt-lander'))) &&
                 body.ref.startsWith('refs/heads/') &&
                 !body.ref.startsWith('refs/heads/land/') &&
                 !body.ref.startsWith('refs/heads/agent/') &&
