@@ -333,6 +333,11 @@
 | [TD-303](#td-303) | P1 | research-control | Daily failure visibility and accepted long-row retention await production acceptance | PROD 变更（要你批） |
 | [TD-304](#td-304) | P1 | alert-delivery | Failed or missing Research work has no verified durable Owner notification | PROD 变更／真实告警测试（要你批） |
 | [TD-305](#td-305) | P2 | market-data | 67 recovered empty option responses still lack historical classification | 不用批（只读盘点；补抓另批） |
+| [TD-526](#td-526) | P2 | ops-platform | 有几类卡和进度消息还要靠 Agent 模型来建、来转述，要逐类核对是不是真的需要模型 | 不用批 |
+| [TD-527](#td-527) | P2 | ops-platform | 出卡和批卡的速度时快时慢，原因没量过：CI 绿到出卡大多约 3 分钟，有一次约 9 分钟 | 不用批 |
+| [TD-528](#td-528) | P1 | ops-platform | PROD 批次落地推不上 main：推送闸门持锁逐个成员做外部读，领头只分到约 27.7 秒，7 成员批每次被截断 | 不用批 |
+| [TD-529](#td-529) | P2 | ops-platform | 落地流越长全平台越慢：对账不去重地追加 observed 证据，B5 每 15 秒在锁内重读整条流 | 不用批 |
+| [TD-530](#td-530) | P3 | ops-platform | 11 个 root 的返工记录每轮写不进去（old_a 不是完整提交号），日志刷屏、每轮白做 | 不用批 |
 
 ## 条目
 
@@ -3372,6 +3377,141 @@
 - **修法**：给任务时间用固定时钟，或让用例在 `usual_s` 上允许 ±1 秒（`earliest` 和 `latest` 已经有容差）。
 - **防线**：修后连续跑 20 次 `-count=20 -run TestProgressETAFromHistory`（加并行负载）不失败。
 - **验收**：上面的命令全过；整套测试里不再出现这条失败。
+
+### TD-526
+
+**P2 · ops-platform · 有几类卡和进度消息还要靠 Agent 模型来建、来转述：每张卡、每次状态变化都要花 token，等的时间也取决于线程什么时候被唤醒。要逐类核对是不是真的需要模型**
+
+- **状态**：未开始（2026-11-11 Owner 要求先记下，第 0 组之后排）。
+- **证据**（第 0 组 2026-11-10/11 实测）：
+  - 系统自己建的、不用模型：platform 落地卡 #438、#439、#440、#442（requester `controller`，CI 绿后按模板生成）；提问卡 Q254、Q255、Q256（requester `agentrt`）。
+  - 要 Agent 手工 `request_action` 的：
+    - infra 落地卡（`approve_floor_landing`）：平台对 infra 报 `GrantSupported:false`，不会自动出卡。I-1（11-10 23:xx）手工试了三次才建成；CEL 修复（M-392）同样要手工建。
+    - PROD 发布卡：#441 由执行线程手工建，先读 PROD /health 确认迁移，再写理由。
+  - 进度转述：执行线程（Opus xhigh）挂监视器，CI 每变一次状态就被唤醒，再发消息给统筹（Opus high），统筹再转给 Owner。11-11 08:5x–09:1x 一段约 10 条「还在跑 / 结果已记下」，每条都过两个高档模型。
+  - 建卡的时间不由数据决定，而由 Agent 什么时候醒来决定：#441 在迁移完成之后靠统筹催才建；夜里还出现过「卡已建好、统筹不知道」的情况。
+- **影响**：花 token；Owner 等卡的时间里混进了 Agent 的反应时间；规则写在说明文字里，靠 Agent 自觉（例如「迁移没做就不要建 PROD 卡」），不是由代码保证。
+- **修法**（先逐类回答「这里真的需要模型吗」）：
+  1. infra 落地卡：让平台像 platform 一样，落地 CI 绿后自动建卡（补上 infra 的 grant 支持）。
+  2. PROD 发布卡：条件满足（ci-* Succeeded、STG 跑的是同一提交且已核对、PROD 库迁移版本够）时，由平台自动建卡；理由按模板生成，写明哪些检查是机器做的。
+  3. 进度：Owner 在 Ops 上直接看（与 A6「台账进系统」一起），线程不再转述状态变化；监视器只在「要人做决定」或「出错」时唤醒模型。
+  4. 剩下真的需要模型判断的（例如环境假红还是代码红、给 Owner 的推荐选项），单独列出并写清为什么需要。
+- **防线**：一份「卡的来源」清单，每类卡标出建卡方（系统 / Agent）以及理由；新增卡类时，若写的是 Agent 建，必须写明为什么系统建不了。另加一项读数：每个波次里「Agent 建的卡数」和「转述消息数」，第 1 组目标是降到 0。
+- **验收**：第 1 组的对照波次里，infra 落地卡和 PROD 发布卡都由系统建，执行线程在等待期间不被唤醒。
+
+### TD-527
+
+**P2 · ops-platform · 出卡和批卡的速度时快时慢，原因没量过：从 CI 跑绿到出卡大多约 3 分钟，有一次约 9 分钟；Owner 点 Approve 后页面反应也时快时慢**
+
+- **状态**：未开始（2026-11-11 Owner 要求记下，第 0 组之后排）。
+- **证据**（第 0 组实测，芝加哥时间，取自 PROD 平台事件 `landing:bifrost-platform`：`ci_seen` Succeeded、`awaiting_grant`、`Landing approval observed: pending`、grant、`main_intent`、`main_result`；卡号以 `created_at` 对照）：
+  - #438：CI 绿 01:37:27 → awaiting_grant 01:37:38 → 建卡 01:40:12（2 分 45 秒）。
+  - #439：CI 绿 07:37:41 → awaiting_grant 07:37:48 → 建卡 07:40:55（3 分 14 秒）。
+  - #440：CI 绿 08:04:07 → awaiting_grant 08:04:16 → 建卡约 08:12:58，平台 08:13:05 记 pending（**约 8 分 50 秒**）。08:04:16–08:13:05 之间落地流上只有例行的 main 对账，没有任何与出卡有关的记录；当时的 PROD workers 已在 08:51 换 Pod，日志读不到，原因没量到。
+  - #442：CI 绿 09:06:29 → awaiting_grant 09:06:40 → 建卡 09:09:25（3 分钟整，pending 记在 09:09:42）。
+  - #436（11-10）：CI 绿 → 建卡 3 分 37 秒。
+  - 授权生效到推 main：#440 grant 08:23:03 → main_intent 08:23:27 → main_result ok 08:23:37（34 秒）；#442 grant 09:11:51 之后三次推送尝试（09:12:40、09:22:46、09:32:57）都在 27.7 秒被截断，没有走到 main_intent（见 TD-528）；09:43:16 授权因同一提交上出现新的 CI 运行被判 grant_stale 作废；platform main 09:49 由人手推到 88b25c2。
+  - **没量过的**：Owner 在 Console 点 Approve 到页面有反应要多久、慢的时候卡在哪（浏览器、platform-api、数据库、ntfy 回执）。Owner 体感「时快时慢」。
+- **猜测（没验证，不能当结论）**：约 3 分钟像是 controller 按固定间隔轮询 CI 结果、出卡按固定间隔扫描；#440 的约 9 分钟可能是授权材料（GrantMaterialCache）计算慢，或出卡扫描被别的卡挡住（当时 M-389 的 #439 也在等授权）。「PROD platform-api 换 Pod」可以排除：那次换 Pod 在 08:51，不在这段时间里。
+- **影响**：Owner 的等待时间里混进了系统轮询和不明原因的延迟；「开波次到上 PROD ≤45 分钟」这条验收里，每张卡固定吃掉约 3 分钟，慢的时候更多。
+- **修法**：
+  1. 先量：在平台事件里记下「CI 完成 → 系统知道 → 建卡 → ntfy 送达 → Owner 点 Approve → 服务器收到 → 授权生效 → 推 main」每一段的时间戳，在 Console 的交付度量页面（M-c）按段显示。
+  2. 量完再修：CI 完成改成事件触发（Tekton 回调或 watch），不再轮询；Approve 慢在哪段就修哪段。
+- **防线**：交付度量页面上「CI 绿 → 出卡」「点 Approve → 生效」两段各设一个读数，超过阈值（可配置）就标红；新增卡类时同样记这几个时间戳。
+- **验收**：连续 10 张卡，「CI 绿 → 出卡」中位数小于 30 秒；「点 Approve → 生效」每一段都有读数，最慢的一段有说明。
+
+### TD-528
+
+**P1 · ops-platform · PROD 批次落地推不上 main：推送闸门持着落地流锁，逐个成员读 Git、CI 和发布窗口；领头的时间片又按待处理个数平分，只有约 27.7 秒。7 个成员的批次每 10 分钟试一次，每次被截断，不留记录**
+
+- **状态**：未开始（2026-11-11 记，第 0 组 M-b2 实测）。
+- **证据**（platform `be881ed`，芝加哥时间）：
+  - #442 是 7 个成员的批次（R `88b25c2`，M0 `be881ed`），09:11:51 授权生效。三次推送尝试 09:12:40 / 09:22:46 / 09:32:57 分别用了 27.702 / 27.723 / 27.726 秒，然后被切。
+    - workers 日志：`agentrt-landing-drill: bifrost-platform land:t_01M74VCJDC6F02HJH7A53FHNVP:1 took …`。
+    - 前两次报 `landing git fetch failed`，第三次报 `timeout: context deadline exceeded`。
+    - 被切后整笔回滚，流上没有记录，Console 上也看不到。
+  - **持锁做外部读**：
+    - `store/landing_batch_live.go:49` 开事务，`:103` 拿 `landing:bifrost-platform` 流锁。在这之前还拿了共享规则锁（`:86`、`:90`）和配额锁（`:98`）。
+    - `:106` 对每个成员调 `authorizeLandingPushTx`。
+    - `store/landing_live.go:181` 的 `observe` 和 `:286` 的 `readGrantCI` 都在这笔事务里执行。`observe` 要读 main（`server/agentrt_landing.go:148`，走 git）、读 CI（`:154`）、读发布窗口（`:167`）。
+  - **时间片怎么算出来的**：
+    - 起点：`controller/controller.go:534` `DrillPassCeiling = 15m`，最低份额是 `controller/landing_scan.go:261` `drillMinShare = 20s`。
+    - 两个仓库对半分（`landing_scan.go:29`、`:34–38`），留 1 分钟清理（`:91–97`），访问部分占剩下的一半（`:156`、`:288–294`），再按待处理个数平分（`:315–318`）。
+    - 算下来：900/2 − 60 = 390 秒，一半是 195 秒，÷7 ≈ 27.9 秒。
+    - 领头要替整批做事，分到的却和只在等待的成员一样多。
+  - **重试间隔**：`landing_scan.go:609` `grantTryEvery = 10 * time.Minute`。三个数都写死在代码里。
+  - **连带变慢**：尝试持锁的那 27.7 秒里，其他写落地流的循环都在排队。
+    - B5 open_batch 22.5 秒（09:12:42 结束）、28.2 秒（09:33:02 结束），时间正好盖住两次尝试。
+    - landing-cards 28–34 秒，landing-requests 撞上 30 秒上限，reconcile 最长 1 分 50 秒。
+  - **对照**：2 个成员的 #440 走同一条路径，34 秒推上 main（08:23:03 → 08:23:37）。
+  - **另一个让授权作废的口子**：09:42 把同一个 R 推到普通分支、触发 ci-platform 之后，09:43:16 最终关口按 `landing_live.go:286–298` 判 `grant_stale`。同一提交上任何流水线的更新运行都会让授权作废，不只是 landing-ci。
+- **影响**：
+  - PROD 上 3 个以上成员的批次基本推不上 main。后面的落地（包括修这一条的修复）都排在它后面（max_in_flight 1）。
+  - 被切不留记录，只有翻 workers 日志才知道。
+  - 这次最后是 09:49 由人手推了 main。
+- **修法**：
+  1. 外部读挪到锁外：一批只读一次 main、一次窗口、一次批次 CI（成员共用同一个 R 和同一次 landing CI），在开事务之前读好；事务里只比较读到的值。
+  2. 份额：轮到授权重试的批次领头，拿到全部成员的份额；或者让它排在其他访问前面，用整份访问预算。
+  3. 被切要留痕：尝试因时限结束时，在事务外写一条说明（卡在哪一步、用了多久），在 Console 的落地状态里显示。
+  4. 20 秒、15 分钟、10 分钟改成可配置（Owner 11-06「能力数字一开始就可配置」）。
+  5. 授权过期只比同一条流水线（landing-ci）的运行；其他流水线在同一提交上的运行，不让授权作废。
+- **防线**：
+  - controller 测试：一个 7 成员、每次外部读 3 秒的批次，在默认预算内走到 main_intent。
+  - store 测试：`authorizeBatchPush` 的事务里不调用任何外部来源（observe 计数为 0）。
+  - store 测试：同一 R 上出现 ci-platform 的新运行，不让 landing 授权作废。
+  - 读数：每次推送尝试的耗时和结局，进交付度量页。
+- **验收**：PROD 上一个 7 成员以上的批次，从授权生效到 main_intent 少于 60 秒；workers 日志里不再出现被切的推送尝试。
+
+### TD-529
+
+**P2 · ops-platform · `landing:bifrost-platform` 这条流越长，全平台越慢：对账每轮给每个已落地操作追加一条「observed」证据（不去重）；B5 每 15 秒在流锁内把整条流重读一遍**
+
+- **状态**：未开始（2026-11-11 记）。
+- **证据**：
+  - **流的规模**：09:49 共 21,658 个事件、12 MB。最近一小时 442 个事件，其中 367 个是 `Main reconciled: evidence (observed)`。
+  - **按操作看**：
+    - M-a 的三个操作（`t_01M74C8TP…`、`t_01M74C8TN5…`、`t_01M74C8TK1…`）07:53 起各写了 77 条。
+    - B5 修复 `t_01M75D1QE8…` 08:23 起写了 76 条。
+    - 相当于每个操作约 75 秒一条；另有 6 个旧操作各 4 条。
+  - **对账按设计不去重**：
+    - `store/landing_reconcile.go` 的 `reconcileMainOne`，在 `case c.Phase == "landed"` 处注明 "no deduplication: a newer read with the same answer must still raise the mark"。
+    - 候选包括 mission 还开着、或关掉不到一天的每个已落地操作（`MainCandidates`，`:114` 起）。
+    - 每条证据都在流锁内写（`:211`），写之前先把整条流折叠一遍（`LandingState`）。
+  - **B5 也折叠整条流**：
+    - B5 的流常量就是这条流（`store/stg_release_protocol.go:14`）。
+    - `OpenStgBatch`（`store/stg_control.go:83`）先拿共享规则锁（`:85`）和流锁（`:89`），再调 `StgReleaseState`（`stg_release_store.go:17`）：SELECT 全部事件、ORDER BY seq，逐条 canon.Parse。
+    - 每个 tick（`server/agentrt_stg_release.go:95`，15 秒一次）至少折叠两次：一次是 Pass 的只读，一次是 open_batch 持锁。平时一个 tick 要 7–9 秒。
+  - **08:52 be881ed 上 PROD 后的耗时**：drill 每轮 12–55 秒，reconcile 11–45 秒（最长 1 分 50 秒），landing-requests 多次撞上 30 秒上限。
+  - **连接**：CNPG 指标显示连接池 4+4 用满，idle in transaction 最长 17.9 秒。连接池上限在 `server/agentrt_wire.go:449`（TD-392）。
+- **影响**：每多一个没关的已落地操作，每小时就多约 48 个事件。流越长，每个循环的折叠越慢、持锁越久，推送、出卡、对账都跟着变慢。
+- **修法**：
+  1. 对账的「最新一次读」改成覆盖写（每个操作一行的小表，或每小时最多一条事件），只有 validity 或 head 变了才追加事件。保留 review 663 B-01 的要求：只有更新的读才算数。
+  2. B5 增量折叠：记住上次折叠到的 seq，只读之后的事件；没有新事件、也没有新落地时就退避，不开事务。
+  3. 连接池上限改成可配置。
+- **防线**：
+  - store 测试：证据没变的一轮对账，不往流上追加事件。
+  - B5 测试：流上没有新事件时，一个 tick 不开事务。
+  - 读数：每条流每小时新增的事件数、每个循环的耗时，进交付度量页，超过阈值标红。
+- **验收**：PROD 上一个小时没有落地时，`landing:bifrost-platform` 新增少于 20 个事件；B5 tick 中位数少于 2 秒。
+
+### TD-530
+
+**P3 · ops-platform · 落地 drill 每轮都试图写一批写不进去的返工记录：11 个 root 的 `landing_rework_seen` 因为 old_a 不是完整提交号被拒，日志刷屏，每轮白做一遍**
+
+- **状态**：未开始（2026-11-11 记，第 0 组阻塞表 #39）。
+- **证据**：
+  - 08:52 be881ed 上 PROD 起，每轮 drill 都报 `landing_rework_seen <root> in bifrost-platform: store: invalid request: note field "landing_rework_seen" landing_rework_seen old_a is a commit`。
+  - 09:33 那一轮列了 11 个 root，包括 `t_01M6QGJDXJKP9KTNEGFZM3AHZT`、`t_01M6S2EWMF3QM0GC7YECV4KWY6`、`t_01M71ECKTT0XQM6RMK0S9BS6JF`。
+  - 写方是 `controller/landing_delivered_by.go:125–170`（reworkSeenPass）。校验在 `store/landing_rework.go:109–110`，要求 old_a 是完整提交号（4fbeff14，R5:5.5-18 引入）。这些 root 的旧尝试给出的 old_a 不满足这个要求。
+- **影响**：这 11 个 root 的返工记录一直写不进去，rework_landed 卡出不来；每轮白读一遍、白开一次失败的事务，日志里每轮一大段。
+- **修法**：
+  1. 先查这 11 个 root 的 old_a 实际是什么：空、短号，还是别的。
+  2. 写方遇到 old_a 不是完整提交号时，跳过并记一次说明（每个 root 只记一次），或者从流上把它补全。
+  3. 不再每轮重试。
+- **防线**：
+  - controller 测试：old_a 不合格的 root 只记一次说明，下一轮不再尝试写。
+  - 收紧事件字段校验时，对 PROD 流的导出跑一遍回放测试。
+- **验收**：PROD workers 日志一小时内没有 `landing_rework_seen … old_a is a commit`。
 
 ### TD-488
 
