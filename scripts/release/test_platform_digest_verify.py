@@ -845,9 +845,11 @@ def test_protected_files_unchanged():
     # default off) and a landing's incremental run counts as a partial green run;
     # rollout/digest semantics stay unchanged.
     # Group 0 I-1 removes the unused full-CI switch; exact-SHA CI still gates PROD.
+    # TD-533 (group 0, 2026-11-11): the embedded gate reads an empty tested-by as a
+    # fresh run (the reuse task now always writes it); rollout/digest semantics stay unchanged.
     hashes = {
         "task-deliver-platform.yaml": "3c039ec342b7224ec593ee9d76566037b750878b522ecb75bc4c1e75188972aa",
-        "pipeline-deliver-platform-prod.yaml": "893f594a779529455c1c89de683aeff4b38539149e68dc86c05e661020660383",
+        "pipeline-deliver-platform-prod.yaml": "a96e6988a151a290d5c552053b9b2b7db06bcd8b1016086074e5ed806124ab87",
     }
     for filename, expected in hashes.items():
         assert (

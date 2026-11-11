@@ -38,7 +38,7 @@ def test_miss(case):
     if case in IDENTITIES:
         next(r for r in results if r['name'] == case)['value'] = 'other'
     elif case == 'tested-by':
-        results.append({'name': 'tested-by', 'value': ''})
+        results.append({'name': 'tested-by', 'value': 'older'})
     elif case in ('newer', 'same-time'):
         run['metadata']['creationTimestamp'] = '2026-11-11T13:00:00Z' if case == 'newer' else CURRENT['metadata']['creationTimestamp']
     elif case == 'failed':
@@ -49,6 +49,13 @@ def test_miss(case):
         next(r for r in results if r['name'] == 'api-scope')['value'] = 'incremental'
         run['spec']['params'][1]['value'] = 'other'
     assert choose([run]) is None
+
+
+def test_empty_tested_by_is_a_fresh_original():
+    # TD-533: every run writes tested-by; an empty one tested fresh and may be reused.
+    run = candidate()
+    run['status']['results'].append({'name': 'tested-by', 'value': ''})
+    assert choose([run]) == run
 
 
 def test_incremental_matching_base():
@@ -153,9 +160,9 @@ def test_result_emission(tmp_path, monkeypatch, hit):
         monkeypatch.setenv(key, value)
     M['main']()
     assert (results / 'reuse').read_text() == ('yes' if hit else 'no')
-    assert (results / 'tested-by').exists() == hit
+    # TD-533: tested-by is always written (the pipeline result needs it), empty on a miss.
+    assert (results / 'tested-by').read_text() == ('original' if hit else '')
     if hit:
-        assert (results / 'tested-by').read_text() == 'original'
         expected = M['values'](candidate()['status']['results'])
         assert {p.name: p.read_text() for p in shared.iterdir()} == {k: expected[k] for k in M['FIELDS']}
     else:

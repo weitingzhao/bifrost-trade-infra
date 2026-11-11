@@ -25,6 +25,12 @@ def stamp(run):
     return value
 
 
+def claims_reuse(results):
+    # TD-533: a run claims a reuse only with a tested-by naming a run; every run
+    # writes tested-by, empty when it tested fresh (Tekton needs the result).
+    return results.get('tested-by', '').strip() != ''
+
+
 def select(runs, current, identities, repo, base):
     matches = []
     for run in runs:
@@ -34,7 +40,7 @@ def select(runs, current, identities, repo, base):
             conditions = run.get('status', {}).get('conditions', [])
             if (run['spec'].get('pipelineRef', {}).get('name') != 'bifrost-ci-platform'
                     or [c['status'] for c in conditions if c['type'] == 'Succeeded'] != ['True']
-                    or 'tested-by' in results or stamp(run) >= stamp(current)
+                    or claims_reuse(results) or stamp(run) >= stamp(current)
                     or params.get('repo-url') != repo
                     or any(results.get(k) != v for k, v in identities.items())
                     or results.get('api-scope') not in ('full', 'console', 'incremental')
@@ -73,13 +79,13 @@ def main():
                  [('platform-tree', 'TREE'), ('ui-commit', 'UI'), ('infra-commit', 'INFRA')]},
                  os.environ['REPO'], os.environ['BASE'])
     (root / 'reuse').write_text('yes' if hit else 'no')
+    (root / 'tested-by').write_text(hit['metadata']['name'] if hit else '')
     if hit:
         results = values(hit['status']['results'])
         shared = Path(os.environ['RESULTS_DIR'])
         shared.mkdir(parents=True, exist_ok=True)
         for name in FIELDS:
             (shared / name).write_text(results[name])
-        (root / 'tested-by').write_text(hit['metadata']['name'])
 
 
 if __name__ == '__main__':

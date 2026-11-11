@@ -20,7 +20,8 @@ commit gets only console runs until it is on main), as console (wait for a full
 run, exit 2) with --require-full, which a release asks for (release.sh, the
 platform PROD source gate).
 
-Reuse runs carry tested-by. Only a listed, earlier, green original with no reuse
+Reuse runs carry a tested-by naming their original; every other run writes it
+empty (TD-533), and an empty one claims nothing, as the platform reads it. Only a listed, earlier, green original with no reuse
 edge and identical platform-tree, ui-commit and infra-commit supplies their scope.
 Legacy runs without reuse evidence retain their existing interpretation.
 """
@@ -100,6 +101,13 @@ def _results(run: dict, name: str) -> list:
             if isinstance(r, dict) and r.get("name") == name]
 
 
+def _claims_reuse(run: dict) -> bool:
+    """A tested-by naming a run (more than one, or one not a string, counts too:
+    it fails closed in _original). An empty tested-by is a fresh run (TD-533)."""
+    names = _results(run, "tested-by")
+    return len(names) > 1 or any(not isinstance(n, str) or n.strip() for n in names)
+
+
 def _original(run: dict, runs: list[dict]) -> Optional[dict]:
     """Resolve one reuse edge, failing closed on missing or ambiguous evidence."""
     names = _results(run, "tested-by")
@@ -112,7 +120,7 @@ def _original(run: dict, runs: list[dict]) -> Optional[dict]:
     original = candidates[0]
     if (_pipeline_name(run) != "bifrost-ci-platform"
             or _pipeline_name(original) != "bifrost-ci-platform"
-            or _succeeded(original) != "True" or _results(original, "tested-by")):
+            or _succeeded(original) != "True" or _claims_reuse(original)):
         return None
     for name in ("platform-tree", "ui-commit", "infra-commit"):
         values = _results(run, name)
@@ -129,7 +137,7 @@ def _original(run: dict, runs: list[dict]) -> Optional[dict]:
 
 
 def _effective_scope(run: dict, runs: list[dict]) -> str:
-    if not _results(run, "tested-by"):
+    if not _claims_reuse(run):
         return _scope(run)
     original = _original(run, runs)
     return _scope(original) if original is not None else "malformed"
@@ -181,7 +189,7 @@ def gate(runs: Iterable[dict], pairs: list[tuple[str, str]], allow_red: str,
             for run in runs:
                 params = _params(run)
                 if (_repo(run, params) == repo and params.get("revision") == sha
-                        and _succeeded(run) == "True" and _results(run, "tested-by")
+                        and _succeeded(run) == "True" and _claims_reuse(run)
                         and _effective_scope(run, runs) in (("full",) if require_full else ("full", "console"))):
                     original = _original(run, runs)
                     lines.append(f"  tested by {original['metadata']['name']}")

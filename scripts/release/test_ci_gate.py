@@ -181,3 +181,20 @@ def test_reuse_requires_unambiguous_identity_results():
             else:
                 results.append(item.copy())
             assert classify([original, bad], "bifrost-platform", SHA, True) != "succeeded"
+
+
+# TD-533: every platform run writes tested-by; an empty one is a fresh run, as the
+# platform's landingci.ClaimsReuse reads it, never a reuse and never malformed.
+def test_empty_tested_by_is_a_fresh_run():
+    from ci_gate import gate
+    fresh = _platform(scope="full")
+    fresh["status"]["results"].append({"name": "tested-by", "value": ""})
+    assert classify([fresh], "bifrost-platform", SHA, True) == "succeeded"
+    code, output = gate(iter([fresh]), [("bifrost-platform", SHA)], "", True)
+    assert code == 0 and "tested by" not in output
+
+
+def test_an_original_with_an_empty_tested_by_supplies_its_scope():
+    original, reuse = _reuse_pair()
+    original["status"]["results"].append({"name": "tested-by", "value": ""})
+    assert classify([original, reuse], "bifrost-platform", SHA, True) == "succeeded"
