@@ -338,6 +338,11 @@
 | [TD-528](#td-528) | P1 | ops-platform | PROD 批次落地推不上 main：推送闸门持锁逐个成员做外部读，领头只分到约 27.7 秒，7 成员批每次被截断 | 不用批 |
 | [TD-529](#td-529) | P2 | ops-platform | 落地流越长全平台越慢：对账不去重地追加 observed 证据，B5 每 15 秒在锁内重读整条流 | 不用批 |
 | [TD-530](#td-530) | P3 | ops-platform | 11 个 root 的返工记录每轮写不进去（old_a 不是完整提交号），日志刷屏、每轮白做 | 不用批 |
+| [TD-531](#td-531) | P1 | ops-platform | 收紧落地记录校验没用 PROD 历史回放：去掉 size 后 PROD 整条落地流折叠失败 | 不用批 |
+| [TD-532](#td-532) | P2 | ops-platform | 同一批手推上 main 后每个成员各出一张「Already in main」卡 | 不用批 |
+| [TD-533](#td-533) | P2 | cicd | 平台 CI 的 tested-by 只在复用时写、pipeline 结果却无条件引用：不复用的 run 全判失败 | 不用批 |
+| [TD-534](#td-534) | P3 | cicd | infra 新分支首推没有基线，code-health 直接判失败 | 不用批 |
+| [TD-535](#td-535) | P2 | cicd | push-main 跑测试前没清掉 GIT_CONFIG_*：pushurl 覆盖泄进夹具推送，16 个测试红 | 不用批 |
 
 ## 条目
 
@@ -3424,7 +3429,7 @@
 
 **P1 · ops-platform · PROD 批次落地推不上 main：推送闸门持着落地流锁，逐个成员读 Git、CI 和发布窗口；领头的时间片又按待处理个数平分，只有约 27.7 秒。7 个成员的批次每 10 分钟试一次，每次被截断，不留记录**
 
-- **状态**：未开始（2026-11-11 记，第 0 组 M-b2 实测）。
+- **状态**：在做（2026-11-11 记，第 0 组 M-b2 实测）。份额那一半：M-393 第二版任务 t_01M75SB42460005XA64HEGD8PQ（基于 9ed87c74，只改领头份额的除数，不改访问顺序；第一版改了顺序、跳过访问，10 个带库的批次测试红，已取消）。锁内外部读那一半未开始。
 - **证据**（platform `be881ed`，芝加哥时间）：
   - #442 是 7 个成员的批次（R `88b25c2`，M0 `be881ed`），09:11:51 授权生效。三次推送尝试 09:12:40 / 09:22:46 / 09:32:57 分别用了 27.702 / 27.723 / 27.726 秒，然后被切。
     - workers 日志：`agentrt-landing-drill: bifrost-platform land:t_01M74VCJDC6F02HJH7A53FHNVP:1 took …`。
@@ -3512,6 +3517,89 @@
   - controller 测试：old_a 不合格的 root 只记一次说明，下一轮不再尝试写。
   - 收紧事件字段校验时，对 PROD 流的导出跑一遍回放测试。
 - **验收**：PROD workers 日志一小时内没有 `landing_rework_seen … old_a is a commit`。
+
+### TD-531
+
+**P1 · ops-platform · 收紧落地记录的校验时，没有用 PROD 的历史记录回放：M-b 去掉 `size` 之后，PROD 整条落地流折叠失败，落地、B5、对账、出卡全停**
+
+- **状态**：在做（2026-11-11 记；修复 9ed87c74 走手推、STG、PROD）。
+- **证据**（芝加哥时间）：
+  - 10:35 #444 把 platform 88b25c2 发上 PROD 之后，workers 不停报 `invalid landing soft`。报错的有 STG release、coverage、external、landing-reconcile、landing-requests（已告警 controller_failing）、facts-rules（M-340、M-341、M-345…）和 plan-observations。
+  - 原因是 M-b 的成员「Landing: the size gate is removed」把 `size` 从三处读历史记录的校验里删了：
+    - `landing/waiting.go` validSoft
+    - `store/landing_grant.go` validCategories
+    - `store/landing_refusal.go` validLandingFloor
+  - PROD 流上有 62 条落地记录、84 条授权和拒绝记录带 `size`；STG 流上没有，所以 STG 没测出来。
+  - 用 PROD 的只读导出回放：88b25c2 折叠到 `invalid landing soft` 就停；9ed87c74 能把 2731 条落地记录整条折叠，375 条授权和拒绝记录全部有效。
+- **影响**：PROD 控制面读不了落地流，持续到修复上 PROD。落地通道本身也坏了，所以修复只能手推，不能走通道。
+- **修法**：9ed87c74 把 `size` 作为历史值加回三处读侧校验（没有任何检查再产生它），并加了测试。
+- **防线**：
+  - 落地 CI 加一步回放：用 PROD 落地流的只读导出（定期刷新、脱敏），按候选代码整条折叠，并逐条校验授权和拒绝记录。折叠不过就红。
+  - 删除或收紧任何记录字段的允许值时，评审清单上要有一项：历史记录还读得了吗？
+- **验收**：PROD 部署 9ed87c74 后，workers 一小时内没有 `invalid landing soft`；回放步骤上线后，对 88b25c2 重放是红的。
+
+### TD-532
+
+**P2 · ops-platform · 同一批落地被手推上 main 后，每个成员各出一张「Already in main」提问卡（M-b2 出了 7 张），Owner 要逐张点**
+
+- **状态**：未开始（2026-11-11 记，第 0 组卡点 #45）。
+- **证据**：
+  - 09:49 M-b2 批（7 个成员，R 88b25c2）由 Owner 手推上 main。09:50 平台以 main_changed 放掉整批，7 个任务的 :2 操作在认领时记 `failed{in_main}`。
+  - 之后每个任务各出一张提问卡 "Already in main: … Count it as delivered, or as not delivered"（Q257 起），都要 Owner 选 a。
+  - 它们是同一批、由同一次推送带上 main 的，平台本来可以一次判定。
+- **影响**：Owner 多点 7 次；mission 在他答完之前一直开着；和 TD-526「卡要逐类核对是不是真需要人」是同一类问题。
+- **修法**：认领时拒绝为 in_main 的，如果这些任务原来同属一个已放掉的批，而且 main 上的提交带着它们的 `Landed-By` 尾注（同一个 R 的重放），就整批记为已交付，不出卡。只有不属于任何批、或证据不一致的，才出一张卡，并在一张卡里列出所有成员。
+- **防线**：store 测试，一批 7 个成员手推上 main 后，出 0 张卡、7 个任务都记为已交付；证据不一致时只出 1 张卡。
+- **验收**：下一次整批手推后，平台不再按成员逐个出卡。
+
+### TD-533
+
+**P2 · cicd · 平台 CI 的复用结果 `tested-by` 只在复用上时才写，但 pipeline 结果无条件引用它：没复用的 run 全部判 CouldntGetPipelineResult**
+
+- **状态**：未开始（2026-11-11 记；I-1 已由 Owner 退回旧版 pipeline-ci-platform 和 trigger-trade-ci 绕开，第 0 组卡点 #46）。
+- **证据**：
+  - infra 28c2433a 的 `k8s/cicd/tekton/task-ci-platform-reuse.yaml:120` 只在找到可复用的 run 时才写 `tested-by`；`pipeline-ci-platform.yaml:47-48` 的 pipeline 结果却无条件引用 `$(tasks.reuse.results.tested-by)`。
+  - ci-platform-bdxlx（09:49，main 推送）测试全绿，整次 run 仍以 CouldntGetPipelineResult 结束。
+  - 连带：10:00 那次 STG 在 agentd-ci-evidence 失败。
+  - 不能改成「没复用就写空值」：平台 5 处（`landingci/read.go:153,296`、`release.go:258,276`、`reuse.go:12`）和 infra 的 `ci_gate.py`、`platform_ci_reuse.py:37` 都按「键在不在」判断是不是复用。
+- **修法**：先改平台，再改 infra。
+  1. **平台先上**：五处读取的地方（`landingci/read.go:153,296`、`release.go:258,276`、`reuse.go:12`）改成「tested-by 有值才算复用」，空值算没复用。这一改兼容新旧两种写法。
+  2. **infra 跟上**：
+     - reuse 任务无论有没有复用上都写 tested-by，没复用时写空值；
+     - `ci_gate.py` 和 `platform_ci_reuse.py:37` 同样改成按「有值」判断；
+     - 推广前用试验名在集群上验证：没复用的 run 写了空值，结果原因仍是 Succeeded。
+  3. **不能用的办法**：加一个只在复用时才跑的任务（带 when）。它会让平台 CI 有任务被跳过，Tekton 就把 run 的结束原因记成 Completed，而下游是按 Succeeded 判绿的；`test_ci_platform_scope.py::test_no_task_is_skipped_so_the_reason_stays_succeeded` 和 freeze 链测试（`test_freeze_chain.py`，每个任务都要排在 freeze check 之后）都会拦下。
+- **防线**：`scripts/release/test_platform_ci_reuse.py` 加断言：pipeline 结果引用的每个任务结果，在该任务的所有路径上都会写（输出测试覆盖复用上和没复用两条路径）。另外，CI 流水线改动推广前，必须先用试验名在集群上真跑一次。
+- **验收**：试验 Pipeline 的两种 run 都成功，且只有复用的那次有 tested-by；推广后，main 推送触发的 CI 不再出现 CouldntGetPipelineResult。
+
+### TD-534
+
+**P3 · cicd · infra 新分支第一次推送时 CI 没有基线，code-health 直接判失败（`code_health_no_base`），后面的 parity-static 被跳过**
+
+- **状态**：未开始（2026-11-11 记，第 0 组卡点 #47）。
+- **证据**：
+  - ci-infra-vww87（aw/i2-c7b8f0b1，10:34）：before 是全 0，scope、consumers、doc-policy 都 `skipped(no_base)`，code-health 报 `FAIL code_health_no_base`，parity-static 被跳过。
+  - quick、statics、kustomize 都跑了。
+- **影响**：给 Owner 推 main 之前想用分支跑一次整套 infra CI 时，结果没有意义。得先推一个基线提交、再推目标提交，才能拿到完整结果。
+- **修法**：分支首推（before 全 0）时，以 main 和该提交的 merge-base 作为基线，code-health、consumers 和 doc-policy 照常跑。
+- **防线**：ci-infra 的触发测试加一条：新分支首推得到的基线是 merge-base，不是空。
+- **验收**：新分支首推的 ci-infra 跑完全部阶段。
+
+### TD-535
+
+**P2 · cicd · push-main.sh 跑测试前没有清掉 GIT_CONFIG_*：Owner 用 pushurl 覆盖推 platform 时，覆盖泄进 test_push_main 的夹具推送，16 个测试红**
+
+- **状态**：未开始（2026-11-11 记，统筹实测）。
+- **证据**：
+  - 11-11 Owner 按记忆 owner_push_main_platform 的做法，在命令前加 `GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=remote.origin.pushurl GIT_CONFIG_VALUE_0=http://weitingzhao@…` 推 platform。
+  - 这组环境变量被 push-main 原样传给测试：`scripts/release/push-main.sh:390` 直接 `python3 push_main_tests.py`。测试里夹具仓库的 `git push` 被改写成推往真实 Gitea 地址，test_push_main 16 个测试红。
+  - 不带覆盖重跑，103 个全过。当次只能加 `--skip-tests` 推。
+- **影响**：
+  - Owner 只要按规定用账号覆盖去推，就跑不了推前测试，只能跳过；
+  - 夹具推送有可能真的打到 Gitea。
+- **修法**：push-main 在建测试工作树、跑测试（以及 code-health 扫描）之前，`unset` 所有 `GIT_CONFIG_COUNT` 和 `GIT_CONFIG_KEY_*`、`GIT_CONFIG_VALUE_*`，只在最后 `git push` 那一步保留。另外，`push_main_tests.py` 起子进程时用干净的 git 环境。
+- **防线**：`scripts/release/test_push_main.py` 加一条：带着 pushurl 覆盖调用 push-main 的测试阶段时，夹具推送仍然推到夹具仓库，16 个测试照常通过。
+- **验收**：Owner 带覆盖推一次 platform，不加 `--skip-tests`，测试全过。
 
 ### TD-488
 
