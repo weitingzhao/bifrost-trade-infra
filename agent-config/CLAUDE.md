@@ -1,5 +1,5 @@
 <!--
-parity-ids: workspace-v27, language-v1, agent-modes-v4, trade-execution-freeze-v4, dev-services-v3, phase-execution-v3, shared-worktree-v4, business-first-v1
+parity-ids: workspace-v28, language-v1, agent-modes-v4, trade-execution-freeze-v4, dev-services-v3, phase-execution-v3, shared-worktree-v4, business-first-v1
 对等文件: .cursor/rules/{workspace,language,bifrost-agent-modes,trade-execution-freeze,dev-services,phase-execution}.mdc
 改任一侧必须同步另一侧并 bump 两侧版本号；校验: bash scripts/check-agent-config-parity.sh（= make check-agent-parity in bifrost-trade-infra）
 -->
@@ -197,13 +197,15 @@ bifrost-trade-infra/scripts/release/release.sh window   # 没有窗口 exit 0；
 
 Research 与插件发布用**同一个**窗口：ConfigMap `cicd/bifrost-release-window`，由 `PUT /api/v1/delivery/release-window` 写入（ttl 5 分钟，持有期间每分钟续期）。`what` 是仓库名（逗号分隔）。
 先 `release.sh hold --what <repo>`。
-deliver-research、Dagster 构建和插件构建流水线的第一个 task 会读它：窗口不是这个仓库的就拒绝。
-platform-api `start_pipeline_run` 还要求请求里的 `who` 等于窗口里的持有者。
+deliver-research、build-research-dagster、build-market-data、build-ib-gateway 四条流水线在 freeze-check 之后有一步 release-window 读它：窗口不是这个仓库的就拒绝。
+deliver-stg / prod / platform / platform-prod 没有这一步，窗口靠起 run 的一方守：platform-api `start_pipeline_run` 要求请求里的 `who` 等于窗口持有者
+（Owner 在 Console 批卡发版时由平台替这次 run 占窗口），`push-main.sh` 与 `release.sh` 自己查窗口。
 `release.sh stg|prod` 会先 `POST /api/v1/delivery/mirrors/sync`，再要求该 SHA 有 Succeeded 的 `ci-*`（Owner 用 `--allow-red <原因>` 放行，原因写进日志）。
 
 - **窗口开着：等它关，或者问 Owner**，不推、不起 run。进程退出或 ttl 到期后窗口自然放开。
   `release.sh window --clear` 提交审批，由 Owner 决定。
-- **一次发布只由一个会话执行**：窗口在 `release.sh` 运行期间由它持有；别的会话不并行发同一批，也不替它续跑。
+- **一次发布只由一个会话执行**：窗口在 `release.sh` 运行期间由它持有（平台起的 run 由平台持有）；别的会话不并行发同一批，也不替它续跑。
+  哪些流水线受窗口约束以代码为准：`bifrost-platform/api/internal/delivery/release_window.go` 的 `windowPipelines`。
 - **推 main 只用 `bifrost-trade-infra/scripts/release/push-main.sh <checkout> [<commit>]`**（TD-341）：它查窗口，在这个提交的干净 checkout 上跑和 CI 同一份 code-health 扫描，过了才推，只接受快进；推之前再查一次窗口。直接 `git push` 到 main、以及看不出推到哪个分支的 `git push`（不带 refspec、只写 HEAD、目标里有变量）由 `preflight.js` 拦截。go test 与 lint 照旧在推之前自己跑。
 - 细则见 `bifrost-trade-infra/docs/RELEASE.md`「发布窗口」。
 
@@ -214,7 +216,7 @@ platform-api `start_pipeline_run` 还要求请求里的 `who` 等于窗口里的
 ### 放行规则只省「复制到终端」（Owner 2026-10-05）
 
 用户级 `permissions` 里有一组发布类放行规则（payload `.claude/auto-mode/release-permissions.json`）：
-release.sh、db-init Job、dev/stg overlay、插件 ConfigMap 与 rollout、research ddl-apply 与 pin 推送等，不再被 auto mode 拦下。
+release.sh、`start_pipeline_run`、`gitops_sync_app`，不再被 auto mode 拦下（kubectl 写类与 research pin 推送的放行 2026-11-11 撤掉：Agent 的集群身份只读，推 main 由 preflight 拦，那些放行执行不了）。
 
 - **规则不是批准**。发版（release.sh stg / prod / dev、research pin 推 main、start_pipeline_run、gitops_sync_app）
   和 PROD DDL（db-init-prod、ddl-apply、任何写 bifrost_prod / bifrost_golden_source 的 DDL）仍要 Owner 先在线程里点头，批准按动作算。
@@ -232,7 +234,6 @@ release.sh、db-init Job、dev/stg overlay、插件 ConfigMap 与 rollout、rese
 - **问题的回答不是批准（W-65，2026-10-11）**。经 `ask_owner` 问 Owner 得到的回答不增加任何授权：它不是审批单上的批准，
   也不能转述成「Owner 已在线程里点头」。从 shell 直接执行的发版和 PROD DDL 仍要他本人在线程里点头；C / D 级动作仍要审批单。
   Agent 不调问题的回答路由，也不用浏览器去点问题页（`preflight.js` 拦截）；等答案用 `wait_for_answer`。工具随 platform 下一版上线。
-- 放行的命令照常先过 `release.sh window`，一次发布一个会话。
 - 跑 ddl-apply Job 前先 `grep -niE 'drop|truncate'` 它要执行的 SQL：命令行规则看不到 Job 里的 SQL，有命中就停下问 Owner。
 
 
