@@ -4,6 +4,13 @@
 # 23:44 CDT after the 23:12 release; the previous pod also had one in 7 days. 1536Mi gives
 # headroom while the per-request stream folding is fixed (tech debt, review 630 note 4).
 # The node has ~23 GiB allocatable at 13% use. platform-workers keeps the base limits.
+# CPU (2026-11-11 incident #63): from 16:43 CDT the API sat at its 1-core CPU limit, throttled in
+# 94% of periods. Handlers fold whole event streams inside open transactions, so throttled
+# handlers held all 8 agentrt connections (pg_stat_activity: 7 'idle in transaction',
+# ClientRead): /claim answered 500 after 25 s, heartbeats timed out, agent-06 lost every lease
+# and wave M-400 stopped. The 1-core limit was never measured. Same fix as
+# platform-workers-resources.patch.yaml (11-06): no CPU limit, a 1-core request for a fair
+# share; the memory limit stays.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -15,6 +22,8 @@ spec:
         - name: platform-api
           resources:
             requests:
+              cpu: "1"
               memory: 256Mi
             limits:
+              cpu: null
               memory: 1536Mi
