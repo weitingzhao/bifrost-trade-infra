@@ -109,8 +109,8 @@ def test_release_and_the_prod_gate_require_a_full_run(tmp_path) -> None:
                  if "ci_gate.py" in line and not line.lstrip().startswith("#")]
     assert push_main and not any("--require-full" in line for line in push_main)
     prod = open(os.path.join(here, "platform_prod_gate.py")).read()
-    assert 'classify(runs, "bifrost-platform", sha, require_full=require_full)' in prod
-    assert 'require_full = os.environ.get("REQUIRE_FULL_CI", "off") == "on"' in prod
+    assert 'classify(runs, "bifrost-platform", sha)' in prod
+    assert "REQUIRE_FULL_CI" not in prod
 
 
 def _reuse_pair(scope="full"):

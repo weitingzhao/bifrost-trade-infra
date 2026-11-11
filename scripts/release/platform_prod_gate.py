@@ -267,12 +267,8 @@ def main():
             )
             condition = "CI"
             runs = pipeline_runs("bifrost-ci-platform")
-            # R5:5.7-1: with REQUIRE_FULL_CI=on only a full run (no partial
-            # api-scope) decides what ships. Off (the Owner, 2026-11-06: no
-            # users yet), a green partial run of the exact SHA does too.
-            require_full = os.environ.get("REQUIRE_FULL_CI", "off") == "on"
-            if classify(runs, "bifrost-platform", sha, require_full=require_full) != "succeeded":
-                raise ValueError("no exact-SHA Succeeded full CI" if require_full else "no exact-SHA Succeeded CI")
+            if classify(runs, "bifrost-platform", sha) != "succeeded":
+                raise ValueError("no exact-SHA Succeeded CI")
             condition = "STG"
             stg = latest_stg(pipeline_runs("bifrost-deliver-platform"))
             task = stg_child(stg, "clone-platform", "clone")

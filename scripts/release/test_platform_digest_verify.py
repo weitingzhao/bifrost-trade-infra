@@ -844,9 +844,10 @@ def test_protected_files_unchanged():
     # The Owner, 2026-11-06: the full-run requirement is a switch (requireFullCI,
     # default off) and a landing's incremental run counts as a partial green run;
     # rollout/digest semantics stay unchanged.
+    # Group 0 I-1 removes the unused full-CI switch; exact-SHA CI still gates PROD.
     hashes = {
         "task-deliver-platform.yaml": "3c039ec342b7224ec593ee9d76566037b750878b522ecb75bc4c1e75188972aa",
-        "pipeline-deliver-platform-prod.yaml": "959239b50c80e79d09158bedc3c364a2e7099f1efabf3b0a3934f010fbdd12b3",
+        "pipeline-deliver-platform-prod.yaml": "893f594a779529455c1c89de683aeff4b38539149e68dc86c05e661020660383",
     }
     for filename, expected in hashes.items():
         assert (

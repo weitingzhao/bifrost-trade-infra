@@ -215,6 +215,9 @@ spec:
           # W-31 B5: explicit, not a template param a payload could set.
           - name: repo-url
             value: http://gitea.cicd.svc.cluster.local:3000/bifrost/bifrost-platform.git
+        taskRunSpecs:
+          - pipelineTaskName: reuse
+            serviceAccountName: tekton-platform-ci-reuse
         taskRunTemplate:
           podTemplate:
             nodeSelector:

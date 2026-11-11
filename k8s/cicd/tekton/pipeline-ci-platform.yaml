@@ -44,6 +44,8 @@ spec:
       value: $(tasks.test-api.results.api-store-run)
     - name: api-scope-why
       value: $(tasks.test-api.results.api-scope-why)
+    - name: tested-by
+      value: $(tasks.reuse.results.tested-by)
   params:
     - name: revision
       type: string
@@ -118,6 +120,25 @@ spec:
       workspaces:
         - name: output
           workspace: source
+    - name: reuse
+      taskRef:
+        name: bifrost-ci-platform-reuse
+      params:
+        - name: run
+          value: $(context.pipelineRun.name)
+        - name: tree
+          value: $(tasks.clone.results.tree)
+        - name: ui
+          value: $(tasks.clone-ui.results.commit)
+        - name: infra
+          value: $(tasks.clone-infra.results.commit)
+        - name: repo-url
+          value: $(params.repo-url)
+        - name: base
+          value: $(params.base)
+      workspaces:
+        - name: source
+          workspace: source
     # T50 compiles the real pre-0010 API from its own pinned checkout.
     - name: clone-legacy
       taskRef:
@@ -150,6 +171,8 @@ spec:
       # ./internal/agentrt/store, test-api-store below is that package alone.
       # An incremental landing run hands the whole selection to this one.
       params:
+        - name: reuse
+          value: $(tasks.reuse.results.reuse)
         - name: scope
           value: $(tasks.changes.results.api-scope)
         - name: base
@@ -169,6 +192,8 @@ spec:
       # incremental run test-api's selector picks the store tests and this
       # one runs none. Console scope still performs its existing safety check.
       params:
+        - name: reuse
+          value: $(tasks.reuse.results.reuse)
         - name: scope
           value: $(tasks.changes.results.api-scope)
         - name: base
@@ -188,10 +213,15 @@ spec:
       # commit hit the old 8m0s (TD-313's 3 x 157s) with nothing wrong.
       timeout: 20m0s
       runAfter: [clone, clone-ui]
+      params:
+        - name: reuse
+          value: $(tasks.reuse.results.reuse)
       workspaces:
         - name: source
           workspace: source
       taskSpec:
+        params:
+          - name: reuse
         workspaces:
           - name: source
         steps:
@@ -206,9 +236,13 @@ spec:
               limits:
                 cpu: "2"
                 memory: 4Gi
+            env:
+              - name: REUSE
+                value: $(params.reuse)
             script: |
               #!/usr/bin/env bash
               set -euo pipefail
+              [ "${REUSE:-no}" != yes ] || exit 0
               ws="$(workspaces.source.path)"
 
               # Scripts on: bifrost-ui's prepare builds dist/, which is not in git.
@@ -239,18 +273,27 @@ spec:
               echo "==> Console type-check, lint, tests and build passed"
     - name: check-spine
       runAfter: [clone]
+      params:
+        - name: reuse
+          value: $(tasks.reuse.results.reuse)
       workspaces:
         - name: source
           workspace: source
       taskSpec:
+        params:
+          - name: reuse
         workspaces:
           - name: source
         steps:
           - name: spine-catalog-check
             image: alpine:3.20
+            env:
+              - name: REUSE
+                value: $(params.reuse)
             script: |
               #!/usr/bin/env sh
               set -eu
+              [ "${REUSE:-no}" != yes ] || exit 0
               ws="$(workspaces.source.path)"
               cd "${ws}/bifrost-platform"
 
@@ -264,18 +307,27 @@ spec:
               echo "==> Spine catalog check passed"
     - name: check-ops-context
       runAfter: [clone, clone-infra]
+      params:
+        - name: reuse
+          value: $(tasks.reuse.results.reuse)
       workspaces:
         - name: source
           workspace: source
       taskSpec:
+        params:
+          - name: reuse
         workspaces:
           - name: source
         steps:
           - name: ops-context-parity
             image: alpine:3.20
+            env:
+              - name: REUSE
+                value: $(params.reuse)
             script: |
               #!/usr/bin/env sh
               set -eu
+              [ "${REUSE:-no}" != yes ] || exit 0
               apk add --no-cache python3 >/dev/null
               ws="$(workspaces.source.path)"
               # The platform SHA under test must match the spine copies on
@@ -290,6 +342,8 @@ spec:
       taskRef:
         name: bifrost-code-health
       params:
+        - name: reuse
+          value: $(tasks.reuse.results.reuse)
         - name: repo
           value: bifrost-platform
       workspaces:

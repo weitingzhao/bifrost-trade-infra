@@ -143,7 +143,7 @@ spec:
           || object.spec.taskRunSpecs.all(s,
             !has(s.serviceAccountName)
             || (
-              s.serviceAccountName in ['default', 'tekton-deliver', 'bifrost-applier']
+              s.serviceAccountName in ['default', 'tekton-deliver', 'bifrost-applier', 'tekton-platform-ci-reuse']
               && !s.serviceAccountName.startsWith('argocd')
             )
           )
@@ -177,6 +177,8 @@ spec:
           || object.spec.taskRunSpecs.all(s,
             !has(s.serviceAccountName) || s.serviceAccountName == 'default'
             || (s.serviceAccountName == 'bifrost-applier' && object.spec.pipelineRef.name == 'bifrost-apply-manifest')
+            || (s.serviceAccountName == 'tekton-platform-ci-reuse' && has(s.pipelineTaskName)
+                && object.spec.pipelineRef.name == 'bifrost-ci-platform' && s.pipelineTaskName == 'reuse')
             || (s.serviceAccountName == 'tekton-deliver' && has(s.pipelineTaskName)
                 && (object.spec.pipelineRef.name + '/' + s.pipelineTaskName) in [
               'bifrost-deliver-stg/prepare',

@@ -73,7 +73,7 @@ kind: ValidatingAdmissionPolicyBinding
 metadata: {name: bifrost-release-records}
 spec: {policyName: bifrost-release-records, validationActions: [Deny]}
 """
-WINDOW_TEST = 'if (data.get("frozen") or "").strip().lower() == "true":'
+WINDOW_TEST = "- name: freeze"
 FORBIDDEN_VERBS = {"get", "watch", "update", "patch", "delete", "deletecollection", "*"}
 LIST_SUBJECTS = [
     {"kind": "Group", "apiGroup": "rbac.authorization.k8s.io", "name": "system:serviceaccounts:cicd"},
@@ -314,7 +314,7 @@ def problems(bundle: dict) -> set[str]:
         found.add("placeholder-owner")
     if "request.userInfo.username == 'OWNER_USERNAME' && (!has(request.options.propagationPolicy)" not in bundle["admission_text"]:
         found.add("placeholder-owner")
-    if WINDOW_TEST not in bundle["window_text"]:
+    if WINDOW_TEST in bundle["window_text"]:
         found.add("window-test")
     for policy in bundle["policies"]:
         for repo in (policy.get("apply") or {}).get("repos") or []:
@@ -509,9 +509,9 @@ class FreezeManifestTests(unittest.TestCase):
             bundle["docs"]["tombstone.yaml"][0]["data"]["frozen_at"] = "2026-10-11T18:00:00Z"
         self._expect("placeholder-time", mutate)
 
-    def test_negative_window_test_removed(self) -> None:
+    def test_negative_window_duplicate_freeze(self) -> None:
         def mutate(bundle: dict) -> None:
-            bundle["window_text"] = bundle["window_text"].replace(WINDOW_TEST, "if False:")
+            bundle["window_text"] += "\n    " + WINDOW_TEST
         self._expect("window-test", mutate)
 
     def test_negative_directory_extra_file(self) -> None:

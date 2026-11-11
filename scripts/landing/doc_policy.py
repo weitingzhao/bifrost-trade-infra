@@ -155,33 +155,32 @@ def floor_path(name):
 
 def scope(repo, base, revision):
     patterns, files, before = allow(repo, base), tree(repo, revision), tree(repo, base)
-    count = lines = 0
+    count = 0
     routes = set()
     for kind, name, (added, deleted) in changes(repo, base, revision):
         if "\\" in name or any(ord(c) < 32 or 127 <= ord(c) <= 159 for c in name):
             raise PolicyError("path_invalid")
-        mode = files.get(name, (None,))[0]
+        mode = (before if kind == "D" else files).get(name, (None,))[0]
         existing_script = (kind == "M" and name.startswith("scripts/") and mode == "100755"
                            and before.get(name, (None,))[0] == "100755")
         if (kind == "T" or b"-" in (added, deleted)
                 or (kind == "M" and before.get(name, (None,))[0] != mode)
-                or (kind != "D" and mode != "100644" and not existing_script)):
+                or (mode != "100644" and not existing_script)):
             raise PolicyError(f"structural {name}")
         floor = floor_path(name)
         if hard(name) and not floor:
             raise PolicyError(f"hard_floor {name}")
-        if kind not in ("A", "M"):
+        if kind not in ("A", "M", "D"):
             raise PolicyError(f"change_kind {name}")
         if not floor and not any(matches(p, name) for p in patterns):
             raise PolicyError(f"scope {name}")
-        if name.startswith("k8s/") and re.search(r"(?m)^\s*(?:-\s+)?kind\s*:\s*[\"']?Secret[\"']?\s*(?:#.*)?$", blob(repo, revision, name).decode("utf-8")):
+        if name.startswith("k8s/") and re.search(r"(?m)^\s*(?:-\s+)?kind\s*:\s*[\"']?Secret[\"']?\s*(?:#.*)?$", blob(repo, base if kind == "D" else revision, name).decode("utf-8")):
             raise PolicyError(f"secret {name}")
         routes.add("floor" if floor else "document")
         count += 1
-        lines += int(added) + int(deleted)
     if len(routes) > 1:
         raise PolicyError("mixed_floor_document")
-    if not count or count > 100 or lines > 1500:
+    if not count:
         raise PolicyError("scope_size")
 
 

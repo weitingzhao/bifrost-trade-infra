@@ -14,7 +14,7 @@ clone and clone-ui are pinned the same way: they produce what test-console
 reads. clone-infra and the other tasks do not, so they are not pinned.
 
 The task, its taskSpec and its one step may only use the keys listed below.
-when, onError, retries, an env, a sidecar or a second step fail by the key's
+when, onError, retries, a sidecar or a second step fail by the key's
 name (or by the step count), and by the equality. They are not listed in
 advance.
 """
@@ -59,6 +59,7 @@ npm run build
 # mismatch must fail the step, not fall through to npm install.
 CANONICAL = """#!/usr/bin/env bash
 set -euo pipefail
+[ "${REUSE:-no}" != yes ] || exit 0
 ws="$(workspaces.source.path)"
 
 # Scripts on: bifrost-ui's prepare builds dist/, which is not in git.
@@ -91,21 +92,23 @@ echo "==> Console type-check, lint, tests and build passed"
 
 # Subsets, not a denylist. Today's task uses all of these and no others.
 # A legitimate new key is added to the matching set, with a comment saying why.
-ALLOWED_TASK_KEYS = frozenset({"name", "runAfter", "timeout", "workspaces", "taskSpec"})
-ALLOWED_TASKSPEC_KEYS = frozenset({"workspaces", "steps"})
-ALLOWED_STEP_KEYS = frozenset({"name", "image", "computeResources", "script"})
+ALLOWED_TASK_KEYS = frozenset({"name", "runAfter", "timeout", "params", "workspaces", "taskSpec"})
+ALLOWED_TASKSPEC_KEYS = frozenset({"params", "workspaces", "steps"})
+ALLOWED_STEP_KEYS = frozenset({"name", "image", "computeResources", "env", "script"})
 WANTED_RUN_AFTER = ["clone", "clone-ui"]
 
 # The whole test-console task. A deliberate change edits this literal in the
 # same commit as the YAML. script is CANONICAL; everything else is exact.
 EXPECTED_CONSOLE = {
     "name": "test-console",
-    "timeout": "8m0s",
+    "params": [{"name": "reuse", "value": "$(tasks.reuse.results.reuse)"}],
+    "timeout": "20m0s",
     "runAfter": ["clone", "clone-ui"],
     "workspaces": [
         {"name": "source", "workspace": "source"},
     ],
     "taskSpec": {
+        "params": [{"name": "reuse"}],
         "workspaces": [
             {"name": "source"},
         ],
@@ -117,6 +120,7 @@ EXPECTED_CONSOLE = {
                     "requests": {"cpu": "2", "memory": "1Gi"},
                     "limits": {"cpu": "2", "memory": "4Gi"},
                 },
+                "env": [{"name": "REUSE", "value": "$(params.reuse)"}],
                 "script": CANONICAL,
             },
         ],

@@ -29,10 +29,7 @@ from test_platform_prod_gate import PIPELINE, ROOT
         ("image", "test_read_only_same_image"),
         ("ci-prefix", "test_ci_refuses[wrong-sha]"),
         ("ci-running", "test_ci_refuses[running]"),
-        # R5:5.7-1: a console-scope run is not a full one.
-        ("ci-console", "test_ci_refuses[console-only]"),
         ("ci-malformed", "test_ci_refuses[two-scopes]"),
-        ("ci-require-full", "test_ci_refuses[console-only]"),
         ("stg-prefix", "test_stg_refuses[wrong-sha]"),
         ("no-result", "test_stg_refuses[no-result]"),
         ("prod-as-stg", "test_prod_run_is_not_stg"),
@@ -61,16 +58,10 @@ def test_planted_violation(tmp_path, mutation, named_test):
         before, after = {
             "resolve": ("if len(candidates) != 1:", "if not candidates:"),
             "ci": (
-                'if classify(runs, "bifrost-platform", sha, require_full=require_full) != "succeeded":',
+                'if classify(runs, "bifrost-platform", sha) != "succeeded":',
                 "if False:",
             ),
-            "ci-console": ('if scopes in (["full"], ["console"]):\n        return scopes[0]',
-                           'if scopes in (["full"], ["console"]):\n        return "full"'),
             "ci-malformed": ('    return "malformed"\n\n\ndef _results', '    return "full"\n\n\ndef _results'),
-            "ci-require-full": (
-                'require_full = os.environ.get("REQUIRE_FULL_CI", "off") == "on"',
-                "require_full = False",
-            ),
             "stg": ("if len(commits) != 1 or commits[0] != sha:", "if False:"),
             "latest": (
                 'latest = max(run_time(r, "creationTimestamp") for r in stg)',

@@ -11,6 +11,9 @@ metadata:
     bifrost.io/layer: L1
 spec:
   params:
+    - name: reuse
+      type: string
+      default: "no"
     - name: scope
       type: string
       default: full
@@ -96,6 +99,8 @@ spec:
       # build it on 1.23. `auto` fetches a newer toolchain if go.mod moves on.
       image: golang:1.25-bookworm
       env:
+        - name: REUSE
+          value: $(params.reuse)
         - name: GOTOOLCHAIN
           value: auto
         # T50 verifies this checkout's HEAD before exporting its API.
@@ -153,6 +158,10 @@ spec:
       script: |
         #!/usr/bin/env bash
         set -euo pipefail
+        if [ "${REUSE:-no}" = yes ]; then
+          cp "$(workspaces.source.path)/ci-api-results/"* /tekton/results/
+          exit 0
+        fi
         export BIFROST_GO_TEST_TIMEOUT=1800s
         git_auth="$(printf '%s:%s' "${GIT_USERNAME:-}" "${GIT_PASSWORD:-}" | base64 | tr -d '\n')"
         unset GIT_USERNAME GIT_PASSWORD

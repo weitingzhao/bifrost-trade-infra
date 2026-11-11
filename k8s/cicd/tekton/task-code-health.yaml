@@ -19,6 +19,9 @@ spec:
     Run the code-health ratchet for one repo. Fails the pipeline when a metric
     exceeds its baseline in agent-config/scripts/code-health/baselines.env.
   params:
+    - name: reuse
+      type: string
+      default: "no"
     - name: repo
       type: string
       description: "Repo to gate — must be in scan.sh KNOWN_REPOS (platform, trade-frontend, research, trade-api/core/worker, ui, plugin{,-market-data,-flex-query})"
@@ -41,6 +44,8 @@ spec:
           cpu: "1"
           memory: 512Mi
       env:
+        - name: REUSE
+          value: $(params.reuse)
         - name: TASK_REPO
           value: $(params.repo)
         - name: TASK_SOURCE_DIR
@@ -48,6 +53,7 @@ spec:
       script: |
         #!/usr/bin/env sh
         set -eu
+        [ "${REUSE:-no}" != yes ] || exit 0
         printf '%s\n' "${TASK_REPO}" | grep -Eq '^[A-Za-z0-9_][A-Za-z0-9._-]*$' || { echo "invalid repo" >&2; exit 1; }
         case "${TASK_REPO}" in *'
         '*) echo "invalid repo" >&2; exit 1 ;; esac

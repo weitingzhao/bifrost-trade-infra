@@ -223,13 +223,10 @@ class ReleaseShStaticTests(unittest.TestCase):
         self.assertNotIn("allowed_signers", text)
         self.assertIsNone(re.search(r"kubectl[^\n]*bifrost-release-(policy|freeze)", text))
 
-    def test_tekton_freeze_step_reads_the_flag(self) -> None:
+    def test_window_leaves_freeze_to_freeze_check(self) -> None:
         task = (ROOT / "k8s/cicd/tekton/task-release-window.yaml").read_text(encoding="utf-8")
-        self.assertIn("- name: freeze", task)
-        self.assertIn("configmaps/bifrost-release-freeze", task)
-        self.assertIn("exc.code != 404", task)
-        rbac = (ROOT / "k8s/cicd/tekton/rbac-release-window.yaml").read_text(encoding="utf-8")
-        self.assertIn('"bifrost-release-freeze"', rbac)
+        self.assertNotIn("- name: freeze", task)
+        self.assertNotIn("configmaps/bifrost-release-freeze", task)
 
 
 if __name__ == "__main__":

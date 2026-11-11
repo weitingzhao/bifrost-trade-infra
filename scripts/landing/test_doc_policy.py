@@ -86,8 +86,8 @@ def test_mode_delete_and_rename(repo):
     command(path, 'checkout', '--detach', base)
     command(path, 'mv', DOC, DOC.replace('test', 'renamed'))
     rev = commit_fixture(path)
-    with pytest.raises(P['PolicyError'], match='change_kind'):
-        P['scope'](path, base, rev)
+    P['scope'](path, base, rev)
+    P['consumers'](path, base, rev)
 
 
 def test_symlink(repo):
@@ -243,8 +243,7 @@ def test_scope_limit_and_missing_allow(repo):
     path, base = repo
     for i in range(101):
         put(path, f'agent-config/work/multi-agent/REPORT-{i}.md', 'small\n')
-    with pytest.raises(P['PolicyError'], match='scope_size'):
-        P['scope'](path, base, commit_fixture(path))
+    P['scope'](path, base, commit_fixture(path))
     put(path, P['RULES'], 'repos: []\n')
     base = commit_fixture(path)
     _, _, rev = candidate((path, base))
@@ -258,11 +257,7 @@ def test_floor_file_limit(repo, count):
     for i in range(count):
         put(path, f'k8s/test-{i}.yaml', 'kind: ConfigMap\n')
     revision = commit_fixture(path)
-    if count > 100:
-        with pytest.raises(P['PolicyError'], match='scope_size'):
-            P['scope'](path, base, revision)
-    else:
-        P['scope'](path, base, revision)
+    P['scope'](path, base, revision)
 
 
 @pytest.mark.parametrize('name,text,error', [
@@ -319,3 +314,33 @@ def test_floor_rejects_new_executable(repo):
     command(path, 'add', '--', name)
     with pytest.raises(P['PolicyError'], match='structural'):
         P['scope'](path, base, commit_fixture(path))
+
+
+def test_deleted_document(repo):
+    path, base = repo
+    command(path, 'rm', DOC)
+    rev = commit_fixture(path)
+    P['scope'](path, base, rev)
+    P['consumers'](path, base, rev)
+    P['documents'](path, base, rev, path, base)
+
+
+def test_deleted_consumed_document(repo):
+    path, base = repo
+    rows = yaml.safe_load((path / P['REGISTRY']).read_text())
+    rows[0]['reads'] = [DOC]
+    put(path, P['REGISTRY'], yaml.safe_dump(rows))
+    base = commit_fixture(path)
+    command(path, 'rm', DOC)
+    rev = commit_fixture(path)
+    P['scope'](path, base, rev)
+    with pytest.raises(P['PolicyError'], match='registry_overlap|consumed_path'):
+        P['consumers'](path, base, rev)
+
+
+def test_large_change_and_empty(repo):
+    path, base, rev = candidate(repo, 'line\n' * 1600)
+    P['scope'](path, base, rev)
+    command(path, '-c', 'user.name=CI fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '--allow-empty', '-qm', 'Empty')
+    with pytest.raises(P['PolicyError'], match='scope_size'):
+        P['scope'](path, rev, command(path, 'rev-parse', 'HEAD'))

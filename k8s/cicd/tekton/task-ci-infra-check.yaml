@@ -6,6 +6,9 @@ metadata:
   namespace: cicd
 spec:
   params:
+  - name: landing-allow-json
+    type: string
+    default: ''
   - name: revision
     type: string
   - name: base
@@ -113,6 +116,8 @@ spec:
   - name: doc-policy
     image: 192.168.10.73:30500/bifrost-ci-infra-tools@sha256:4ff505208b6cd977e36b7fb29c0f9faa4824a4ed9f4beb6e2f1ffc94b591a23e
     env:
+    - name: LANDING_ALLOW_JSON
+      value: $(params.landing-allow-json)
     - name: REVISION
       value: $(params.revision)
     - name: BASE
