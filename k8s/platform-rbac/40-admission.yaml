@@ -34,27 +34,29 @@ spec:
   # Tekton's defaulting webhook, which round-trips it through the Go types:
   # durations become "20m0s" and the claim template gains
   # metadata.creationTimestamp null and status {} (observed on cicd runs).
-  # Only those inert fields are tolerated.
+  # Only those inert fields are tolerated. A CEL map literal must hold one value
+  # type: the mixed ones below wrap their values in dyn() (equality unchanged),
+  # without which the API server refuses to compile the policy (k8s 1.35).
   variables:
     - name: s5
       expression: >-
         has(object.spec.pipelineRef) && object.spec.pipelineRef == {'name': 'bifrost-ci-s5'}
         && !has(object.spec.pipelineSpec)
         && has(object.spec.taskRunSpecs) && object.spec.taskRunSpecs == [{
-          'pipelineTaskName': 'freeze-check', 'serviceAccountName': 'default',
-          'podTemplate': {'automountServiceAccountToken': true, 'nodeSelector': {'kubernetes.io/arch': 'amd64'}}}]
+          'pipelineTaskName': dyn('freeze-check'), 'serviceAccountName': dyn('default'),
+          'podTemplate': dyn({'automountServiceAccountToken': dyn(true), 'nodeSelector': dyn({'kubernetes.io/arch': 'amd64'})})}]
         && has(object.spec.taskRunTemplate)
         && object.spec.taskRunTemplate == {
-          'serviceAccountName': 'bifrost-s5',
-          'podTemplate': {'automountServiceAccountToken': false, 'enableServiceLinks': false,
-            'nodeSelector': {'kubernetes.io/arch': 'amd64'}, 'securityContext': {'fsGroup': 1000}}}
+          'serviceAccountName': dyn('bifrost-s5'),
+          'podTemplate': dyn({'automountServiceAccountToken': dyn(false), 'enableServiceLinks': dyn(false),
+            'nodeSelector': dyn({'kubernetes.io/arch': 'amd64'}), 'securityContext': dyn({'fsGroup': 1000})})}
         && has(object.spec.timeouts) && object.spec.timeouts == {'pipeline': '20m0s'}
         && has(object.spec.workspaces) && size(object.spec.workspaces) == 1
         && object.spec.workspaces[0].all(k, k in ['name', 'volumeClaimTemplate'])
         && object.spec.workspaces[0].name == 'trees'
         && object.spec.workspaces[0].volumeClaimTemplate.all(k, k in ['metadata', 'spec', 'status'])
-        && object.spec.workspaces[0].volumeClaimTemplate.spec == {'accessModes': ['ReadWriteOnce'],
-            'storageClassName': 'local-path', 'resources': {'requests': {'storage': '2Gi'}}}
+        && object.spec.workspaces[0].volumeClaimTemplate.spec == {'accessModes': dyn(['ReadWriteOnce']),
+            'storageClassName': dyn('local-path'), 'resources': dyn({'requests': {'storage': '2Gi'}})}
         && (!has(object.spec.workspaces[0].volumeClaimTemplate.metadata)
           || object.spec.workspaces[0].volumeClaimTemplate.metadata.all(k, k == 'creationTimestamp'))
         && (!has(object.spec.workspaces[0].volumeClaimTemplate.status)
