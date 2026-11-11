@@ -161,6 +161,13 @@ const cases = [
   ['dev', 'DENY', PK + ' -f ' + SVC_API, bash(PK + ' -f ' + SVC_API)],
   ['dev', 'DENY', K + ' $(pgrep ' + SVC_CON + ')', bash(K + ' $(pgrep -f ' + SVC_CON + ')')],
   ['dev', 'DENY', '裸 port-forward 9090', bash('kubectl port-forward -n monitoring svc/prom 9090:9090')],
+  // 原在 auto mode soft_deny「Local Runtime Hygiene」、preflight 没管的几条（R6 第 0 组 I-2）
+  ['dev', 'DENY', './run_frontend.sh', bash('./run_frontend.sh')],
+  ['dev', 'DENY', 'bash scripts/run_backend.sh', bash('cd x && bash scripts/run_backend.sh --port 8000')],
+  ['dev', 'DENY', 'celery worker', bash('cel' + 'ery' + ' -A bifrost worker -l info')],
+  ['dev', 'DENY', 'python -m celery beat', bash('python3 -m ' + 'cel' + 'ery' + ' -A app beat')],
+  ['dev', 'DENY', 'flower', bash('cd /x && ' + 'flo' + 'wer' + ' --port=5555')],
+  ['dev', 'DENY', 'trade-socket 入口', bash('python ' + 'bifrost-trade-' + 'socket' + '/run_socket.py')],
 
   // ── 合法操作不得误拦 ──
   // TD-96：同类只读写法不得误拦
@@ -191,6 +198,10 @@ const cases = [
   ['ok', 'ALLOW', 'pytest（测试源码里有流名）', bash('pytest -q tests/test_operator_streams.py -k ' + OPCMD.split(':')[1])],
   ['ok', 'ALLOW', 'GET monitor/control（只读）', bash('curl -s http://x/api/monitor/control/status')],
   ['ok', 'ALLOW', 'cat run_platform.py', bash('cat scripts/run_platform.py')],
+  ['ok', 'ALLOW', 'cat run_frontend.sh', bash('cat scripts/run_frontend.sh')],
+  ['ok', 'ALLOW', 'grep celery', bash('grep -rn ' + 'cel' + 'ery' + ' src')],
+  ['ok', 'ALLOW', 'pip install celery', bash('pip install ' + 'cel' + 'ery')],
+  ['ok', 'ALLOW', 'ls trade-socket', bash('ls ' + 'bifrost-trade-' + 'socket' + '/')],
   ['ok', 'ALLOW', 'grep daemon-scale-zero', bash('grep -n replicas k8s/overlays/stg/daemon-scale-zero.patch.yaml')],
   ['ok', 'ALLOW', 'bdev restart platform', bash('bdev restart platform')],
   ['ok', 'ALLOW', 'run_prometheus_pf.sh', bash('./scripts/run_prometheus_pf.sh')],
