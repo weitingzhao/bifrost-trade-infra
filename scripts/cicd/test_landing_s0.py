@@ -206,6 +206,7 @@ exit "${SELECTOR_STATUS:-0}"
     bins.mkdir()
     (bins / 'go').write_text('''#!/bin/bash
 echo "go $*" >> "$GO_CALLS"
+echo "slow=${BIFROST_SLOW_TESTS:-}" >> "$GO_CALLS.env"
 if [ "$1" = list ]; then
   if [ "$2" = ./internal/agentrt/store ]; then echo m/internal/agentrt/store; else printf 'm/a\\nm/internal/agentrt/store\\n'; fi
 fi
@@ -238,6 +239,7 @@ esac
              ('a' * 40, '', 'fixture', 'incremental', 0, 1)]
     for base, request, why, scope, changed, missing in cases:
         (tmp_path / 'go-calls').write_text('')
+        (tmp_path / 'go-calls.env').write_text('')
         run = subprocess.run(['bash'], input=script, text=True, capture_output=True,
                              env={**env, 'LANDING_BASE': base, 'API_SCOPE_REQUEST': request,
                                   'SELECTOR_CHANGED': str(changed), 'BASE_MISSING': str(missing),
@@ -248,6 +250,10 @@ esac
         assert 'github.com/' not in packages
         assert sum(len(p.read_bytes()) for p in paths.values()) <= 4096 - 512
         go_calls = (tmp_path / 'go-calls').read_text()
+        # Only the daily full CI (api-scope-request=full) runs the slow tests.
+        slow = set((tmp_path / 'go-calls.env').read_text().split())
+        assert slow == ({'slow=1'} if request == 'full' else {'slow='}), (request, slow)
+        (tmp_path / 'go-calls.env').write_text('')
         if scope == 'full':
             # A full run keeps the split: part rest tests every package but
             # store itself, side by side with part store; no selector.
