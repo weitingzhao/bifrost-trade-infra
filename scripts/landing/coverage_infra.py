@@ -84,10 +84,16 @@ def quick(args, infra, platform):
     # contract; logs are the timing record, not an undeclared Tekton result.
 
 
-def statics(infra):
+def statics(infra, platform):
     for name in ("check_admission_guards.py", "check_agent_access.py", "check_platform_maintenance.py",
                  "check_alert_routing.py"):
         run([sys.executable, "-I", infra / "scripts" / name], cwd=infra)
+    # Infra's copies of platform config/ (spine, trust overrides, running images,
+    # actuation policy) follow the platform main resolved for this run (TD-109).
+    # Only infra is judged: ci-platform no longer runs this comparison.
+    parity = infra / "scripts/check_ops_context_parity.py"
+    run([sys.executable, "-I", parity, "--self-test"], cwd=infra)
+    run([sys.executable, "-I", parity], cwd=infra, env=dict(os.environ, PLATFORM_ROOT=str(platform)))
     # This fixed two-repository workspace has no flex-query revision. The
     # default release-chain entry remains the full cross-repository check.
     run([sys.executable, "-I", infra / "scripts/check-release-chain.py", "--scope", "infra"], cwd=infra)
@@ -128,7 +134,7 @@ def stage(args, name, infra, platform):
     elif name == "quick":
         quick(args, infra, platform)
     elif name == "statics":
-        statics(infra)
+        statics(infra, platform)
     elif name == "kustomize":
         kustomize(infra)
     elif name in RETIRED:

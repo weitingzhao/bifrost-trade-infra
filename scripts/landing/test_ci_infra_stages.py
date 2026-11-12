@@ -159,22 +159,31 @@ def test_quick_generator_only_and_failures(ci_workspace, monkeypatch, tmp_path):
 
 
 def test_statics_success_missing_and_failure(tmp_path):
-    scripts = tmp_path / 'scripts'
-    scripts.mkdir()
+    infra, platform = tmp_path / 'infra', tmp_path / 'platform'
+    scripts = infra / 'scripts'
+    scripts.mkdir(parents=True)
+    platform.mkdir()
     names = ('check_admission_guards.py', 'check_agent_access.py', 'check_platform_maintenance.py',
              'check_alert_routing.py', 'check-release-chain.py')
     for n in names:
         (scripts / n).write_text('import sys\nassert "--live" not in sys.argv\n')
-    hp = tmp_path / 'agent-config/scripts/check_hardcoded_paths.py'
+    # The ops-context comparison reads the platform checkout this run resolved.
+    (scripts / 'check_ops_context_parity.py').write_text(
+        'import os, sys\n'
+        f'assert sys.argv[1:] == ["--self-test"] or os.environ["PLATFORM_ROOT"] == {str(platform)!r}\n')
+    hp = infra / 'agent-config/scripts/check_hardcoded_paths.py'
     hp.parent.mkdir(parents=True)
     hp.write_text('import sys\nassert sys.argv[1:] == ["--ref", "HEAD", "--new-only"]\n')
-    C.statics(tmp_path)
-    (scripts / names[0]).write_text('raise SystemExit(7)\n')
-    with pytest.raises(C.Error, match='command_failed'):
-        C.statics(tmp_path)
+    C.statics(infra, platform)
+    for name in (names[0], 'check_ops_context_parity.py'):
+        good = (scripts / name).read_text()
+        (scripts / name).write_text('raise SystemExit(7)\n')
+        with pytest.raises(C.Error, match='command_failed'):
+            C.statics(infra, platform)
+        (scripts / name).write_text(good)
     (scripts / names[0]).unlink()
     with pytest.raises(C.Error, match='command_failed'):
-        C.statics(tmp_path)
+        C.statics(infra, platform)
 
 
 def test_kustomize_only_local_render(tmp_path, monkeypatch):
