@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import stat
 import subprocess
 import tempfile
@@ -328,6 +329,34 @@ def nodes(text: str) -> list[tuple[str, str]]:
     return NODE_RE.findall(text)
 
 
+# A clock the test owns (clock=True): the script's deadlines read `date +%s`
+# and its polls `sleep`, and on a real clock a 1-second timeout leaves anywhere
+# from 0 to 1 s for the polls it allows, so which wait timed out depended on
+# where in the second the run started (ci-infra-gbpfp, 2026-11-11). Here
+# `date +%s` reads a file and `sleep N` adds N to it without waiting; any
+# other `date` call goes to the real one.
+REAL_DATE = shutil.which("date") or "/bin/date"
+
+DATE_STUB = textwrap.dedent(
+    f"""\
+    #!/bin/sh
+    if [ "$#" -eq 1 ] && [ "$1" = "+%s" ]; then
+      cat "$FAKE_CLOCK"
+      exit 0
+    fi
+    exec {REAL_DATE} "$@"
+    """
+)
+
+SLEEP_STUB = textwrap.dedent(
+    """\
+    #!/bin/sh
+    now="$(cat "$FAKE_CLOCK")"
+    echo $(( now + ${1%%.*} )) > "$FAKE_CLOCK"
+    """
+)
+
+
 def write_executable(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8")
     path.chmod(path.stat().st_mode | stat.S_IEXEC)
@@ -377,6 +406,12 @@ class FakeCluster:
         dow = options.get("dow")
         if dow is not None:
             self.env["ROLLING_REBOOT_DOW"] = str(dow)
+        if options.get("clock"):
+            clock = root / "clock"
+            clock.write_text("1700000000\n", encoding="utf-8")
+            write_executable(root / "date", DATE_STUB)
+            write_executable(root / "sleep", SLEEP_STUB)
+            self.env["FAKE_CLOCK"] = str(clock)
 
     def kubectl_text(self) -> str:
         if not self.log.exists():
@@ -916,7 +951,10 @@ class RollingRebootPlanTests(unittest.TestCase):
 
     def test_verify_times_out_and_does_not_touch_the_next_node(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            fake = FakeCluster(Path(tmp), dow="6", not_ready_polls=100000, timeout=1)
+            # On the test's clock, with a 1 s poll: the node is seen not Ready at
+            # t, Ready at t+1 (inside the 2 s), and the pods are still not Ready
+            # when the 2 s of the workload check have passed.
+            fake = FakeCluster(Path(tmp), dow="6", not_ready_polls=100000, timeout=2, poll=1, clock=True)
             result = run(
                 ["--execute", "--approval", "appr_ok", "--nodes", self.TWO_NODES],
                 arm_approval(fake.env),
@@ -925,7 +963,8 @@ class RollingRebootPlanTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("workloads not recovered on ubt-k3s-04", result.stderr)
         self.assertIn("monitoring/promtail-x", result.stderr)
-        self.assertIn("did not become Ready within 1s", result.stderr)
+        self.assertIn("did not become Ready within 2s", result.stderr)
+        self.assertNotIn("timed out waiting for ubt-k3s-04", result.stderr)
         self.assertIn("uncordon ubt-k3s-04", log)
         self.assertNotIn("cordon ubt-k3s-02", log)
 
