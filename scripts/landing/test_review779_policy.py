@@ -26,7 +26,7 @@ def test_a01_decision_edit_after_inline_or_original_heading(ci_workspace, prefix
     args, infra, _ = ci_workspace
     replacement = '' if removal else '选 B\n'
     reset_document(args, infra, prefix + '选 A\n', prefix + replacement)
-    for stage in ('scope', 'consumers', 'code-health'):
+    for stage in ('scope', 'consumers'):
         result = invoke_stage(args, stage)
         assert result.returncode == 0, result.stdout + result.stderr
     result = invoke_stage(args, 'doc-policy')
@@ -84,7 +84,6 @@ def test_a01_short_or_indented_marker_cannot_hide_heading(ci_workspace, not_a_fe
 
 @pytest.mark.parametrize('name,violation,stage,error', [
     (DOC, 'Owner 决定 A\n', 'doc-policy', 'owner_claim_unlinked'),
-    ('scripts/duplicate.sh', 'duplicate_fixture() { :; }\n' * 4, 'code-health', 'code_health_regressed'),
 ])
 def test_b01_push_checks_endpoints_not_restored_intermediate_commit(ci_workspace, tmp_path, name, violation, stage, error):
     args, infra, platform = ci_workspace
@@ -116,7 +115,7 @@ def test_b01_push_checks_endpoints_not_restored_intermediate_commit(ci_workspace
     missing = subprocess.run(['git', '-C', str(clone), 'cat-file', '-e', bad + '^{commit}'],
                              capture_output=True, check=False)
     assert missing.returncode != 0
-    for check in ('scope', 'consumers', 'doc-policy', 'code-health'):
+    for check in ('scope', 'consumers', 'doc-policy'):
         result = invoke_stage(args, check)
         assert result.returncode == 0, result.stdout + result.stderr
         if check == 'doc-policy':

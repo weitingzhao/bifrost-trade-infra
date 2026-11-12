@@ -1,6 +1,5 @@
 """Offline stage integration. Real Git snapshots; injected executables only at OS edges."""
 import importlib.util
-import json
 import runpy
 import subprocess
 import sys
@@ -110,26 +109,6 @@ def test_each_policy_stage_rejects_missing_baseline_input(ci_workspace):
     assert subprocess.run(command, capture_output=True, check=False).returncode != 0
 
 
-def test_health_retired_file_length_metric(ci_workspace):
-    args, infra, _platform = ci_workspace
-    put(infra, 'agent-config/work/multi-agent/REPORT-big.md', 'line\n' * 500)
-    args.revision = commit(infra)
-    C.code_health(args, infra)
-    put(infra, 'agent-config/work/multi-agent/REPORT-big.md', 'line\n' * 501)
-    args.revision = commit(infra)
-    C.code_health(args, infra)
-
-
-def test_health_fails_unreadable_or_partial(tmp_path):
-    path = tmp_path / 'health.json'
-    with pytest.raises(OSError):
-        C.metric_values(path)
-    for data in ({}, {'not_measured': 'bifrost-trade-infra', 'metrics': []}, {'metrics': []}):
-        path.write_text(json.dumps(data))
-        with pytest.raises(C.Error):
-            C.metric_values(path)
-
-
 def test_tools_exact_version_and_missing(tmp_path, monkeypatch):
     answers = ['Python 3.12.16\n', 'git version 2.39.5\n', '5.2.15(1)-release',
                '{"clientVersion":{"gitVersion":"v1.31.4"}}', 'go version go1.25.3 linux/amd64\n']
@@ -232,8 +211,6 @@ def test_no_base_push_explicit_skip(ci_workspace, capsys):
     args.base_sha, args.purpose = '', 'push'
     C.stage(args, 'doc-policy', infra, platform)
     assert 'skipped(no_base)' in capsys.readouterr().out
-    with pytest.raises(C.Error, match='code_health_no_base'):
-        C.code_health(args, infra)
     args.purpose = 'landing'
     with pytest.raises(C.Error, match='base_missing'):
         C.check_workspace(args)

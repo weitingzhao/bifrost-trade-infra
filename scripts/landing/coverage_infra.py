@@ -1,21 +1,22 @@
 #!/usr/bin/env python3
 """Run each ci-infra stage with immutable inputs and fail-closed evidence."""
 import argparse
-import hashlib
 import json
 import os
 import runpy
 import subprocess
 import sys
-import tempfile
 import time
 from pathlib import Path
 
 P = runpy.run_path(str(Path(__file__).with_name("doc_policy.py")))
 Error = P["PolicyError"]
 STAGES = ("tools", "scope", "consumers", "doc-policy", "quick", "statics",
-          "kustomize", "code-health", "parity-static")
-METRICS = {"code.duplication.rocket.infra", "code.duplication.rocket.infra-py"}
+          "kustomize", "parity-static")
+# code-health (the infra-only "metrics never rise" ratchet) was removed in
+# cleanup wave 1, 2026-11-11. The name stays accepted as a no-op until the
+# cluster Task without that step is applied; Tasks run this file from the base.
+RETIRED = ("code-health",)
 
 
 def run(argv, cwd=None, env=None, capture=False):
@@ -56,65 +57,6 @@ def check_workspace(args):
     elif args.purpose == "landing":
         raise Error("base_missing")
     return infra, platform
-
-
-def metric_values(path):
-    data = json.loads(path.read_text())
-    if data.get("not_measured") or not isinstance(data.get("metrics"), list):
-        raise Error("code_health_unmeasured")
-    coverage = data.get("scan_complete", {}).get(P["REPO"], {})
-    if type(coverage.get("files_read")) is not int or not coverage.get("paths_sha256"):
-        raise Error("code_health_scan_incomplete")
-    values = {}
-    for m in data["metrics"]:
-        if m.get("repo") != P["REPO"]:
-            raise Error("code_health_wrong_repo")
-        key, value = m["id"], m["value"]
-        if key in values or type(value) is not int or value < 0:
-            raise Error("code_health_invalid_metric")
-        values[key] = value
-    if not METRICS <= values.keys():
-        raise Error("code_health_missing_metric")
-    return values
-
-
-def compare_health(base, candidate):
-    before, after = metric_values(base), metric_values(candidate)
-    if before.keys() != after.keys():
-        raise Error("code_health_metric_set_changed")
-    for key in before:
-        print(f"code-health {key} {before[key]}→{after[key]}")
-        if after[key] > before[key]:
-            raise Error(f"code_health_regressed {key} {before[key]}→{after[key]}")
-
-
-def code_health(args, infra):
-    if not args.base_sha:
-        raise Error("code_health_no_base")
-    with tempfile.TemporaryDirectory(prefix="ci-infra-health-") as temp:
-        directory = Path(temp)
-        # Export the scanner AND its sourced baseline from M0. Neither run can
-        # source a candidate baseline, nor accidentally scan its script's tree.
-        for name in ("scan.sh", "baselines.env"):
-            (directory / name).write_bytes(P["blob"](infra, args.base_sha, "agent-config/scripts/code-health/" + name))
-        outputs = []
-        for label, root in (("base", args.base), ("cand", args.cand)):
-            output = directory / (label + ".json")
-            result = subprocess.run(["bash", str(directory / "scan.sh"), "--root", str(root),
-                                     "--repo", P["REPO"], "--json", str(output)], capture_output=True, check=False)
-            # Absolute-baseline exit 1 is expected. Missing/malformed output is
-            # always fatal; execution errors never manufacture zero metrics.
-            if result.returncode not in (0, 1):
-                raise Error("code_health_scan_failed")
-            metric_values(output)
-            revision = args.base_sha if label == "base" else args.revision
-            names = sorted(name.encode("utf-8") for name in P["tree"](infra, revision)
-                           if name.endswith(".sh") or (name.endswith(".py") and not name.startswith("tests/")))
-            expected = {"files_read": len(names), "paths_sha256": hashlib.sha256(b"".join(n + b"\0" for n in names)).hexdigest()}
-            if json.loads(output.read_text())["scan_complete"][P["REPO"]] != expected:
-                raise Error("code_health_scan_incomplete")
-            outputs.append(output)
-        compare_health(*outputs)
 
 
 def quick(args, infra, platform):
@@ -190,8 +132,8 @@ def stage(args, name, infra, platform):
         statics(infra)
     elif name == "kustomize":
         kustomize(infra)
-    elif name == "code-health":
-        code_health(args, infra)
+    elif name in RETIRED:
+        print(f"{name}: retired")
     elif name == "parity-static":
         script = infra / "agent-config/scripts/check-agent-config-parity.sh"
         # Older scripts silently ignore arguments and consult host hooks.
@@ -202,7 +144,7 @@ def stage(args, name, infra, platform):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--stage", choices=(*STAGES, "all"), required=True)
+    ap.add_argument("--stage", choices=(*STAGES, *RETIRED, "all"), required=True)
     ap.add_argument("--cand", type=Path)
     ap.add_argument("--base", type=Path)
     ap.add_argument("--revision", default="")

@@ -9,7 +9,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 TEKTON = ROOT / 'k8s/cicd/tekton'
-STAGES = ['tools', 'scope', 'consumers', 'doc-policy', 'quick', 'statics', 'kustomize', 'code-health', 'parity-static']
+STAGES = ['tools', 'scope', 'consumers', 'doc-policy', 'quick', 'statics', 'kustomize', 'parity-static']
 
 
 def read_yaml(name):

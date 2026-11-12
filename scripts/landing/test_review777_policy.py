@@ -1,5 +1,4 @@
 """Review 777: exercise real Git hunks and the baseline-exported CLI."""
-import json
 import os
 import runpy
 import shutil
@@ -96,7 +95,6 @@ def test_b03_real_filename_growth(ci_workspace, leaf):
     name = 'agent-config/work/multi-agent/REPORT-' + leaf + '.md'
     put(infra, name, 'line\n' * 500)
     args.revision = commit(infra)
-    assert invoke_stage(args, 'code-health').returncode == 0
     git(infra, 'checkout', '--detach', args.base_sha)
     put(infra, name, 'line\n' * 501)
     args.revision = commit(infra)
@@ -106,9 +104,6 @@ def test_b03_real_filename_growth(ci_workspace, leaf):
             assert result.returncode == 1 and 'path_invalid' in result.stderr
         else:
             assert result.returncode == 0, result.stderr
-    result = invoke_stage(args, 'code-health')
-    # Owner retired the file-length metric; path coverage still must be exact.
-    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_b03_missing_tracked_file_is_scan_failure(ci_workspace, tmp_path):
@@ -137,30 +132,12 @@ def test_b03_file_enumeration_failure_is_fatal(ci_workspace, tmp_path):
     assert result.returncode == 2 and not output.exists(), result.stdout + result.stderr
 
 
-@pytest.mark.parametrize('attestation', [False, True])
-def test_b03_legacy_numeric_report_is_not_complete(ci_workspace, attestation):
-    args, infra, _ = ci_workspace
-    git(infra, 'checkout', '--detach', args.base_sha)
-    data = {'metrics': [{'id': key, 'repo': 'bifrost-trade-infra', 'value': 0} for key in sorted(C.METRICS)]}
-    if attestation:
-        data['scan_complete'] = {'bifrost-trade-infra': {'files_read': 0, 'paths_sha256': '0' * 64}}
-    report = json.dumps(data)
-    put(infra, 'agent-config/scripts/code-health/scan.sh',
-        '#!/bin/bash\nwhile [[ "$1" != --json ]]; do shift; done\nprintf \'%s\\n\' \'' + report + '\' > "$2"\n')
-    args.base_sha = commit(infra)
-    git(args.base / 'bifrost-trade-infra', 'checkout', '--detach', args.base_sha)
-    put(infra, DOC, 'Updated\n')
-    args.revision = commit(infra)
-    result = invoke_stage(args, 'code-health')
-    assert result.returncode == 1 and 'code_health_scan_incomplete' in result.stderr
-
-
 def test_r01_multicommit_push_all_policy_stages(ci_workspace):
     args, infra, _ = ci_workspace
     put(infra, DOC, 'Two commits pushed together\n')
     args.revision = commit(infra)
     args.purpose = 'push'
-    for stage in ('scope', 'consumers', 'doc-policy', 'code-health'):
+    for stage in ('scope', 'consumers', 'doc-policy'):
         result = invoke_stage(args, stage)
         assert result.returncode == 0, result.stderr
     args.purpose = 'landing'
