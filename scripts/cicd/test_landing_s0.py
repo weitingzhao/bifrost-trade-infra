@@ -73,13 +73,61 @@ def test_build_cache_is_one_shared_claim_and_keys_on_the_database_version():
         assert {"name": "build-cache", "mountPath": "/ci-cache"} in step["volumeMounts"]
         assert "/ci-cache/" in step["script"]
     api = tasks["test-api"]["taskSpec"]
-    assert "-count=1" not in "\n".join(l for l in api["steps"][0]["script"].splitlines() if not l.strip().startswith("#"))
+    code = [l.strip() for l in api["steps"][0]["script"].splitlines() if not l.strip().startswith("#")]
+    assert not [l for l in code if "-count=1" in l]
     # A result Go cached against one Postgres must not answer for another: the
     # sidecar's version is in the DSN the tests read.
     image = next(s["image"] for s in api["sidecars"] if s["name"] == "postgres")
     version = image.split(":", 1)[1].split("@", 1)[0]
     env = {e["name"]: e.get("value") for e in api["steps"][0]["env"]}
     assert env["AGENTRT_TEST_PG"].split()[-1] == "application_name=ci-pg" + version
+
+
+def test_tracked_files_get_content_derived_mtimes_before_go_runs(tmp_path):
+    """Go keys a cached test result by the size, mode and mtime of every path the
+    tests opened (directories with their entries). The step gives each tracked file
+    an mtime from its blob hash and the directories one fixed time, so two clones of
+    one commit look the same to Go and changed content looks different."""
+    script = next(t for t in pipeline()["tasks"] if t["name"] == "test-api")["taskSpec"]["steps"][0]["script"]
+    start = script.index("for repo in bifrost-platform bifrost-trade-infra bifrost-ui; do")
+    block = script[start:script.index("\ndone\n", start) + 6]
+    assert script.index(block) < script.index("go mod download")
+    git = ["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid"]
+    src = tmp_path / "src"
+    for repo in ("bifrost-platform", "bifrost-trade-infra"):
+        (src / repo / "api/testdata").mkdir(parents=True)
+        (src / repo / "api/testdata/x.txt").write_text("hello\n")
+        (src / repo / "top.txt").write_text(repo)
+        subprocess.run(git + ["init", "-q", str(src / repo)], check=True)
+        subprocess.run(git + ["-C", str(src / repo), "add", "-A"], check=True)
+        subprocess.run(git + ["-C", str(src / repo), "commit", "-qm", "one"], check=True)
+
+    def stamp(ws):
+        for repo in ("bifrost-platform", "bifrost-trade-infra"):
+            subprocess.run(["git", "clone", "-q", str(src / repo), str(ws / repo)], check=True)
+        (ws / "bifrost-platform/untracked.txt").write_text("x")
+        run = subprocess.run(["bash", "-c", "set -euo pipefail\nws=\"$1\"\n" + block, "-", str(ws)],
+                             capture_output=True, text=True)
+        assert run.returncode == 0 and "WARN" not in run.stdout, run.stdout + run.stderr
+        names = [r + "/" + n for r in ("bifrost-platform", "bifrost-trade-infra")
+                 for n in ("", "top.txt", "api", "api/testdata", "api/testdata/x.txt")] + ["bifrost-platform/untracked.txt"]
+        return {n.rstrip("/"): int((ws / n).stat().st_mtime) for n in names}
+
+    first, second = stamp(tmp_path / "a"), stamp(tmp_path / "b")
+    tracked = {k: v for k, v in first.items() if not k.endswith("untracked.txt")}
+    assert tracked == {k: v for k, v in second.items() if not k.endswith("untracked.txt")}
+    blob = subprocess.run(["git", "-C", str(src / "bifrost-platform"), "rev-parse", "HEAD:api/testdata/x.txt"],
+                          capture_output=True, text=True, check=True).stdout.strip()
+    assert first["bifrost-platform/api/testdata/x.txt"] == 946684800 + int(blob[:8], 16) % 100000000
+    assert first["bifrost-platform/api/testdata"] == first["bifrost-platform/api"] == first["bifrost-platform"] == 946684800
+    # Untracked files keep their own time.
+    assert first["bifrost-platform/untracked.txt"] > 946684800 + 100000000
+    # Same size, new content: a new mtime, so Go reruns the readers.
+    (src / "bifrost-platform/api/testdata/x.txt").write_text("jello\n")
+    subprocess.run(git + ["-C", str(src / "bifrost-platform"), "commit", "-qam", "two"], check=True)
+    third = stamp(tmp_path / "c")
+    assert third["bifrost-platform/api/testdata/x.txt"] != first["bifrost-platform/api/testdata/x.txt"]
+    assert third["bifrost-platform/top.txt"] == first["bifrost-platform/top.txt"]
 
 
 def test_vet_only_defect_stops_the_actual_ci_script(tmp_path):

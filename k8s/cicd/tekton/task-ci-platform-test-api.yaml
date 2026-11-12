@@ -189,10 +189,8 @@ spec:
         # packages, vet results and test results; Go keys them by content, by
         # the package directory (the workspace is /workspace/source in every
         # run) and, for a test result, by the environment variables and files
-        # the test read (a file by its size and mtime, and a fresh clone gives
-        # every file a new mtime, so a test that opens checkout files reruns).
-        # go test has no -count=1, so a package whose inputs did not change
-        # reports (cached). Go trims GOCACHE itself: entries unused for 5 days
+        # the test read (see the mtimes below). go test has no -count=1, so a
+        # package whose inputs did not change reports (cached). Go trims GOCACHE itself: entries unused for 5 days
         # go. The module cache is never trimmed, so it has a directory per
         # month, and a run deletes only the months before last, which no
         # running run uses. Nothing clears or locks the directory in use; Go's
@@ -210,6 +208,34 @@ spec:
           # Go writes the module cache read-only.
           chmod -R u+w "${old}" 2>/dev/null || true
           rm -rf "${old}" 2>/dev/null || true
+        done
+        # Go keys a cached test result by every path its tests opened: the
+        # path's size, mode bits, mtime and whether it is a directory, and for
+        # a directory also each entry's name with the same four fields
+        # (cmd/go/internal/test hashOpen, hashWriteStat); one changed path
+        # reruns the whole package. A fresh clone stamps every file and
+        # directory with the clone's time, so a package whose tests read a
+        # checkout file (the store's guards parse its own source; the infra
+        # and console scans) would never hit. So before any go command each
+        # tracked file of the three checkouts (the clone's HEAD tree) gets an
+        # mtime derived from its blob hash (same content, same mtime; new content, a new mtime and
+        # usually a new size), and the directories that hold tracked files one
+        # fixed time. One perl process per checkout. A failure costs only
+        # cache hits, so it warns and the run goes on.
+        for repo in bifrost-platform bifrost-trade-infra bifrost-ui; do
+          [ -d "${ws}/${repo}" ] || continue
+          if ! git -C "${ws}/${repo}" ls-tree -r -z HEAD | (cd "${ws}/${repo}" && perl -0ne '
+            chomp;
+            my ($meta, $path) = split /\t/, $_, 2;
+            my ($mode, $type, $blob) = split / /, $meta;
+            next if $type ne "blob" || -l $path || !-e $path;
+            my $t = 946684800 + hex(substr($blob, 0, 8)) % 100000000;
+            utime($t, $t, $path) or die "utime $path: $!\n";
+            my $dir = $path;
+            $dirs{$dir} = 1 while $dir =~ s{/[^/]*$}{};
+            END { $? ||= (utime(946684800, 946684800, ".", keys %dirs) == 1 + keys %dirs ? 0 : 1) }'); then
+            echo "WARN: could not set the mtimes of ${repo}; its readers miss Go's test cache this run"
+          fi
         done
         # The daily full CI (the platform's controller/fullci.go, runs named
         # ci-full-<commit>-<day>) is the one run creator that sends
