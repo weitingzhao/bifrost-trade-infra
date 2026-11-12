@@ -3107,7 +3107,7 @@
 
 **P2 · cicd · 每次 CI 运行的工作区卷留 7 天，节点 07 的根盘几小时少几十 GB**
 
-- **状态**：未开始（2026-11-02 22:05 CST 记；当晚一次性清理已做，见下）。
+- **状态**：在做（2026-11-12 发布流程第一波 C 项）：11-07 #331/#334 用 `kubectl set env` 把集群里的保留期改成运行 1 天、Pod 1 小时，清单没跟上，运行记录一天就没了。清单改为运行对象 7 天、工作区卷（PVC）1 天（新的第 4 遍，按属主 uid 删）、Pod 1 小时 / 失败 1 天，`scripts/test_pipelinerun_ttl.py` 断言这几个值；等 Owner 用管理员 kubeconfig 应用 `k8s/cicd/tekton/pipelinerun-ttl.yaml`（Role 加 PVC 的 list/delete）。此前：未开始（2026-11-02 22:05 CST 记；当晚一次性清理已做，见下）。
 - **证据**：`k8s/cicd/tekton/pipelinerun-ttl.yaml:3`、`:93`（`MAX_AGE_SECONDS`，7 天），每个 PipelineRun 的 local-path 工作区卷随 run 留着。11-02 节点 ubt-k3s-07 根盘只剩 56/500 GB，6 小时少 34 GB，按速度约 12 小时写满；7 天 531 次运行、07 上 234 个 PV。当晚 #271（`owner_run_command`）删了 3 天前已结束的 CI 运行，07 回到 271 GB 空闲、PV 230 → 130。TTL 作业当天也失败 3 次（同 TD-488）。
 - **影响**：CI 多跑几天就会把节点写满，节点上的工作负载跟着挂。
 - **修法**：CI 运行（ci-*、landing-ci-*）留 3 天，发布运行留 7 天，分两个年龄；TTL 作业加超时、失败留日志（TD-488）；给节点 07 的容量指定负责人和告警阈值。改 `k8s/**`，由你推。

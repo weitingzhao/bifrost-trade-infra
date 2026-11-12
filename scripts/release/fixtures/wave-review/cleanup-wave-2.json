@@ -1,0 +1,625 @@
+{
+  "schema": "wave-review/1",
+  "captured_at": "2026-11-12T17:31:40Z",
+  "namespace": "cicd",
+  "oldest_run": "2026-11-11T17:23:55Z",
+  "runs": [
+    {
+      "name": "ci-infra-bmzkq",
+      "pipeline": "bifrost-ci-infra",
+      "created": "2026-11-12T16:26:34Z",
+      "started": "2026-11-12T16:26:34Z",
+      "completed": "2026-11-12T16:29:55Z",
+      "result": "Succeeded",
+      "params": {
+        "revision": "568cc4ab776e9ef81df0d15d008a2358bf32b89f",
+        "base": "06c633204f6659d1166ffebe8a1fdbf7936098d2",
+        "purpose": "push"
+      },
+      "results": {},
+      "labels": {
+        "bifrost.io/repo": "bifrost-trade-infra",
+        "bifrost.io/purpose": "push",
+        "triggers.tekton.dev/eventlistener": "bifrost-ci"
+      },
+      "approval": ""
+    },
+    {
+      "name": "ci-infra-lc4k9",
+      "pipeline": "bifrost-ci-infra",
+      "created": "2026-11-12T16:26:34Z",
+      "started": "2026-11-12T16:26:34Z",
+      "completed": "2026-11-12T16:29:37Z",
+      "result": "Succeeded",
+      "params": {
+        "revision": "06c633204f6659d1166ffebe8a1fdbf7936098d2",
+        "base": "d492801168aadf8b10e3965c652ada00aa144e31",
+        "purpose": "push"
+      },
+      "results": {},
+      "labels": {
+        "bifrost.io/repo": "bifrost-trade-infra",
+        "bifrost.io/purpose": "push",
+        "triggers.tekton.dev/eventlistener": "bifrost-ci"
+      },
+      "approval": ""
+    },
+    {
+      "name": "ci-infra-dphhq",
+      "pipeline": "bifrost-ci-infra",
+      "created": "2026-11-12T16:26:36Z",
+      "started": "2026-11-12T16:26:37Z",
+      "completed": "2026-11-12T16:29:25Z",
+      "result": "Failed",
+      "params": {
+        "revision": "f3bc0a69adb01b5063694e131b025d77e2118ec0",
+        "base": "568cc4ab776e9ef81df0d15d008a2358bf32b89f",
+        "purpose": "push"
+      },
+      "results": {},
+      "labels": {
+        "bifrost.io/repo": "bifrost-trade-infra",
+        "bifrost.io/purpose": "push",
+        "triggers.tekton.dev/eventlistener": "bifrost-ci"
+      },
+      "approval": ""
+    },
+    {
+      "name": "ci-platform-hwsrs",
+      "pipeline": "bifrost-ci-platform",
+      "created": "2026-11-12T16:26:51Z",
+      "started": "2026-11-12T16:26:51Z",
+      "completed": "2026-11-12T16:34:11Z",
+      "result": "Succeeded",
+      "params": {
+        "revision": "ab4c2fbae8d753252b81a9024a9f41bd40eae0d8",
+        "uiRevision": "main",
+        "base": "0000000000000000000000000000000000000000"
+      },
+      "results": {
+        "api-scope": "full",
+        "tested-by": ""
+      },
+      "labels": {
+        "bifrost.io/repo": "bifrost-platform",
+        "bifrost.io/purpose": "ci-gate",
+        "triggers.tekton.dev/eventlistener": "bifrost-ci"
+      },
+      "approval": "",
+      "reuse": {
+        "reuse": "no",
+        "tested-by": ""
+      }
+    },
+    {
+      "name": "plan-f3bc0a69-1794500840",
+      "pipeline": "bifrost-apply-manifest",
+      "created": "2026-11-12T16:27:20Z",
+      "started": "2026-11-12T16:27:20Z",
+      "completed": "2026-11-12T16:27:34Z",
+      "result": "Succeeded",
+      "params": {
+        "mode": "plan",
+        "path": "k8s/cicd/tekton/pipeline-ci-infra.yaml",
+        "commit": "f3bc0a69adb01b5063694e131b025d77e2118ec0"
+      },
+      "results": {},
+      "labels": {
+        "bifrost.io/mode": "plan"
+      },
+      "approval": ""
+    },
+    {
+      "name": "plan-f3bc0a69-1794500844",
+      "pipeline": "bifrost-apply-manifest",
+      "created": "2026-11-12T16:27:24Z",
+      "started": "2026-11-12T16:27:24Z",
+      "completed": "2026-11-12T16:27:36Z",
+      "result": "Succeeded",
+      "params": {
+        "mode": "plan",
+        "path": "k8s/cicd/tekton/task-ci-infra-check.yaml",
+        "commit": "f3bc0a69adb01b5063694e131b025d77e2118ec0"
+      },
+      "results": {},
+      "labels": {
+        "bifrost.io/mode": "plan"
+      },
+      "approval": ""
+    },
+    {
+      "name": "plan-f3bc0a69-1794500847",
+      "pipeline": "bifrost-apply-manifest",
+      "created": "2026-11-12T16:27:27Z",
+      "started": "2026-11-12T16:27:27Z",
+      "completed": "2026-11-12T16:27:41Z",
+      "result": "Succeeded",
+      "params": {
+        "mode": "plan",
+        "path": "k8s/cicd/tekton/task-ci-infra-clone.yaml",
+        "commit": "f3bc0a69adb01b5063694e131b025d77e2118ec0"
+      },
+      "results": {},
+      "labels": {
+        "bifrost.io/mode": "plan"
+      },
+      "approval": ""
+    },
+    {
+      "name": "plan-f3bc0a69-1794500850",
+      "pipeline": "bifrost-apply-manifest",
+      "created": "2026-11-12T16:27:30Z",
+      "started": "2026-11-12T16:27:31Z",
+      "completed": "2026-11-12T16:27:42Z",
+      "result": "Succeeded",
+      "params": {
+        "mode": "plan",
+        "path": "k8s/cicd/tekton/pipeline-ci-python.yaml",
+        "commit": "f3bc0a69adb01b5063694e131b025d77e2118ec0"
+      },
+      "results": {},
+      "labels": {
+        "bifrost.io/mode": "plan"
+      },
+      "approval": ""
+    },
+    {
+      "name": "plan-f3bc0a69-1794500854",
+      "pipeline": "bifrost-apply-manifest",
+      "created": "2026-11-12T16:27:34Z",
+      "started": "2026-11-12T16:27:34Z",
+      "completed": "2026-11-12T16:27:49Z",
+      "result": "Succeeded",
+      "params": {
+        "mode": "plan",
+        "path": "k8s/cicd/tekton/trigger-trade-ci.yaml",
+        "commit": "f3bc0a69adb01b5063694e131b025d77e2118ec0"
+      },
+      "results": {},
+      "labels": {
+        "bifrost.io/mode": "plan"
+      },
+      "approval": ""
+    },
+    {
+      "name": "plan-f3bc0a69-1794500857",
+      "pipeline": "bifrost-apply-manifest",
+      "created": "2026-11-12T16:27:37Z",
+      "started": "2026-11-12T16:27:37Z",
+      "completed": "2026-11-12T16:27:49Z",
+      "result": "Succeeded",
+      "params": {
+        "mode": "plan",
+        "path": "k8s/cicd/tekton/pipeline-ci-platform.yaml",
+        "commit": "f3bc0a69adb01b5063694e131b025d77e2118ec0"
+      },
+      "results": {},
+      "labels": {
+        "bifrost.io/mode": "plan"
+      },
+      "approval": ""
+    },
+    {
+      "name": "ci-platform-vjljb",
+      "pipeline": "bifrost-ci-platform",
+      "created": "2026-11-12T16:35:10Z",
+      "started": "2026-11-12T16:35:10Z",
+      "completed": "2026-11-12T16:35:35Z",
+      "result": "Succeeded",
+      "params": {
+        "revision": "ab4c2fbae8d753252b81a9024a9f41bd40eae0d8",
+        "uiRevision": "main",
+        "base": "036120021a553cfa649ea47abf51b03866b0ac28"
+      },
+      "results": {
+        "api-scope": "full",
+        "tested-by": "ci-platform-hwsrs"
+      },
+      "labels": {
+        "bifrost.io/repo": "bifrost-platform",
+        "bifrost.io/purpose": "ci-gate",
+        "triggers.tekton.dev/eventlistener": "bifrost-ci"
+      },
+      "approval": "",
+      "reuse": {
+        "reuse": "yes",
+        "tested-by": "ci-platform-hwsrs"
+      }
+    },
+    {
+      "name": "apply-plan-f3bc0a69-1794500857-e932e3c7adfc4bba-1",
+      "pipeline": "bifrost-apply-manifest",
+      "created": "2026-11-12T16:35:18Z",
+      "started": "2026-11-12T16:35:18Z",
+      "completed": "2026-11-12T16:35:34Z",
+      "result": "Succeeded",
+      "params": {
+        "mode": "apply",
+        "path": "k8s/cicd/tekton/pipeline-ci-platform.yaml",
+        "commit": "f3bc0a69adb01b5063694e131b025d77e2118ec0"
+      },
+      "results": {},
+      "labels": {
+        "bifrost.io/mode": "apply"
+      },
+      "approval": "appr_e932e3c7adfc4bba"
+    },
+    {
+      "name": "apply-plan-f3bc0a69-1794500850-6d4db4f4cf1048dd-1",
+      "pipeline": "bifrost-apply-manifest",
+      "created": "2026-11-12T16:35:28Z",
+      "started": "2026-11-12T16:35:28Z",
+      "completed": "2026-11-12T16:35:40Z",
+      "result": "Succeeded",
+      "params": {
+        "mode": "apply",
+        "path": "k8s/cicd/tekton/pipeline-ci-python.yaml",
+        "commit": "f3bc0a69adb01b5063694e131b025d77e2118ec0"
+      },
+      "results": {},
+      "labels": {
+        "bifrost.io/mode": "apply"
+      },
+      "approval": "appr_6d4db4f4cf1048dd"
+    },
+    {
+      "name": "apply-plan-f3bc0a69-1794500847-47dceb300f259982-1",
+      "pipeline": "bifrost-apply-manifest",
+      "created": "2026-11-12T16:35:32Z",
+      "started": "2026-11-12T16:35:33Z",
+      "completed": "2026-11-12T16:35:43Z",
+      "result": "Succeeded",
+      "params": {
+        "mode": "apply",
+        "path": "k8s/cicd/tekton/task-ci-infra-clone.yaml",
+        "commit": "f3bc0a69adb01b5063694e131b025d77e2118ec0"
+      },
+      "results": {},
+      "labels": {
+        "bifrost.io/mode": "apply"
+      },
+      "approval": "appr_47dceb300f259982"
+    },
+    {
+      "name": "apply-plan-f3bc0a69-1794500854-97cba637991c2dba-1",
+      "pipeline": "bifrost-apply-manifest",
+      "created": "2026-11-12T16:35:37Z",
+      "started": "2026-11-12T16:35:37Z",
+      "completed": "2026-11-12T16:35:54Z",
+      "result": "Succeeded",
+      "params": {
+        "mode": "apply",
+        "path": "k8s/cicd/tekton/trigger-trade-ci.yaml",
+        "commit": "f3bc0a69adb01b5063694e131b025d77e2118ec0"
+      },
+      "results": {},
+      "labels": {
+        "bifrost.io/mode": "apply"
+      },
+      "approval": "appr_97cba637991c2dba"
+    },
+    {
+      "name": "apply-plan-f3bc0a69-1794500844-257ace6dfe18639a-1",
+      "pipeline": "bifrost-apply-manifest",
+      "created": "2026-11-12T16:35:42Z",
+      "started": "2026-11-12T16:35:42Z",
+      "completed": "2026-11-12T16:35:55Z",
+      "result": "Succeeded",
+      "params": {
+        "mode": "apply",
+        "path": "k8s/cicd/tekton/task-ci-infra-check.yaml",
+        "commit": "f3bc0a69adb01b5063694e131b025d77e2118ec0"
+      },
+      "results": {},
+      "labels": {
+        "bifrost.io/mode": "apply"
+      },
+      "approval": "appr_257ace6dfe18639a"
+    },
+    {
+      "name": "apply-plan-f3bc0a69-1794500840-2d7557936c7651c9-1",
+      "pipeline": "bifrost-apply-manifest",
+      "created": "2026-11-12T16:35:47Z",
+      "started": "2026-11-12T16:35:47Z",
+      "completed": "2026-11-12T16:35:59Z",
+      "result": "Succeeded",
+      "params": {
+        "mode": "apply",
+        "path": "k8s/cicd/tekton/pipeline-ci-infra.yaml",
+        "commit": "f3bc0a69adb01b5063694e131b025d77e2118ec0"
+      },
+      "results": {},
+      "labels": {
+        "bifrost.io/mode": "apply"
+      },
+      "approval": "appr_2d7557936c7651c9"
+    },
+    {
+      "name": "bifrost-deliver-platform-1794501356",
+      "pipeline": "bifrost-deliver-platform",
+      "created": "2026-11-12T16:35:59Z",
+      "started": "2026-11-12T16:35:59Z",
+      "completed": "2026-11-12T16:40:56Z",
+      "result": "Succeeded",
+      "params": {
+        "infraRevision": "f3bc0a69adb01b5063694e131b025d77e2118ec0",
+        "revision": "ab4c2fbae8d753252b81a9024a9f41bd40eae0d8",
+        "uiRevision": "c83f40b40e65e52f8592ec6b73c5f6987c116e93"
+      },
+      "results": {},
+      "labels": {
+        "bifrost.io/purpose": "platform-deliver"
+      },
+      "approval": ""
+    },
+    {
+      "name": "landing-ci-be6694c106ced7cf8927659c-1",
+      "pipeline": "bifrost-ci-platform",
+      "created": "2026-11-12T16:36:23Z",
+      "started": "2026-11-12T16:36:23Z",
+      "completed": "2026-11-12T16:42:39Z",
+      "result": "Succeeded",
+      "params": {
+        "base": "ab4c2fbae8d753252b81a9024a9f41bd40eae0d8",
+        "infraRevision": "f3bc0a69adb01b5063694e131b025d77e2118ec0",
+        "revision": "bcc3252a887d69cd8a24b4aa54738a19651f5e49",
+        "uiRevision": "c83f40b40e65e52f8592ec6b73c5f6987c116e93"
+      },
+      "results": {
+        "api-scope": "incremental",
+        "tested-by": ""
+      },
+      "labels": {
+        "bifrost.io/repo": "bifrost-platform",
+        "bifrost.io/purpose": "ci-gate"
+      },
+      "approval": "",
+      "reuse": {
+        "reuse": "no",
+        "tested-by": ""
+      }
+    },
+    {
+      "name": "bifrost-deliver-platform-prod-eee1641584dde920-1",
+      "pipeline": "bifrost-deliver-platform-prod",
+      "created": "2026-11-12T16:42:24Z",
+      "started": "2026-11-12T16:42:24Z",
+      "completed": "2026-11-12T16:43:35Z",
+      "result": "Succeeded",
+      "params": {
+        "revision": "ab4c2fbae8d753252b81a9024a9f41bd40eae0d8",
+        "uiRevision": "c83f40b40e65e52f8592ec6b73c5f6987c116e93"
+      },
+      "results": {},
+      "labels": {
+        "bifrost.io/purpose": "platform-deliver-prod"
+      },
+      "approval": "appr_eee1641584dde920"
+    }
+  ],
+  "git": {
+    "infra": [
+      [
+        "f3bc0a69adb01b5063694e131b025d77e2118ec0",
+        "2026-11-12T09:58:11-06:00"
+      ],
+      [
+        "d65d056de26965862567dac0862b85aafcd94bec",
+        "2026-11-12T09:53:15-06:00"
+      ],
+      [
+        "624f79a42687516e6d9fd2885923c76fc7bdf4d9",
+        "2026-11-12T09:53:06-06:00"
+      ],
+      [
+        "c18a439d7bb3fe023350b741d8be55c2a2ef944d",
+        "2026-11-12T09:51:57-06:00"
+      ],
+      [
+        "8ae28543ffbfc9dd27b3439a98b104f2101ffdf7",
+        "2026-11-12T09:51:57-06:00"
+      ],
+      [
+        "622a55e07a227207feca8e57bb31a530810f6682",
+        "2026-11-12T09:51:57-06:00"
+      ],
+      [
+        "50bd01afbba22232e175f03729b7d1e6c4adc6ba",
+        "2026-11-12T09:51:57-06:00"
+      ],
+      [
+        "763f01797527900bf72b451027fa5fcc08d244ec",
+        "2026-11-12T09:51:57-06:00"
+      ],
+      [
+        "9e1c82e3a454c39f144315c4d5e4a0ad5a52075a",
+        "2026-11-12T09:51:52-06:00"
+      ],
+      [
+        "9effcdf209be8c5224eb1fdbefba0f174d2a84ff",
+        "2026-11-12T09:51:52-06:00"
+      ],
+      [
+        "6ad9e9540daadca144ef3b6f08e0b044265fbff4",
+        "2026-11-12T09:51:52-06:00"
+      ],
+      [
+        "51ca76bb8216ff91fa7a0892aabe30fafef712c1",
+        "2026-11-12T09:51:52-06:00"
+      ],
+      [
+        "6d90475c37bb31d6203911d65f250ad86ede2d8c",
+        "2026-11-12T09:51:52-06:00"
+      ],
+      [
+        "93502996bf115f3ec8fa989f18ea4fcbc07bf365",
+        "2026-11-12T09:51:52-06:00"
+      ],
+      [
+        "568cc4ab776e9ef81df0d15d008a2358bf32b89f",
+        "2026-11-12T09:51:45-06:00"
+      ],
+      [
+        "06c633204f6659d1166ffebe8a1fdbf7936098d2",
+        "2026-11-12T09:51:45-06:00"
+      ],
+      [
+        "d492801168aadf8b10e3965c652ada00aa144e31",
+        "2026-11-12T01:58:21-06:00"
+      ],
+      [
+        "206248444e310443eb3aa1ac428a538dea05cf4e",
+        "2026-11-12T01:58:12-06:00"
+      ],
+      [
+        "7c1652fd23719e7fbaa8c4e09756cbc48119e661",
+        "2026-11-12T01:45:17-06:00"
+      ],
+      [
+        "071bffcbe0b53ced46b02ab6ca4fb6d572c93f24",
+        "2026-11-12T01:45:11-06:00"
+      ],
+      [
+        "82d7482e7ba6c0d49a8e31f39843f749c220c2aa",
+        "2026-11-12T01:13:11-06:00"
+      ]
+    ],
+    "platform": [
+      [
+        "ab4c2fbae8d753252b81a9024a9f41bd40eae0d8",
+        "2026-11-12T09:53:35-06:00"
+      ],
+      [
+        "26a3126a776a6444562b28a7fb78554ef591bf0b",
+        "2026-11-12T09:25:08-06:00"
+      ],
+      [
+        "178a95f52463fb8d1235e187f1217aa169f479dc",
+        "2026-11-12T09:23:57-06:00"
+      ],
+      [
+        "556ce3a31cc9050cbadf5d673ec76ea4b4d02316",
+        "2026-11-12T09:20:40-06:00"
+      ],
+      [
+        "ad53324111bf712a53060ccfda2a770a0bcc4af6",
+        "2026-11-12T09:20:33-06:00"
+      ],
+      [
+        "50026cd5d20aaf5bfff0f35571e0bbc0c69039c6",
+        "2026-11-12T09:10:00-06:00"
+      ],
+      [
+        "036120021a553cfa649ea47abf51b03866b0ac28",
+        "2026-11-12T01:25:56-06:00"
+      ],
+      [
+        "e6c6c08aafac5bac621998fdd474e4adff9993d0",
+        "2026-11-12T01:25:56-06:00"
+      ],
+      [
+        "6264b81a926d307e50f6280cb78412d4f1a2cf72",
+        "2026-11-12T01:25:00-06:00"
+      ],
+      [
+        "eb3dca3f40084bcdf63dc726a53d07cfe33b2720",
+        "2026-11-12T01:22:02-06:00"
+      ],
+      [
+        "57830828436b7119a7ca7c2f94b204a600f5f4e9",
+        "2026-11-12T01:06:08-06:00"
+      ],
+      [
+        "7a8abfddf78c073aa09fbecd5e90c26eba5a1a17",
+        "2026-11-12T02:55:21Z"
+      ],
+      [
+        "4919b818831c5827523350c366288d707cd13729",
+        "2026-11-12T00:33:29Z"
+      ],
+      [
+        "7af9c97071146ef1d5b27eb3d256d897d7febfbc",
+        "2026-11-12T00:33:29Z"
+      ]
+    ]
+  },
+  "approvals": [
+    {
+      "number": 466,
+      "action": "start_pipeline_run",
+      "tier": "C",
+      "env": "prod",
+      "runner": "platform",
+      "status": "executed",
+      "created_at": "2026-11-12T16:41:50.115861434Z",
+      "decided_at": "2026-11-12T16:42:21.462279216Z",
+      "summary": "bifrost-deliver-platform-prod @ ab4c2fb"
+    },
+    {
+      "number": 465,
+      "action": "apply_manifest",
+      "tier": "C",
+      "env": "cicd",
+      "runner": "platform",
+      "status": "executed",
+      "created_at": "2026-11-12T16:28:15.911660469Z",
+      "decided_at": "2026-11-12T16:35:18.843456715Z",
+      "summary": "k8s/cicd/tekton/pipeline-ci-platform.yaml · 1 objects"
+    },
+    {
+      "number": 464,
+      "action": "apply_manifest",
+      "tier": "C",
+      "env": "cicd",
+      "runner": "platform",
+      "status": "executed",
+      "created_at": "2026-11-12T16:28:14.334582439Z",
+      "decided_at": "2026-11-12T16:35:37.718140227Z",
+      "summary": "k8s/cicd/tekton/trigger-trade-ci.yaml · 9 objects · takes field ownership of 1 cicd objects from kubectl client-side apply"
+    },
+    {
+      "number": 463,
+      "action": "apply_manifest",
+      "tier": "C",
+      "env": "cicd",
+      "runner": "platform",
+      "status": "executed",
+      "created_at": "2026-11-12T16:28:12.693066008Z",
+      "decided_at": "2026-11-12T16:35:27.930218826Z",
+      "summary": "k8s/cicd/tekton/pipeline-ci-python.yaml · 1 objects · takes field ownership of 1 cicd objects from kubectl client-side apply"
+    },
+    {
+      "number": 462,
+      "action": "apply_manifest",
+      "tier": "C",
+      "env": "cicd",
+      "runner": "platform",
+      "status": "executed",
+      "created_at": "2026-11-12T16:28:10.704629992Z",
+      "decided_at": "2026-11-12T16:35:32.857326039Z",
+      "summary": "k8s/cicd/tekton/task-ci-infra-clone.yaml · 1 objects"
+    },
+    {
+      "number": 461,
+      "action": "apply_manifest",
+      "tier": "C",
+      "env": "cicd",
+      "runner": "platform",
+      "status": "executed",
+      "created_at": "2026-11-12T16:28:09.616380464Z",
+      "decided_at": "2026-11-12T16:35:42.628532254Z",
+      "summary": "k8s/cicd/tekton/task-ci-infra-check.yaml · 1 objects · takes field ownership of 1 cicd objects from kubectl client-side apply"
+    },
+    {
+      "number": 460,
+      "action": "apply_manifest",
+      "tier": "C",
+      "env": "cicd",
+      "runner": "platform",
+      "status": "executed",
+      "created_at": "2026-11-12T16:28:09.112886603Z",
+      "decided_at": "2026-11-12T16:35:46.918076939Z",
+      "summary": "k8s/cicd/tekton/pipeline-ci-infra.yaml · 1 objects · takes field ownership of 1 cicd objects from kubectl client-side apply"
+    }
+  ]
+}
