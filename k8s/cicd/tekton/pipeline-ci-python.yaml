@@ -156,32 +156,23 @@ spec:
               # ruff 0.16 widened its default rules from 59 to 413, so an unpinned
               # install here linted with a different rule set than every local venv.
               #
-              # Lint blocks for the repos that are clean on their pinned ruff; each
+              # Lint blocks for every repo this pipeline runs for: the python-ci
+              # filter in trigger-trade-ci.yaml is the one repo list, and each repo
               # runs `ruff check .` in `make lint` too, so the verdict is the local
-              # one. A new repo joins once `ruff check .` is clean on its own pin.
-              # A blocking repo with no ruff fails: ruff and pytest both come from
-              # [dev], so that is also the case where pytest would silently skip.
-              case "${repo}" in
-                bifrost-research|bifrost-trade-api|bifrost-trade-core|bifrost-trade-worker) lint_blocks=1 ;;
-                *) lint_blocks=0 ;;
-              esac
+              # one. A repo joins that list once `ruff check .` is clean on its pin.
+              # A repo with no ruff fails: ruff and pytest both come from [dev],
+              # so that is also the case where pytest would silently skip.
               lint_failed=0
               echo "==> Lint (ruff)"
               if command -v ruff >/dev/null 2>&1; then
                 ruff --version
                 if ! ruff check --output-format=concise .; then
-                  if [ "${lint_blocks}" = 1 ]; then
-                    echo "ERROR: ruff found issues (blocking for ${repo}; tests still run below)"
-                    lint_failed=1
-                  else
-                    echo "WARN: ruff found issues (non-blocking for ${repo} until its findings are cleared)"
-                  fi
+                  echo "ERROR: ruff found issues (blocking for ${repo}; tests still run below)"
+                  lint_failed=1
                 fi
-              elif [ "${lint_blocks}" = 1 ]; then
+              else
                 echo "ERROR: the repo's extras installed no ruff; pin it in [dev]" >&2
                 exit 1
-              else
-                echo "WARN: the repo's extras installed no ruff; pin it in [dev] (lint skipped, non-blocking)"
               fi
 
               # SQL lint: `make lint` also runs `sqlfluff lint models/` in each dbt
@@ -195,21 +186,13 @@ spec:
                 [ -d "${dbt_dir}/models" ] || continue
                 echo "==> SQL lint (sqlfluff) in ${dbt_dir#./}"
                 if ! command -v sqlfluff >/dev/null 2>&1; then
-                  if [ "${lint_blocks}" = 1 ]; then
-                    echo "ERROR: ${dbt_dir#./} has a .sqlfluff but [dev] installed no sqlfluff" >&2
-                    exit 1
-                  fi
-                  echo "WARN: ${dbt_dir#./} has a .sqlfluff but [dev] installed no sqlfluff (skipped)"
-                  continue
+                  echo "ERROR: ${dbt_dir#./} has a .sqlfluff but [dev] installed no sqlfluff" >&2
+                  exit 1
                 fi
                 sqlfluff --version
                 if ! (cd "${dbt_dir}" && sqlfluff lint models/); then
-                  if [ "${lint_blocks}" = 1 ]; then
-                    echo "ERROR: sqlfluff found issues in ${dbt_dir#./} (blocking for ${repo}; tests still run below)"
-                    lint_failed=1
-                  else
-                    echo "WARN: sqlfluff found issues in ${dbt_dir#./} (non-blocking for ${repo})"
-                  fi
+                  echo "ERROR: sqlfluff found issues in ${dbt_dir#./} (blocking for ${repo}; tests still run below)"
+                  lint_failed=1
                 fi
               done
 
@@ -298,20 +281,10 @@ spec:
               pip install --quiet --upgrade pip
               pip install --quiet -e ".[dev]"
               bash scripts/test_db.sh --sidecar
-    # Python ratchet coverage: research + Trade OLTP (api/core/worker).
-    # socket / infra intentionally not in scan.sh KNOWN_REPOS.
+    # Python ratchet coverage for every repo this pipeline runs for (the
+    # python-ci filter in trigger-trade-ci.yaml is the one repo list).
     - name: code-health
       runAfter: [clone, clone-infra]
-      when:
-        - input: $(params.repo)
-          operator: in
-          values:
-            [
-              bifrost-research,
-              bifrost-trade-api,
-              bifrost-trade-core,
-              bifrost-trade-worker,
-            ]
       taskRef:
         name: bifrost-code-health
       params:

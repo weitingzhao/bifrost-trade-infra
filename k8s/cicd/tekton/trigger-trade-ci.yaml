@@ -257,8 +257,9 @@ spec:
     # Succeeded ci-* run for the exact commit it pushes. A push that deletes a branch
     # (after = forty zeros) runs nothing. github-sync below stays main and tags only.
     # Platform attempt branches (agent/…) run no CI of their own (R5:5.7-1, platform-ci).
-    # L2: Python repos (Trade + Research). code-health Task runs for
-    # research + trade-api/core/worker (see pipeline-ci-python when clause).
+    # L2: Python repos (Trade + Research). This filter is the one list of repos
+    # bifrost-ci-python runs for; its lint gate and code-health Task apply to
+    # every repo listed here.
     - name: python-ci
       interceptors:
         - ref:
