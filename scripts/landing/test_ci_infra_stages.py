@@ -33,7 +33,6 @@ def ci_workspace(tmp_path):
     for name in ('scan.sh', 'baselines.env'):
         put(infra, 'agent-config/scripts/code-health/' + name,
             (ROOT / 'agent-config/scripts/code-health' / name).read_bytes())
-    put(infra, C.P['RULES'], 'repos:\n- repo: bifrost-trade-infra\n  allow:\n  - agent-config/work/multi-agent/REPORT-*.md\n')
     put(infra, S['DOC'], 'Old\n')
     pre_registry = commit(infra)
     found = S['D']['discover'](infra, pre_registry)
@@ -56,7 +55,7 @@ def test_workspace_identity_and_dirty(ci_workspace):
         C.check_workspace(args)
 
 
-def test_baseline_entry_export_and_scope_stops_all(ci_workspace):
+def test_baseline_entry_export(ci_workspace):
     args, infra, _platform = ci_workspace
     # A floor candidate may change the checker, but only the baseline copy
     # executes. CI success does not grant permission to land that change.
@@ -65,16 +64,16 @@ def test_baseline_entry_export_and_scope_stops_all(ci_workspace):
     args.base_sha = args.revision
     args.revision = rev
     git(args.base / 'bifrost-trade-infra', 'checkout', '--detach', args.base_sha)
-    result = subprocess.run(['bash', str(HERE / 'ci-infra.sh'), '--stage', 'scope', '--cand', str(args.cand),
+    result = subprocess.run(['bash', str(HERE / 'ci-infra.sh'), '--stage', 'doc-policy', '--cand', str(args.cand),
                              '--base', str(args.base), '--base-sha', args.base_sha, '--revision', rev,
                              '--platform-revision', args.platform_revision], capture_output=True, check=False, text=True)
     assert result.returncode == 0, result.stderr
     assert 'POISON_EXECUTED' not in result.stderr
 
 
-def test_all_stops_before_consumers(ci_workspace, monkeypatch):
+def test_all_stops_at_doc_policy(ci_workspace, monkeypatch):
     args, infra, _platform = ci_workspace
-    put(infra, 'scripts/.env.local', 'fixture\n')
+    put(infra, 'scripts/tool.py', b'binary\0')
     args.revision = commit(infra)
     args.base_sha = git(infra, 'rev-parse', 'HEAD^')
     git(args.base / 'bifrost-trade-infra', 'checkout', '--detach', args.base_sha)
@@ -89,12 +88,18 @@ def test_all_stops_before_consumers(ci_workspace, monkeypatch):
                                     '--revision', args.revision, '--base-sha', args.base_sha,
                                     '--platform-revision', args.platform_revision])
     assert C.main() == 1
-    assert seen == ['tools', 'scope']
+    assert seen == ['tools', 'consumers', 'doc-policy']
+
+
+def test_scope_stage_is_retired(ci_workspace, capsys):
+    args, infra, platform = ci_workspace
+    assert 'scope' not in C.STAGES and 'scope' in C.RETIRED
+    C.stage(args, 'scope', infra, platform)
+    assert 'scope: retired' in capsys.readouterr().out
 
 
 def test_each_policy_stage_rejects_missing_baseline_input(ci_workspace):
     args, infra, platform = ci_workspace
-    C.stage(args, 'scope', infra, platform)
     C.stage(args, 'doc-policy', infra, platform)
     C.stage(args, 'consumers', infra, platform)
     git(infra, 'rm', C.P['REGISTRY'])
@@ -103,7 +108,7 @@ def test_each_policy_stage_rejects_missing_baseline_input(ci_workspace):
     args.revision = commit(infra)
     with pytest.raises(C.Error, match='command_failed'):
         C.stage(args, 'consumers', infra, platform)  # registry absent at M0
-    command = ['bash', str(HERE / 'ci-infra.sh'), '--stage', 'scope', '--cand', str(args.cand),
+    command = ['bash', str(HERE / 'ci-infra.sh'), '--stage', 'consumers', '--cand', str(args.cand),
                '--base', str(args.base), '--revision', args.revision, '--base-sha', 'bad',
                '--platform-revision', args.platform_revision]
     assert subprocess.run(command, capture_output=True, check=False).returncode != 0

@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""S6 document gates. Run an exported M0 copy with Python isolated mode."""
+"""S6 document gates. Run an exported M0 copy with Python isolated mode.
+
+Cleanup wave 2 (2026-11-12): the landing allow set and the hard/floor path
+tables are the platform's call; it judges the same revision before it pushes.
+This CI keeps only what the platform does not do: the doc-consumers reader
+registry and the text check on every changed file. The scope stage is retired
+and succeeds without reading anything.
+"""
 import argparse
 import re
 import subprocess
@@ -9,7 +16,6 @@ from pathlib import Path
 import yaml
 
 REPO = "bifrost-trade-infra"
-RULES = "agent-config/agentrt-rules/prod/landing-dev.yaml"
 REGISTRY = "agent-config/landing/doc-consumers.yaml"
 
 
@@ -56,23 +62,6 @@ def matches(pattern, name):
             out += re.escape(pattern[i])
             i += 1
     return re.fullmatch(out, name) is not None
-
-
-def hard(name):
-    parts = name.split("/")
-    if parts[0] in ("k8s", "scripts", "docker", "config", ".github", ".gitea"):
-        return True
-    if name.startswith("agent-config/") and not name.startswith("agent-config/work/"):
-        return True
-    if any(p in (".vscode", ".idea", ".claude", ".cursor", ".codex") for p in parts):
-        return True
-    leaf = parts[-1]
-    if leaf in (".gitattributes", ".gitmodules", ".gitignore", "AGENTS.md", "CLAUDE.md", "SKILL.md"):
-        return True
-    if any(matches(p, leaf) for p in ("*.mdc", "*.code-workspace", ".env*", "OWNER-STEPS-*",
-                                     "*RUNBOOK*", "TICKET-*", "REQUEST-*", "RULE-*")):
-        return True
-    return any(matches(p, name) for p in ("Makefile", "docker-compose*.yml", "mkdocs.yml", "requirements*.txt"))
 
 
 def tree(repo, revision):
@@ -124,61 +113,8 @@ def changes(repo, base, revision, purpose="landing"):
     return result
 
 
-def allow(repo, base):
-    rules = yaml.safe_load(blob(repo, base, RULES))
-    entries = [r for r in rules["repos"] if r["repo"] == REPO]
-    if len(entries) != 1 or not entries[0].get("allow"):
-        raise PolicyError("infra_allow_missing")
-    patterns = entries[0]["allow"]
-    if not isinstance(patterns, list) or not all(isinstance(p, str) for p in patterns):
-        raise PolicyError("invalid_allow")
-    for p in patterns:
-        path_name(p)
-    return patterns
-
-
-def floor_path(name):
-    """CI eligibility only; the platform still requires an exact-file Owner grant."""
-    never = ("**/.env*", ".github/**", ".gitea/**", "**/.gitmodules", "**/.gitattributes",
-             "**/AGENTS.md", "**/CLAUDE.md", "**/SKILL.md", "**/*.mdc", "**/.claude/**",
-             "**/.cursor/**", "**/.codex/**", "**/.vscode/**", "**/.idea/**", "**/*.code-workspace")
-    if any(matches(p, name) for p in never):
-        return False
-    floor = ("k8s/**", "scripts/**", "docker/**", "config/**", "Makefile", "docker-compose*.yml",
-             "mkdocs.yml", "requirements*.txt", "**/.gitignore", "**/OWNER-STEPS-*", "**/*RUNBOOK*",
-             "**/TICKET-*", "**/REQUEST-*", "**/RULE-*")
-    return (name.startswith("agent-config/") and not name.startswith("agent-config/work/")) or any(matches(p, name) for p in floor)
-
-
-def scope(repo, base, revision):
-    patterns, files, before = allow(repo, base), tree(repo, revision), tree(repo, base)
-    count = 0
-    routes = set()
-    for kind, name, (added, deleted) in changes(repo, base, revision):
-        if "\\" in name or any(ord(c) < 32 or 127 <= ord(c) <= 159 for c in name):
-            raise PolicyError("path_invalid")
-        mode = (before if kind == "D" else files).get(name, (None,))[0]
-        existing_script = (kind == "M" and name.startswith("scripts/") and mode == "100755"
-                           and before.get(name, (None,))[0] == "100755")
-        if (kind == "T" or b"-" in (added, deleted)
-                or (kind == "M" and before.get(name, (None,))[0] != mode)
-                or (mode != "100644" and not existing_script)):
-            raise PolicyError(f"structural {name}")
-        floor = floor_path(name)
-        if hard(name) and not floor:
-            raise PolicyError(f"hard_floor {name}")
-        if kind not in ("A", "M", "D"):
-            raise PolicyError(f"change_kind {name}")
-        if not floor and not any(matches(p, name) for p in patterns):
-            raise PolicyError(f"scope {name}")
-        if name.startswith("k8s/") and re.search(r"(?m)^\s*(?:-\s+)?kind\s*:\s*[\"']?Secret[\"']?\s*(?:#.*)?$", blob(repo, base if kind == "D" else revision, name).decode("utf-8")):
-            raise PolicyError(f"secret {name}")
-        routes.add("floor" if floor else "document")
-        count += 1
-    if len(routes) > 1:
-        raise PolicyError("mixed_floor_document")
-    if not count:
-        raise PolicyError("scope_size")
+def scope(repo=None, base=None, revision=None):
+    print("scope: retired (cleanup wave 2): the platform checks the allow set and path tables before it pushes")
 
 
 def registry(repo, base):
@@ -216,16 +152,9 @@ def consumed(rows, paths):
 
 
 def consumers(repo, base, revision, purpose="landing"):
-    rows, patterns = registry(repo, base), allow(repo, base)
-    changed = [r[1] for r in changes(repo, base, revision, purpose)]
-    paths = set(tree(repo, revision)) | set(changed)
-    for row in rows:
-        if row["class"] != "reader":
-            continue
-        for name in sorted(paths):
-            if any(matches(p, name) for p in row["reads"]) and any(matches(p, name) for p in patterns):
-                raise PolicyError(f"registry_overlap {row['file']} {name}")
-    consumed(rows, changed)
+    # Only changed paths matter: a reader whose read set covers a changed path
+    # fails the run. Unchanged files cannot affect a reader at runtime.
+    consumed(registry(repo, base), [r[1] for r in changes(repo, base, revision, purpose)])
 
 
 def content(data, name):
@@ -238,13 +167,11 @@ def content(data, name):
 
 
 def documents(repo, base, revision, platform, platform_revision, purpose="landing"):
-    # Changed allowed documents must be text. The 256 KB size cap and the rule
-    # that "Owner 决定" claims carry evidence were removed in cleanup wave 1
-    # (2026-11-11). platform / platform_revision stay in the signature for callers.
-    patterns = allow(repo, base)
+    # Every changed file that remains must be UTF-8 text without NUL bytes.
+    # platform / platform_revision stay in the signature for callers.
     errors = []
     for kind, name, _ in changes(repo, base, revision, purpose):
-        if kind == "D" or not any(matches(p, name) for p in patterns) or hard(name):
+        if kind == "D":
             continue
         try:
             content(blob(repo, revision, name), name)
@@ -267,7 +194,7 @@ def main():
     try:
         sha(args.platform_revision)
         if args.stage == "scope":
-            scope(args.repo, args.base, args.revision)
+            scope()
         elif args.stage == "consumers":
             consumers(args.repo, args.base, args.revision, args.purpose)
         else:

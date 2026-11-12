@@ -11,12 +11,14 @@ from pathlib import Path
 
 P = runpy.run_path(str(Path(__file__).with_name("doc_policy.py")))
 Error = P["PolicyError"]
-STAGES = ("tools", "scope", "consumers", "doc-policy", "quick", "statics",
+STAGES = ("tools", "consumers", "doc-policy", "quick", "statics",
           "kustomize", "parity-static")
 # code-health (the infra-only "metrics never rise" ratchet) was removed in
-# cleanup wave 1, 2026-11-11. The name stays accepted as a no-op until the
-# cluster Task without that step is applied; Tasks run this file from the base.
-RETIRED = ("code-health",)
+# cleanup wave 1, 2026-11-11; scope (the landing allow set and path tables,
+# which the platform judges before it pushes) in cleanup wave 2, 2026-11-12.
+# The names stay accepted as no-ops until the cluster Task without those steps
+# is applied; Tasks run this file from the base.
+RETIRED = ("code-health", "scope")
 
 
 def run(argv, cwd=None, env=None, capture=False):
@@ -109,14 +111,11 @@ def write_result(args, name, value):
 def stage(args, name, infra, platform):
     if name == "tools":
         tools_check()
-    elif name in ("scope", "consumers", "doc-policy"):
+    elif name in ("consumers", "doc-policy"):
         if not args.base_sha:
             print(f"{name}: skipped(no_base)")
             if name == "doc-policy":
                 write_result(args, "doc-policy", "skipped")
-            return
-        if name == "scope" and args.purpose == "push":
-            print("scope: skipped(push)")
             return
         command = [sys.executable, "-I", Path(__file__).with_name("doc_consumers.py" if name == "consumers" else "doc_policy.py")]
         if name != "consumers":
@@ -182,7 +181,7 @@ def main():
             print(f"==> {name}", flush=True)
             stage(args, name, infra, platform)
     except (Error, OSError, ValueError, KeyError, TypeError) as exc:
-        if args.results_dir and args.results_dir.is_dir() and current_stage in ("scope", "consumers", "doc-policy"):
+        if args.results_dir and args.results_dir.is_dir() and current_stage in ("consumers", "doc-policy"):
             write_result(args, "doc-policy", "fail")
         print(f"FAIL {exc}", file=sys.stderr)
         return 1

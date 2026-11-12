@@ -11,14 +11,15 @@ while (($#)); do
 Usage: ci-infra.sh --stage NAME --cand DIR --base DIR --revision SHA
                    --base-sha SHA --platform-revision SHA [--purpose landing|push]
                    [--generation ID] [--results-dir DIR]
-Stages: tools, scope, consumers, doc-policy, quick, statics, kustomize,
-        parity-static, all. The tools stage needs no workspace.
+Stages: tools, consumers, doc-policy, quick, statics, kustomize,
+        parity-static, all. The tools stage needs no workspace. scope and
+        code-health are retired and succeed as no-ops.
 
 landing (default): revision must have exactly one parent, base-sha.
 push: checks the final tree and fixed before/after differences only;
       intermediate commits are not checked, including violations later restored.
       Merge and force pushes use the same endpoints; no history traversal.
-      scope is skipped; missing endpoint objects fail. An empty/zero before
+      missing endpoint objects fail. An empty/zero before
       skips doc-policy.
       Push results are never landing evidence.
 Reason: DESIGN-S6-v3-2026-10-29.md sections 5.1 and 5.6 fix before/after

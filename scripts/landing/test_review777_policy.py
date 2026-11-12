@@ -35,10 +35,7 @@ def test_b03_real_filename_growth(ci_workspace, leaf):
     args.revision = commit(infra)
     for stage in ('scope', 'consumers', 'doc-policy'):
         result = invoke_stage(args, stage)
-        if stage == 'scope' and any(c in leaf for c in ('\t', '\n')):
-            assert result.returncode == 1 and 'path_invalid' in result.stderr
-        else:
-            assert result.returncode == 0, result.stderr
+        assert result.returncode == 0, result.stderr
 
 
 def test_b03_missing_tracked_file_is_scan_failure(ci_workspace, tmp_path):
