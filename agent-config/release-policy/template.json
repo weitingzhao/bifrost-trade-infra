@@ -6,6 +6,7 @@
   "allow": [
     "bifrost-deliver-stg",
     "bifrost-deliver-platform",
+    "bifrost-deliver-platform-prod",
     "bifrost-deliver-research",
     "bifrost-build-research-dagster",
     "bifrost-build-market-data",

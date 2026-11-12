@@ -213,7 +213,7 @@ release.sh、`start_pipeline_run`、`gitops_sync_app`，不再被 auto mode 拦�
 
 - **规则不是批准**。发版（release.sh stg / prod / dev、research pin 推 main、start_pipeline_run、gitops_sync_app）
   和 PROD DDL（db-init-prod、ddl-apply、任何写 bifrost_prod / bifrost_golden_source 的 DDL）仍要 Owner 先在线程里点头，批准按动作算。
-  下一条的 STG 范围除外。
+  下面的 STG 范围和 platform PROD 那一条除外。
 - **STG 的发版和清单改动由 Agent 做，不用问（Owner 2026-10-14「STG 发布 A」）**。只限 STG 两个环境（`bifrost-stg`、`bifrost-platform-stg`）：
   起 `bifrost-deliver-platform`、`bifrost-deliver-stg` 或 `release.sh stg`；改 `k8s/overlays/stg/**`、`k8s/overlays/platform-stg/**`
   （提交里只有这两个目录的文件），用 `push-main.sh` 推 infra，再 `gitops_sync_app` 对应的 STG 应用；以及让这次发布或清单改动生效所需的
@@ -224,6 +224,9 @@ release.sh、`start_pipeline_run`、`gitops_sync_app`，不再被 auto mode 拦�
   建单（`request_action`）前三条都要成立，缺一条就不建：该提交的 `ci-*` 是 Succeeded；STG 跑的是同一个提交并且已核对；
   同一仓库没有另一张未结的发布单。理由第一段写批了会发生什么，并写明哪些检查没做（例如没有独立复核）。
   只限由 Owner 在 Console 上批准的单（C / D 级）；从 shell 直接执行的发版和 PROD DDL 仍按上一条。
+- **platform 的 PROD 在签名规则覆盖时由 Agent 直接发（Owner 2026-11-12）**。只限 `bifrost-deliver-platform-prod`。三条前提不变（该提交的 `ci-*` 是 Succeeded；
+  STG 跑的是同一个提交并且已核对；同一仓库没有另一张未结的发布单），先持窗口并一直持到 PROD 核对完，直接调 `start_pipeline_run`（`who` 等于窗口持有者）。
+  平台回「approval required」就是规则不覆盖，照上一条建单等批。发完自己核对，在线程里报结果。Trade 的 PROD（`bifrost-deliver-prod`）不在内。
 - **问题的回答不是批准（W-65，2026-10-11）**。经 `ask_owner` 问 Owner 得到的回答不增加任何授权：它不是审批单上的批准，
   也不能转述成「Owner 已在线程里点头」。从 shell 直接执行的发版和 PROD DDL 仍要他本人在线程里点头；C / D 级动作仍要审批单。
   Agent 不调问题的回答路由，也不用浏览器去点问题页（`preflight.js` 拦截）；等答案用 `wait_for_answer`。工具随 platform 下一版上线。

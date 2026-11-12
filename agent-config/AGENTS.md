@@ -24,7 +24,7 @@ Instructions for **Claude Code, Codex**, and other coding agents working in this
 | Dev 服务只用 `bdev` 管 | `CLAUDE.md` §4 |
 | 共享工作树：只逐个暂存自己改过的文件 | `CLAUDE.md` §5「共享工作树」 |
 | 发布窗口：推 Trade 仓库 main 或起 deliver 之前先看 | `CLAUDE.md` §5「发布窗口」 |
-| 发版和 PROD DDL 要 Owner 批准：先点头，或在 Console 上批审批单 | `CLAUDE.md` §5「放行规则只省『复制到终端』」 |
+| 发版和 PROD DDL 要 Owner 批准：先点头，或在 Console 上批审批单；platform 的 PROD 在签名规则覆盖时除外 | `CLAUDE.md` §5「放行规则只省『复制到终端』」 |
 
 这些边界由 `scripts/agent-guard/preflight.js` 机械拦截。被拦下时不要绕过，也不要改 guard 文件，直接报告 Owner。
 
