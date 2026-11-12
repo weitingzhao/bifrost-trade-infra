@@ -162,45 +162,36 @@ def validate_run(run):
         raise ValueError("ambiguous status")
 
 
-def run_time(run, field):
+def created(run):
     name = run["metadata"]["name"]
-    value = (
-        run.get("status", {}).get(field)
-        if field == "completionTime"
-        else run["metadata"].get(field)
-    )
     try:
-        stamp = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        stamp = datetime.fromisoformat(run["metadata"].get("creationTimestamp").replace("Z", "+00:00"))
         if stamp.tzinfo is None:
             raise ValueError("timezone missing")
         return stamp
     except (AttributeError, TypeError, ValueError) as exc:
-        raise ValueError(f"STG run {name} has missing or unparsable {field}") from exc
+        raise ValueError(f"STG run {name} has missing or unparsable creationTimestamp") from exc
 
 
-def latest_stg(runs):
+def stg_of(runs, sha):
+    """The newest Succeeded STG delivery that cloned this platform commit.
+
+    It need not be the newest STG delivery: the "PROD only from the latest STG run" rule
+    was removed in cleanup wave 1 (2026-11-11); a later STG run, finished or not, of this
+    or another commit does not refuse a commit STG delivered successfully.
+    """
     stg = [r for r in runs if _pipeline_name(r) == "bifrost-deliver-platform"]
     if not stg:
         raise ValueError("no STG delivery")
-    latest = max(run_time(r, "creationTimestamp") for r in stg)
-    chosen = [r for r in stg if run_time(r, "creationTimestamp") == latest]
-    if len(chosen) != 1:
-        raise ValueError("ambiguous latest STG delivery")
-    chosen = chosen[0]
-    state = _succeeded(chosen)
-    if state != "True":
-        raise ValueError(
-            f"STG run {chosen['metadata']['name']} is {state or 'running/no Succeeded condition'}"
-        )
-    run_time(chosen, "completionTime")
-    # This check stands for "STG is running this commit"; any other run that had not
-    # finished before the newest one was created may have rolled STG after it.
-    for run in stg:
-        if run is not chosen and run_time(run, "completionTime") >= latest:
-            raise ValueError(
-                f"STG run {run['metadata']['name']} had not finished before the newest run started"
-            )
-    return chosen
+    done = sorted((r for r in stg if _succeeded(r) == "True"), key=created, reverse=True)
+    for run in done:
+        task = stg_child(run, "clone-platform", "clone")
+        commits = [r["value"] for r in task["status"]["results"] if r["name"] == "commit"]
+        if len(commits) != 1:
+            raise ValueError("STG clone commit is ambiguous")
+        if commits[0] == sha:
+            return run
+    raise ValueError("no Succeeded STG delivery of this commit")
 
 
 def stg_child(stg, task_name, label):
@@ -270,13 +261,7 @@ def main():
             if classify(runs, "bifrost-platform", sha) != "succeeded":
                 raise ValueError("no exact-SHA Succeeded CI")
             condition = "STG"
-            stg = latest_stg(pipeline_runs("bifrost-deliver-platform"))
-            task = stg_child(stg, "clone-platform", "clone")
-            commits = [
-                r["value"] for r in task["status"]["results"] if r["name"] == "commit"
-            ]
-            if len(commits) != 1 or commits[0] != sha:
-                raise ValueError("STG clone commit differs or is ambiguous")
+            stg = stg_of(pipeline_runs("bifrost-deliver-platform"), sha)
             condition = "CI/STG"
             ui = resolve(
                 base + "/bifrost-ui.git", os.environ["UI_REVISION"], tmp + "/ui"

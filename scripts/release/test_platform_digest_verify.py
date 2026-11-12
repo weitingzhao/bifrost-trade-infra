@@ -847,9 +847,11 @@ def test_protected_files_unchanged():
     # Group 0 I-1 removes the unused full-CI switch; exact-SHA CI still gates PROD.
     # TD-533 (group 0, 2026-11-11): the embedded gate reads an empty tested-by as a
     # fresh run (the reuse task now always writes it); rollout/digest semantics stay unchanged.
+    # Cleanup wave 1 (2026-11-11): the gate takes the newest Succeeded STG run of the commit,
+    # not only the newest STG run; rollout/digest semantics stay unchanged.
     hashes = {
         "task-deliver-platform.yaml": "3c039ec342b7224ec593ee9d76566037b750878b522ecb75bc4c1e75188972aa",
-        "pipeline-deliver-platform-prod.yaml": "a96e6988a151a290d5c552053b9b2b7db06bcd8b1016086074e5ed806124ab87",
+        "pipeline-deliver-platform-prod.yaml": "89af4518f6bd003b86232add7b99af9b19dba2598d95778cc249cb945b56c94c",
     }
     for filename, expected in hashes.items():
         assert (

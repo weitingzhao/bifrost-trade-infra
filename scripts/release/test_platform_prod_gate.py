@@ -358,7 +358,6 @@ def test_a_full_run_ships_beside_a_red_console_one(tmp_path, results):
         "wrong-sha",
         "missing",
         "older-match",
-        "tie",
         "two-children",
         "two-results",
         "task-owner",
@@ -374,11 +373,10 @@ def test_stg_refuses(tmp_path, case):
         doc["items"].pop()
     if case in ("wrong-sha", "older-match"):
         task["status"]["results"][0]["value"] = OTHER
-    if case in ("older-match", "tie"):
+    if case == "older-match":
         earlier = copy.deepcopy(doc["items"][1])
         earlier["metadata"]["name"] = "earlier"
-        if case == "older-match":
-            earlier["metadata"]["creationTimestamp"] = "2026-10-11T10:00:00Z"
+        earlier["metadata"]["creationTimestamp"] = "2026-10-11T10:00:00Z"
         doc["items"].append(earlier)
     if case == "two-children":
         doc["items"][1]["status"]["childReferences"] *= 2
@@ -394,7 +392,12 @@ def test_stg_refuses(tmp_path, case):
         task["metadata"]["name"] = "another"
     if case == "child-kind":
         doc["items"][1]["status"]["childReferences"][0]["kind"] = "Pod"
-    refuse(execute(tmp_path, doc, task), "STG")
+    result = execute(tmp_path, doc, task)
+    refuse(result, "STG")
+    if case in ("two-results", "no-result"):
+        assert "STG clone commit is ambiguous" in result.stdout, result.stdout
+    if case == "wrong-sha":
+        assert "no Succeeded STG delivery of this commit" in result.stdout, result.stdout
 
 
 def fast_budget(source):
@@ -513,14 +516,28 @@ def test_real_mirror_resolution(tmp_path):
         namespace["resolve"](str(mirror), "main", str(tmp_path / "ambiguous"))
 
 
-def test_latest_stg_selects_newest():
+def gate_with_clones(commits):
+    """The gate's functions, with each STG run's clone commit given by run name."""
     namespace = {"__name__": "gate_test"}
     exec(script(), namespace)
-    older = run(
-        "bifrost-deliver-platform", name="older", timestamp="2026-10-11T10:00:00Z"
-    )
-    newest = run("bifrost-deliver-platform", name="newest")
-    selected = namespace["latest_stg"]([older, newest])
+    namespace["stg_child"] = lambda stg, task_name, label: {
+        "status": {"results": [{"name": "commit", "value": commits[stg["metadata"]["name"]]}]}
+    }
+    return namespace
+
+
+def test_stg_selects_newest_succeeded_of_commit():
+    stg = "bifrost-deliver-platform"
+    runs = [
+        run(stg, name="older", timestamp="2026-10-10T10:00:00Z"),
+        run(stg, name="newest", timestamp="2026-10-11T10:00:00Z"),
+        run(stg, name="newer-failed", ok="False", timestamp="2026-10-12T10:00:00Z"),
+        run(stg, name="newer-running", ok="Unknown", timestamp="2026-10-12T11:00:00Z"),
+        run(stg, name="newer-other-commit", timestamp="2026-10-13T10:00:00Z"),
+    ]
+    commits = {r["metadata"]["name"]: SHA for r in runs}
+    commits["newer-other-commit"] = OTHER
+    selected = gate_with_clones(commits)["stg_of"](runs, SHA)
     assert selected["metadata"]["name"] == "newest"
 
 
@@ -588,58 +605,55 @@ def test_git_auth_stays_out_of_argv(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "case",
-    [
-        "newest-failed",
-        "newest-running",
-        "no-condition",
-        "older-later",
-        "other-running",
-        "equal-completion",
-        "overlap",
-        "bad-created",
-        "bad-completed",
-        "chosen-missing-completed",
-    ],
+    "case", ["newer-failed", "newer-running", "newer-overlapping", "newer-other-commit"]
 )
-def test_stg_order_refuses(tmp_path, case):
+def test_later_stg_runs_do_not_refuse(tmp_path, case):
+    """Cleanup wave 1 (2026-11-11): PROD no longer needs this commit's STG run to be the
+    newest one; a later STG run of any state or commit does not refuse it."""
+    doc, task = answers()
+    newer = run("bifrost-deliver-platform", name="newer", timestamp="2026-10-13T10:00:00Z")
+    newer["status"]["childReferences"] = [
+        {"name": "clone-newer", "kind": "TaskRun", "pipelineTaskName": "clone-platform"}
+    ]
+    others = stg_tasks()
+    clone = copy.deepcopy(task)
+    clone["metadata"].update(name="clone-newer")
+    clone["metadata"]["labels"]["tekton.dev/pipelineRun"] = "newer"
+    clone["status"]["results"] = [{"name": "commit", "value": OTHER}]
+    others["clone-newer"] = clone
+    if case == "newer-failed":
+        newer["status"]["conditions"][0]["status"] = "False"
+    if case == "newer-running":
+        newer["status"]["conditions"][0]["status"] = "Unknown"
+        newer["status"].pop("completionTime")
+    if case == "newer-overlapping":
+        # Started before this commit's STG run finished, and finished after it.
+        newer["metadata"]["creationTimestamp"] = "2026-10-12T10:00:30Z"
+        newer["status"]["completionTime"] = "2026-10-12T11:00:00Z"
+    doc["items"].append(newer)
+    result = execute(tmp_path, doc, task, others=others)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (tmp_path / "api-digest").read_text() == API_DIGEST
+
+
+@pytest.mark.parametrize("case", ["only-failed", "only-running", "no-condition", "bad-created"])
+def test_stg_without_a_succeeded_run_refuses(tmp_path, case):
     doc, task = answers()
     chosen = doc["items"][1]
-    other = copy.deepcopy(chosen)
-    other["metadata"].update(name="older", creationTimestamp="2026-10-11T10:00:00Z")
-    other["status"]["completionTime"] = "2026-10-11T11:00:00Z"
-    doc["items"].append(other)
-    if case == "newest-failed":
+    if case == "only-failed":
         chosen["status"]["conditions"][0]["status"] = "False"
-    if case == "newest-running":
+    if case == "only-running":
         chosen["status"]["conditions"][0]["status"] = "Unknown"
     if case == "no-condition":
         chosen["status"]["conditions"] = []
-    if case == "older-later":
-        other["status"]["completionTime"] = "2026-10-13T10:00:00Z"
-    if case == "other-running":
-        other["status"].pop("completionTime")
-    if case == "equal-completion":
-        other["status"]["completionTime"] = chosen["status"]["completionTime"]
-    if case == "overlap":
-        # The older run ended after the newest was created and before it finished.
-        chosen["status"]["completionTime"] = "2026-10-12T10:10:00Z"
-        other["status"]["completionTime"] = "2026-10-12T10:05:00Z"
     if case == "bad-created":
-        other["metadata"]["creationTimestamp"] = "bad"
-    if case == "bad-completed":
-        other["status"]["completionTime"] = "bad"
-    if case == "chosen-missing-completed":
-        chosen["status"].pop("completionTime")
+        chosen["metadata"]["creationTimestamp"] = "bad"
     result = execute(tmp_path, doc, task)
     refuse(result, "STG")
-    if case != "bad-created":
-        assert (
-            "stg"
-            if case.startswith("newest")
-            or case in ("no-condition", "chosen-missing-completed")
-            else "older"
-        ) in result.stdout
+    if case == "bad-created":
+        assert "has missing or unparsable creationTimestamp" in result.stdout
+    else:
+        assert "no Succeeded STG delivery of this commit" in result.stdout
 
 
 def test_prod_run_is_not_stg(tmp_path):
@@ -647,9 +661,8 @@ def test_prod_run_is_not_stg(tmp_path):
     prod = run(
         "bifrost-deliver-platform-prod", name="prod", timestamp="2026-10-13T10:00:00Z"
     )
-    namespace = {"__name__": "gate_test"}
-    exec(script(), namespace)
-    assert namespace["latest_stg"]([doc["items"][1], prod])["metadata"]["name"] == "stg"
+    namespace = gate_with_clones({"stg": SHA, "prod": SHA})
+    assert namespace["stg_of"]([doc["items"][1], prod], SHA)["metadata"]["name"] == "stg"
     doc["items"] = [doc["items"][0], prod]
     refuse(execute(tmp_path, doc, task), "STG")
 

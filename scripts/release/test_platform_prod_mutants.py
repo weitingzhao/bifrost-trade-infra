@@ -18,7 +18,7 @@ from test_platform_prod_gate import PIPELINE, ROOT
         ("resolve", "test_mirror_resolution_refuses"),
         ("ci", "test_ci_refuses"),
         ("stg", "test_stg_refuses"),
-        ("latest", "test_latest_stg_selects_newest"),
+        ("latest", "test_stg_selects_newest_succeeded_of_commit"),
         ("sha", "test_checked_sha_and_digests_are_what_ships"),
         # TD-335: the digests that ship are the gate's, of the same STG run, of the asked UI
         ("digest-source", "test_checked_sha_and_digests_are_what_ships"),
@@ -36,8 +36,7 @@ from test_platform_prod_gate import PIPELINE, ROOT
         ("mirror-sha", "test_full_sha_mirror_mismatch"),
         ("task-name", "test_stg_refuses[task-name]"),
         ("child-kind", "test_stg_refuses[child-kind]"),
-        ("stg-state", "test_stg_order_refuses[newest-running]"),
-        ("completion-order", "test_stg_order_refuses[older-later]"),
+        ("stg-state", "test_stg_selects_newest_succeeded_of_commit"),
     ],
 )
 def test_planted_violation(tmp_path, mutation, named_test):
@@ -62,11 +61,8 @@ def test_planted_violation(tmp_path, mutation, named_test):
                 "if False:",
             ),
             "ci-malformed": ('    return "malformed"\n\n\ndef _results', '    return "full"\n\n\ndef _results'),
-            "stg": ("if len(commits) != 1 or commits[0] != sha:", "if False:"),
-            "latest": (
-                'latest = max(run_time(r, "creationTimestamp") for r in stg)',
-                'latest = min(run_time(r, "creationTimestamp") for r in stg)',
-            ),
+            "stg": ("if commits[0] == sha:", "if True:"),
+            "latest": ("key=created, reverse=True", "key=created, reverse=False"),
             "ci-prefix": (
                 'params.get("revision") != sha',
                 '(params.get("revision") or "x")[:7] != sha[:7]',
@@ -75,11 +71,8 @@ def test_planted_violation(tmp_path, mutation, named_test):
                 'if state == "True":\n        ',
                 'if state != "False":\n        ',
             ),
-            "stg-prefix": ("commits[0] != sha", "commits[0][:7] != sha[:7]"),
-            "no-result": (
-                "if len(commits) != 1 or commits[0] != sha:",
-                "if commits and (len(commits) != 1 or commits[0] != sha):",
-            ),
+            "stg-prefix": ("commits[0] == sha", "commits[0][:7] == sha[:7]"),
+            "no-result": ("if len(commits) != 1:", "if False:"),
             "prod-as-stg": (
                 '_pipeline_name(r) == "bifrost-deliver-platform"',
                 '_pipeline_name(r).startswith("bifrost-deliver-platform")',
@@ -90,11 +83,7 @@ def test_planted_violation(tmp_path, mutation, named_test):
             ),
             "task-name": ('task["metadata"]["name"] != children[0]["name"]', "False"),
             "child-kind": (' and c["kind"] == "TaskRun"', ""),
-            "stg-state": ('if state != "True":', "if False:"),
-            "completion-order": (
-                'if run is not chosen and run_time(run, "completionTime") >= latest:',
-                "if False:",
-            ),
+            "stg-state": ('if _succeeded(r) == "True"', "if True"),
             "errors": ("        return 1\n", "        return 0\n"),
             "ui-commit": ('if one_result(stg_child(stg, "clone-ui", "UI clone"), "commit") != ui:', "if False:"),
             "digest-shape": ("if not DIGEST_RE.fullmatch(api) or not DIGEST_RE.fullmatch(console):", "if False:"),
