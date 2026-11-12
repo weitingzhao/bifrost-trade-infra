@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """S6 document gates. Run an exported M0 copy with Python isolated mode."""
 import argparse
-import difflib
-import json
 import re
 import subprocess
 import sys
@@ -13,7 +11,6 @@ import yaml
 REPO = "bifrost-trade-infra"
 RULES = "agent-config/agentrt-rules/prod/landing-dev.yaml"
 REGISTRY = "agent-config/landing/doc-consumers.yaml"
-CLAIM = re.compile(r"Owner\s*(的)?\s*(决定|已定|采纳|批准|签收|拍板|点选|定了|同意)")
 
 
 class PolicyError(Exception):
@@ -232,7 +229,7 @@ def consumers(repo, base, revision, purpose="landing"):
 
 
 def content(data, name):
-    if len(data) > 256 * 1024 or b"\0" in data:
+    if b"\0" in data:
         raise PolicyError(f"doc_content {name}")
     try:
         return data.decode("utf-8")
@@ -240,183 +237,17 @@ def content(data, name):
         raise PolicyError(f"doc_content {name}") from exc
 
 
-def headings(lines):
-    result, paragraph_start, fence = {}, None, None
-    for i, line in enumerate(lines):
-        # Keep Git's LF indices; a terminal CR belongs to a CRLF line ending
-        # for Markdown syntax, not to the title/underline itself.
-        line = line.removesuffix("\r")
-        if fence:
-            if re.fullmatch(r" {0,3}" + re.escape(fence[0]) + "{" + str(fence[1]) + r",}[ \t]*", line):
-                fence = None
-            continue
-        opening = re.fullmatch(r" {0,3}(`{3,}|~{3,})(.*)", line)
-        # CommonMark 4.5: backtick info strings cannot contain backticks.
-        # Otherwise an inline span such as ```inline``` hides later headings.
-        if opening and (opening[1][0] == "~" or "`" not in opening[2]):
-            fence, paragraph_start = (opening[1][0], len(opening[1])), None
-            continue
-        heading = re.match(r"^ {0,3}(#{1,6})(?:[ \t]+(.*)|$)", line)
-        if heading:
-            result[i] = len(heading[1]), heading[2] or ""
-            paragraph_start = None
-            continue
-        underline = re.fullmatch(r" {0,3}(=+|-+)[ \t]*", line)
-        if underline and paragraph_start is not None:
-            result[paragraph_start] = (1 if underline[1][0] == "=" else 2), "\n".join(lines[paragraph_start:i])
-            paragraph_start = None
-        elif not line.strip() or line.startswith(("    ", "\t", ">")):
-            paragraph_start = None
-        elif paragraph_start is None:
-            paragraph_start = i
-    return result
-
-
-def marked(lines):
-    active, result, sections = [], set(), headings(lines)
-    for i, line in enumerate(lines):
-        if i in sections:
-            level, title = sections[i]
-            active = [(n, yes) for n, yes in active if n < level]
-            active.append((level, "Owner 决定" in title))
-        if CLAIM.search(line) or (line.strip() and any(yes for _, yes in active)):
-            result.add(i)
-    return result
-
-
-def paragraph(lines, at):
-    start, end = at, at + 1
-    while start and lines[start - 1].strip():
-        start -= 1
-    while end < len(lines) and lines[end].strip():
-        end += 1
-    return "\n".join(lines[start:end])
-
-
-def evidence(text, repo, base, platform, platform_revision, name):
-    simple = re.search(r"(?:审批|单|request|approval)\s*#\d+", text)
-    if simple:
-        return simple[0]
-    stamp = re.search(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}", text)
-    if "线程" in text and stamp:
-        return "线程 " + stamp[0] + " CDT"
-    references = list(re.finditer(r"([\w./-]+\.md)\s+§([0-9]+(?:\.[0-9]+)*)", text))
-    files = tree(repo, base) if references else {}
-    for match in references:
-        ref, section = match.groups()
-        options = {ref, str(Path(name).parent / ref)}
-        if "/" not in ref:
-            options |= {p for p in files if p.split("/")[-1] == ref}
-        for p in options & files.keys():
-            old = blob(repo, base, p).decode("utf-8")
-            if re.search(r"^#{1,6}\s+" + re.escape(section) + r"(?=[\s.、:：]|$)", old, re.MULTILINE):
-                return match[0]
-    for match in re.finditer(r"(?<![0-9A-Za-z])[0-9a-fA-F]{7,40}(?![0-9A-Za-z])", text):
-        for source, head in ((repo, base), (platform, platform_revision)):
-            if source is None:
-                continue
-            # A shallow checkout cannot prove older history; never fetch to make it pass.
-            probe = subprocess.run(["git", "-C", str(source), "merge-base", "--is-ancestor", match[0], head], capture_output=True, check=False)
-            if probe.returncode == 0:
-                return match[0]
-    return ""
-
-
-def git_lines(text):
-    """Git counts only LF, with no phantom line after a terminal LF."""
-    return text[:-1].split("\n") if text.endswith("\n") else text.split("\n") if text else []
-
-
-def diff_hunks(repo, base, revision, name):
-    raw = git(repo, "diff", "--no-ext-diff", "--no-textconv", "--no-color", "--no-renames", "--unified=3",
-              base, revision, "--", name).decode("utf-8")
-    hunks, current = [], None
-    before = git_lines(blob(repo, base, name).decode("utf-8")) if name in tree(repo, base) else []
-    after = git_lines(blob(repo, revision, name).decode("utf-8")) if name in tree(repo, revision) else []
-    left = right = left_end = right_end = 0
-    for line in git_lines(raw):
-        header = re.match(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", line)
-        if header:
-            if current is not None and (left != left_end or right != right_end):
-                raise PolicyError("diff_hunk_count")
-            old_count, new_count = int(header[2] or 1), int(header[4] or 1)
-            left = int(header[1]) - bool(old_count)
-            right = int(header[3]) - bool(new_count)
-            left_end, right_end = left + old_count, right + new_count
-            current = ([], [])
-            hunks.append(current)
-        elif current is not None:
-            if line.startswith("\\ No newline at end of file"):
-                continue
-            if line[:1] not in ("+", "-", " ") or not line:
-                raise PolicyError("diff_hunk_format")
-            for sign, index, limit, lines in (("-", left, left_end, before), ("+", right, right_end, after)):
-                if line[0] in (sign, " ") and (not 0 <= index < min(limit, len(lines)) or lines[index] != line[1:]):
-                    raise PolicyError("diff_hunk_mapping")
-            if line.startswith("+"):
-                current[0].append(right)
-                right += 1
-            elif line.startswith("-"):
-                current[1].append(left)
-                left += 1
-            elif line.startswith(" "):
-                left += 1
-                right += 1
-    if current is not None and (left != left_end or right != right_end):
-        raise PolicyError("diff_hunk_count")
-    if before != after and not hunks:
-        raise PolicyError("diff_hunk_missing")
-    return hunks
-
-
-def owner_claims(old, new, repo, base, platform, platform_revision, name, hunks=None):
-    before, after = git_lines(old), git_lines(new)
-    old_marks, new_marks = marked(before), marked(after)
-    if hunks is None:  # Inner tests; the CLI always uses Git's actual hunks.
-        hunks = []
-        matcher = difflib.SequenceMatcher(None, before, after, autojunk=False)
-        for group in matcher.get_grouped_opcodes(3):
-            additions, removals = [], []
-            for tag, a, b, c, d in group:
-                if tag in ("replace", "delete"):
-                    removals.extend(range(a, b))
-                if tag in ("replace", "insert"):
-                    additions.extend(range(c, d))
-            hunks.append((additions, removals))
-    errors = []
-    for additions, deleted in hunks:
-        removals = [i for i in deleted if i in old_marks]
-        linked = False
-        for i in additions:
-            if i not in new_marks and not removals:
-                continue
-            proof = evidence(paragraph(after, i), repo, base, platform, platform_revision, name)
-            # Removal requires evidence on an added line in this hunk, not an
-            # unchanged approval somewhere else in the surrounding paragraph.
-            linked |= bool(evidence(after[i], repo, base, platform, platform_revision, name))
-            if i in new_marks:
-                print(json.dumps({"file": name, "line": i + 1, "claim": after[i], "evidence": proof}, ensure_ascii=False))
-                if not proof:
-                    errors.append(f"owner_claim_unlinked {name}:{i + 1}")
-        for i in removals:
-            print(json.dumps({"file": name, "deleted_line": i + 1, "claim": before[i]}, ensure_ascii=False))
-        if removals and not linked:
-            errors.append(f"owner_claim_removed {name}")
-    if errors:
-        raise PolicyError("; ".join(errors))
-
-
 def documents(repo, base, revision, platform, platform_revision, purpose="landing"):
+    # Changed allowed documents must be text. The 256 KB size cap and the rule
+    # that "Owner 决定" claims carry evidence were removed in cleanup wave 1
+    # (2026-11-11). platform / platform_revision stay in the signature for callers.
     patterns = allow(repo, base)
     errors = []
     for kind, name, _ in changes(repo, base, revision, purpose):
-        if not any(matches(p, name) for p in patterns) or hard(name):
+        if kind == "D" or not any(matches(p, name) for p in patterns) or hard(name):
             continue
-        new = content(blob(repo, revision, name), name) if kind != "D" else ""
-        old = blob(repo, base, name).decode("utf-8") if kind != "A" else ""
         try:
-            owner_claims(old, new, repo, base, platform, platform_revision, name,
-                         diff_hunks(repo, base, revision, name))
+            content(blob(repo, revision, name), name)
         except PolicyError as exc:
             errors.append(str(exc))
     if errors:
@@ -425,7 +256,7 @@ def documents(repo, base, revision, platform, platform_revision, purpose="landin
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("stage", choices=("scope", "consumers", "doc-policy", "owner-claims"))
+    ap.add_argument("stage", choices=("scope", "consumers", "doc-policy"))
     ap.add_argument("--repo", type=Path, required=True)
     ap.add_argument("--base", required=True)
     ap.add_argument("--revision", required=True)

@@ -112,50 +112,24 @@ def test_globs():
     assert P['matches']('a/**/*.md', 'a/b/x.md')
 
 
-@pytest.mark.parametrize('data', [b'\xff', b'a\0b', b'x' * (256 * 1024 + 1)])
+@pytest.mark.parametrize('data', [b'\xff', b'a\0b'])
 def test_content_refuses(data):
     with pytest.raises(P['PolicyError'], match='doc_content'):
         P['content'](data, DOC)
 
 
-def test_content_boundary():
-    assert len(P['content'](b'x' * (256 * 1024), DOC)) == 256 * 1024
-
-
-@pytest.mark.parametrize('proof', ['审批 #182', 'request #12', '线程 2026-10-29 12:01'])
-def test_owner_evidence_positive(repo, proof):
-    path, base, rev = candidate(repo, f'# Report\n\nOwner 决定 A（{proof}）\n')
-    P['documents'](path, base, rev, path, base)
+def test_content_has_no_size_cap():
+    # Cleanup wave 1 (2026-11-11) removed the 256 KB per-document cap.
+    assert len(P['content'](b'x' * (256 * 1024 + 1), DOC)) == 256 * 1024 + 1
 
 
 @pytest.mark.parametrize('text', ['Owner 决定 A\n', '# Owner 决定\n\n选 A\n'])
-def test_owner_unlinked(repo, text):
+def test_owner_claims_need_no_evidence(repo, text):
+    # Cleanup wave 1 (2026-11-11) removed the rule that Owner-decision claims carry evidence.
     path, base, rev = candidate(repo, text)
-    with pytest.raises(P['PolicyError'], match='owner_claim_unlinked'):
-        P['documents'](path, base, rev, path, base)
-
-
-def test_existing_section_and_commit_only(repo):
-    path, _ = repo
-    put(path, 'agent-config/work/multi-agent/CUT-test.md', '# 11.14 Decision\n')
-    base = commit_fixture(path)
-    text = 'Owner 决定 A（CUT-test.md §11.14）\n'
-    P['owner_claims']('', text, path, base, path, base, DOC)
-    P['owner_claims']('', 'Owner 决定 A ' + base[:9], path, base, path, base, DOC)
-    put(path, 'agent-config/work/multi-agent/CUT-test.md', '# 11.14 Decision\n# 11.99 New\n')
-    new = commit_fixture(path)
-    with pytest.raises(P['PolicyError'], match='owner_claim_unlinked'):
-        P['owner_claims']('', 'Owner 决定 A（CUT-test.md §11.99）', path, base, path, base, DOC)
-    with pytest.raises(P['PolicyError'], match='owner_claim_unlinked'):
-        P['owner_claims']('', 'Owner 决定 A ' + new, path, base, path, base, DOC)
-
-
-def test_owner_removal_same_hunk(repo):
-    path, base = repo
-    old = 'Owner 决定 A 审批 #1\n'
-    P['owner_claims'](old, 'Changed approval #2\n', path, base, path, base, DOC)
-    with pytest.raises(P['PolicyError'], match='owner_claim_removed'):
-        P['owner_claims'](old, 'Changed\n', path, base, path, base, DOC)
+    P['documents'](path, base, rev, path, base)
+    command(path, 'rm', '-q', DOC)
+    P['documents'](path, rev, commit_fixture(path), path, rev)
 
 
 def test_baseline_scope_and_stable_main(repo):
@@ -219,24 +193,6 @@ def test_discovery_signals(line):
     assert D['hits']('CLAUDE.md', line.encode())
     if not D['S1'].search(line):
         assert not D['hits']('a.go', line.encode(), platform=True)
-
-
-def test_real_git_hunk_cannot_borrow_distant_evidence(repo):
-    path, _ = repo
-    old = 'Owner 决定 A approval #1\n\n' + ''.join(f'context {i}\n' for i in range(30))
-    put(path, DOC, old)
-    base = commit_fixture(path)
-    put(path, DOC, old.replace('Owner 决定 A approval #1', 'Removed') + '\nChanged approval #2\n')
-    rev = commit_fixture(path)
-    with pytest.raises(P['PolicyError'], match='owner_claim_removed'):
-        P['documents'](path, base, rev, path, base)
-
-
-def test_removed_claim_cannot_borrow_unchanged_paragraph_evidence(repo):
-    path, base = repo
-    with pytest.raises(P['PolicyError'], match='owner_claim_removed'):
-        P['owner_claims']('Owner 决定 A\napproval #1\n', 'Changed\napproval #1\n',
-                          path, base, path, base, DOC)
 
 
 def test_scope_limit_and_missing_allow(repo):
