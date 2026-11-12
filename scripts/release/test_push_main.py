@@ -28,8 +28,17 @@ HERE = Path(__file__).resolve().parent
 _git_config_env = mock.patch.dict(os.environ, {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"})
 
 
+def _is_env_git_config(name: str) -> bool:
+    """Configuration git reads from the environment (TD-535): the Owner's pushurl override, say."""
+    return name in ("GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS") or name.startswith(("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_"))
+
+
 def setUpModule():
     _git_config_env.start()
+    # The fixtures' own git (their pushes to the fixture origins) reads none of it either;
+    # a case that wants it gives it to push-main explicitly. patch.dict restores it on stop.
+    for name in [n for n in os.environ if _is_env_git_config(n)]:
+        del os.environ[name]
 
 
 def tearDownModule():
@@ -319,6 +328,48 @@ class PushMain(_Fixture):
         r = subprocess.run(["bash", str(PUSH_MAIN), str(self.work)], env=env, capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(self._remote_main(), head)
+
+    # TD-535: git configuration in push-main's environment (the Owner's pushurl override) is
+    # out of the environment for the fetch, the clean worktree, the scan and the follow, and
+    # back for the two git commands about the push: the push addresses read and the push.
+    def _env_git_config(self) -> tuple[Path, dict[str, str]]:
+        """A bare repository the override sends the push to, and the override."""
+        elsewhere = Path(self._tmp.name) / "remote" / "elsewhere.git"
+        _git(Path(self._tmp.name), "init", "--quiet", "--bare", "--initial-branch=main", str(elsewhere))
+        return elsewhere, {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "remote.origin.pushurl",
+                           "GIT_CONFIG_VALUE_0": str(elsewhere), "GIT_CONFIG_PARAMETERS": "'bifrost.td535'='seen'"}
+
+    def test_git_config_in_the_environment_reaches_only_the_push(self) -> None:
+        elsewhere, override = self._env_git_config()
+        listing = Path(self._tmp.name) / "gitea-primary.txt"
+        listing.write_text("bifrost-platform\n")
+        seen = Path(self._tmp.name) / "scan-env"
+        scan = Path(self._tmp.name) / "scan-env.sh"
+        scan.write_text(f'#!/bin/sh\nenv | grep "^GIT_CONFIG_[CKVP]" >"{seen}"\ngit config bifrost.td535 >>"{seen}"\nexit 0\n')
+        scan.chmod(0o755)
+        calls = Path(self._tmp.name) / "git-calls"
+        env = self._wrapped_git(f'  *) echo "${{GIT_CONFIG_COUNT:-}}|${{GIT_CONFIG_PARAMETERS:-}}|$*" >>"{calls}" ;;')
+        env.update(override, PUSH_MAIN_SCAN=str(scan), PUSH_MAIN_PRIMARY_LIST=str(listing))
+        before = self._remote_main()
+        self._big_files(0, 1)
+        head = _git(self.work, "rev-parse", "HEAD")
+        r = self._push(env=env)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(seen.read_text(), "", "the scan saw the environment's git configuration")
+        # The override sent the push where it points; the fixture origin is as it was.
+        self.assertEqual(_git(elsewhere, "rev-parse", "main"), head)
+        self.assertEqual(self._remote_main(), before)
+        with_config, without = [], []
+        for line in calls.read_text().splitlines():
+            count, params, args = line.split("|", 2)
+            (with_config if count or params else without).append(args)
+            if count or params:
+                self.assertEqual((count, params), ("1", "'bifrost.td535'='seen'"), line)
+        top = self.work.resolve()
+        self.assertEqual(with_config, [f"-C {top} remote get-url --push --all origin",
+                                       f"-C {top} push origin {head}:refs/heads/main"])
+        self.assertTrue(any(a.startswith(f"-C {top} fetch") for a in without), without)
+        self.assertTrue(any(" worktree add " in f" {a} " for a in without), without)
 
     # TD-400: a commit without its lineage is refused, each one named; with
     # --no-lineage <reason> they are pushed and the reason is printed.
@@ -627,6 +678,37 @@ class PushMain(_Fixture):
         self.assertIn("the tests of bifrost-trade-infra failed on", r.stderr)
         self.assertEqual(_git(origin, "rev-parse", "main"), before)
         self.assertEqual(_git(work, "worktree", "list").count("\n"), 0, "the test worktree was left behind")
+
+    # TD-535: the Owner's pushurl override does not reach the tests, so a fixture repository a
+    # test pushes to stays the fixture's; the push itself still goes where the override says.
+    def test_the_tests_run_without_the_environments_git_config(self) -> None:
+        origin, work = self._infra()
+        before = _git(origin, "rev-parse", "main")
+        elsewhere, override = self._env_git_config()
+        head = self._add(work, "scripts/release/test_fixture_push.py", (
+            "import os, subprocess, tempfile\n"
+            "from pathlib import Path\n"
+            "def test_fixture_push_stays_in_the_fixture():\n"
+            "    leaked = sorted(n for n in os.environ if n in ('GIT_CONFIG_COUNT', 'GIT_CONFIG_PARAMETERS')\n"
+            "                    or n.startswith(('GIT_CONFIG_KEY_', 'GIT_CONFIG_VALUE_')))\n"
+            "    assert leaked == [], leaked\n"
+            "    with tempfile.TemporaryDirectory() as d:\n"
+            "        bare, clone = Path(d) / 'o.git', Path(d) / 'w'\n"
+            "        env = {**os.environ, 'GIT_AUTHOR_NAME': 't', 'GIT_AUTHOR_EMAIL': 't@example.invalid',\n"
+            "               'GIT_COMMITTER_NAME': 't', 'GIT_COMMITTER_EMAIL': 't@example.invalid'}\n"
+            "        git = lambda *a, cwd=d: subprocess.run(['git', '-c', 'core.hooksPath=/dev/null', *a], cwd=cwd,\n"
+            "                                               env=env, check=True, capture_output=True, text=True).stdout\n"
+            "        git('init', '--quiet', '--bare', '--initial-branch=main', str(bare))\n"
+            "        git('clone', '--quiet', str(bare), str(clone))\n"
+            "        git('commit', '--quiet', '--allow-empty', '-m', 'x', cwd=clone)\n"
+            "        git('push', '--quiet', 'origin', 'HEAD:refs/heads/main', cwd=clone)\n"
+            "        assert git('rev-parse', 'main', cwd=bare).strip() == git('rev-parse', 'HEAD', cwd=clone).strip()\n"
+        ))
+        r = self._push(cwd=work, env=self._env(**override))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("the tests of bifrost-trade-infra passed", r.stdout)
+        self.assertEqual(_git(elsewhere, "rev-parse", "main"), head)
+        self.assertEqual(_git(origin, "rev-parse", "main"), before)
 
     def test_skip_tests_pushes_and_says_why(self) -> None:
         origin, work = self._infra()

@@ -51,6 +51,16 @@
 #    happened by then: nothing here fails it, and nothing here waits on the
 #    network or a hook.
 #
+# Git configuration given in the environment (GIT_CONFIG_COUNT,
+# GIT_CONFIG_KEY_<n>, GIT_CONFIG_VALUE_<n>, GIT_CONFIG_PARAMETERS: the
+# Owner's remote.origin.pushurl override with an account in it, say) is
+# taken out of the environment on entry (TD-535). The fetch, the clean
+# worktree, the scan, the tests and the shared checkout's follow run
+# without it: a fixture repository the tests push to stays where the test
+# put it. It is given back to two git commands only, both about the push
+# itself: the reading of origin's push addresses for the Gitea-primary
+# check (it judges where the push goes) and step 7's push.
+#
 # preflight.js refuses a direct `git push` to main, so this is the way an
 # agent pushes main. The full suites and lint stay in the pusher's own
 # routine and CI. The scan uses the baselines of the infra checkout this
@@ -126,6 +136,21 @@ CI_WAIT="${PUSH_MAIN_CI_WAIT:-900}"
 CI_POLL="${PUSH_MAIN_CI_POLL:-20}"
 KUBECTL="${PUSH_MAIN_KUBECTL:-kubectl}"
 
+# TD-535: the environment's git configuration is kept aside and unset; only
+# push_git gives it back, to the one command it runs.
+PUSH_GIT_ENV=()
+while IFS= read -r name; do
+  case "$name" in
+    GIT_CONFIG_COUNT | GIT_CONFIG_PARAMETERS | GIT_CONFIG_KEY_* | GIT_CONFIG_VALUE_*)
+      PUSH_GIT_ENV+=("$name=${!name}")
+      unset "$name"
+      ;;
+  esac
+done < <(compgen -e)
+push_git() {
+  env ${PUSH_GIT_ENV[@]+"${PUSH_GIT_ENV[@]}"} git "$@"
+}
+
 top="$(git -C "$DIR" rev-parse --show-toplevel 2>/dev/null)" || die "$DIR is not a git checkout"
 commit="$(git -C "$top" rev-parse --verify --quiet "$REF^{commit}")" || die "$REF is not a commit in $top"
 url="$(git -C "$top" remote get-url origin)" || die "$top has no remote origin"
@@ -170,7 +195,7 @@ PRIMARY_LIST="${PUSH_MAIN_PRIMARY_LIST:-$HERE/../../agent-config/gitea-primary.t
 if [[ -f "$PRIMARY_LIST" ]]; then
   primaries="$(sed -e 's/#.*//' -e 's/[[:space:]]//g' "$PRIMARY_LIST" | tr '[:upper:]' '[:lower:]')"
   if [[ -n "$primaries" ]]; then
-    push_urls="$(git -C "$top" remote get-url --push --all origin)" || die "cannot read the push addresses of origin in $top"
+    push_urls="$(push_git -C "$top" remote get-url --push --all origin)" || die "cannot read the push addresses of origin in $top"
     repo_lc="$(printf '%s' "$repo" | tr '[:upper:]' '[:lower:]')"
     while IFS= read -r push_url; do
       [[ -n "$push_url" ]] || continue
@@ -591,6 +616,6 @@ elif ! $docs_only || ! has_tests; then
 fi
 
 window
-git -C "$top" push origin "$commit:refs/heads/main"
+push_git -C "$top" push origin "$commit:refs/heads/main"
 echo "push-main: pushed $commit to $repo main"
 follow
