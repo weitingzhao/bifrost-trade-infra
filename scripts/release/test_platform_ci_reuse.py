@@ -96,17 +96,16 @@ def test_manifest_contract():
     assert rbac[1]['rules'] == [{'apiGroups': ['tekton.dev'], 'resources': ['pipelineruns'], 'verbs': ['get', 'list']}]
 
 
-def test_infra_allow_transport():
+def test_infra_ci_takes_no_allow_list():
+    # TD-537: admission refuses a landing allow list on an infra CI run, so the
+    # Pipeline and its check Task declare no parameter that would carry one.
     directory = ROOT / 'k8s/cicd/tekton'
     pipeline = yaml.safe_load((directory / 'pipeline-ci-infra.yaml').read_text())['spec']
-    param = next(p for p in pipeline['params'] if p['name'] == 'landing-allow-json')
-    assert param == {'name': 'landing-allow-json', 'type': 'string', 'default': ''}
-    check = next(t for t in pipeline['tasks'] if t['name'] == 'check')
-    assert {'name': 'landing-allow-json', 'value': '$(params.landing-allow-json)'} in check['params']
     task = yaml.safe_load((directory / 'task-ci-infra-check.yaml').read_text())['spec']
-    assert param in task['params']
-    step = next(s for s in task['steps'] if s['name'] == 'doc-policy')
-    assert {'name': 'LANDING_ALLOW_JSON', 'value': '$(params.landing-allow-json)'} in step['env']
+    names = [p['name'] for p in pipeline['params']] + [p['name'] for p in task['params']]
+    names += [p['name'] for t in pipeline['tasks'] for p in t.get('params', [])]
+    names += [e['name'] for s in task['steps'] for e in s.get('env', [])]
+    assert 'landing-allow-json' not in names and 'LANDING_ALLOW_JSON' not in names
 
 
 def test_window_has_one_decision():
