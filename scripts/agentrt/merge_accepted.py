@@ -90,8 +90,6 @@ SUITES: dict[str, list[list[str]]] = {
         ["sh", "-c", "cd console && npx vitest run --maxWorkers=2"],
         ["npm", "--prefix", "console", "run", "build"],
         ["bash", "scripts/ci/check_spine_catalog.sh"],
-        ["sh", "-c", "cd .. && python3 bifrost-trade-infra/scripts/check_ops_context_parity.py --self-test"
-                     " && python3 bifrost-trade-infra/scripts/check_ops_context_parity.py"],
         ["npm", "--prefix", "mcp/platform", "ci", "--no-audit", "--no-fund"],
         ["npm", "--prefix", "mcp/platform", "test"],
     ],

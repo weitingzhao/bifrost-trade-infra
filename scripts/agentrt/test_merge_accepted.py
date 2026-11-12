@@ -381,8 +381,10 @@ def test_suite_runs_every_ci_step_then_code_health_in_the_tree(tmp_path: Path) -
     # CI's steps (pipeline-ci-platform.yaml) and MCP's tests, written out here, not read from the tool.
     for step in ["go -C api test ./...", "npm --prefix ../bifrost-ui ci", "npm --prefix console ci", "console run type-check",
                  "console run lint", "npx vitest run", "console run build", "check_spine_catalog.sh",
-                 "check_ops_context_parity.py --self-test", "npm --prefix mcp/platform ci", "npm --prefix mcp/platform test"]:
+                 "npm --prefix mcp/platform ci", "npm --prefix mcp/platform test"]:
         assert any(step in " ".join(c) for c, _ in ran[:-1]), step
+    # ci-infra, not ci-platform, compares infra's copies of platform config/.
+    assert not any("check_ops_context_parity" in " ".join(c) for c, _ in ran)
     assert ran[-1][0][-4:] == ["--root", str(tmp_path), "--repo", "bifrost-platform"]
     assert all(e == {"BIFROST_CI": "1", "PLATFORM_ROOT": str(tree), "AGENTRT_TEST_REQUIRED": "1"} for _, e in ran)
     assert checked and failed == ["npm --prefix console run lint", "code-health"]

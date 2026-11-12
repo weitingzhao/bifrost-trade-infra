@@ -76,7 +76,9 @@ def test_manifest_contract():
     directory = ROOT / 'k8s/cicd/tekton'
     pipeline = yaml.safe_load((directory / 'pipeline-ci-platform.yaml').read_text())['spec']
     tasks = {t['name']: t for t in pipeline['tasks']}
-    for name in ('test-api', 'test-api-store', 'test-console', 'check-spine', 'check-ops-context', 'code-health'):
+    # The infra copies of platform config/ are judged in ci-infra only (statics stage).
+    assert 'check-ops-context' not in tasks
+    for name in ('test-api', 'test-api-store', 'test-console', 'check-spine', 'code-health'):
         assert 'when' not in tasks[name]
         assert {'name': 'reuse', 'value': '$(tasks.reuse.results.reuse)'} in tasks[name]['params']
     results = {r['name']: r['value'] for r in pipeline['results']}
@@ -123,7 +125,7 @@ def test_reused_steps_return_before_work(tmp_path):
         (shared / field).write_text(field)
     pipeline = yaml.safe_load((directory / 'pipeline-ci-platform.yaml').read_text())['spec']
     for task in pipeline['tasks']:
-        if task['name'] not in ('test-api', 'test-api-store', 'test-console', 'check-spine', 'check-ops-context', 'code-health'):
+        if task['name'] not in ('test-api', 'test-api-store', 'test-console', 'check-spine', 'code-health'):
             continue
         spec = task.get('taskSpec')
         if spec is None:

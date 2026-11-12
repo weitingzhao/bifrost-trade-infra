@@ -42,11 +42,6 @@
       "taskspec_sha256": "a9685ae367ebfca5697bfe3cb25171730c91e8493c919f10ec19babe8a8dd30c"
     },
     {
-      "pipeline": "bifrost-ci-platform",
-      "task": "check-ops-context",
-      "taskspec_sha256": "80b26b7e9807d3df3f642f22c76b386ffcb9c007f691c22b61ad18721d92e4b0"
-    },
-    {
       "pipeline": "bifrost-ci-python",
       "task": "lint-test",
       "taskspec_sha256": "94e37bff35783d523810a3dd422deeaff39c489ab6fc83d25e1eba33ad5d9aef"
