@@ -93,7 +93,6 @@ spec:
         ln -s "bifrost-trade-infra/agent-config/$link" "$ws/cand/$link"
       done
       ln -s bifrost-trade-infra/agent-config/claude "$ws/cand/.claude"
-      ln -s bifrost-trade-infra/agent-config/cursor "$ws/cand/.cursor"
       ln -s bifrost-trade-infra/agent-config/scripts "$ws/cand/scripts"
       printf '%s' "$REVISION" > "$(results.commit.path)"
       printf '%s' "$BASE" > "$(results.base-commit.path)"

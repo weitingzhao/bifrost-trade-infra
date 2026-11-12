@@ -52,35 +52,6 @@ spec:
       bash "$entry" --stage tools --cand "$ws/cand" --base "$ws/base" \
         --revision "$REVISION" --base-sha "$BASE" --platform-revision "$PLATFORM_REVISION" \
         --purpose "$PURPOSE" --generation "$GENERATION" --results-dir /tekton/results
-  - name: scope
-    image: 192.168.10.73:30500/bifrost-ci-infra-tools@sha256:4ff505208b6cd977e36b7fb29c0f9faa4824a4ed9f4beb6e2f1ffc94b591a23e
-    env:
-    - name: REVISION
-      value: $(params.revision)
-    - name: BASE
-      value: $(params.base)
-    - name: PLATFORM_REVISION
-      value: $(params.platformRevision)
-    - name: PURPOSE
-      value: $(params.purpose)
-    - name: GENERATION
-      value: $(params.generation)
-    computeResources:
-      requests:
-        cpu: 250m
-        memory: 512Mi
-      limits:
-        cpu: '2'
-        memory: 2Gi
-    script: |
-      #!/usr/bin/env bash
-      set -euo pipefail
-      ws="$(workspaces.source.path)"
-      entry="$ws/base/bifrost-trade-infra/scripts/landing/ci-infra.sh"
-      if [[ "$PURPOSE" == push && -z "$BASE" ]]; then entry="$ws/cand/bifrost-trade-infra/scripts/landing/ci-infra.sh"; fi
-      bash "$entry" --stage scope --cand "$ws/cand" --base "$ws/base" \
-        --revision "$REVISION" --base-sha "$BASE" --platform-revision "$PLATFORM_REVISION" \
-        --purpose "$PURPOSE" --generation "$GENERATION" --results-dir /tekton/results
   - name: consumers
     image: 192.168.10.73:30500/bifrost-ci-infra-tools@sha256:4ff505208b6cd977e36b7fb29c0f9faa4824a4ed9f4beb6e2f1ffc94b591a23e
     env:
