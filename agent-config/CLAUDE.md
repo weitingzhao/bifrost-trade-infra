@@ -94,7 +94,7 @@ Ops Platform（火箭）与 Trade（载荷）必须先稳定；研究与分析�
 | 起 run | `start_pipeline_run` |
 | 其余写 | `owner_run_command` |
 
-查库用 `agent_reader`。`kubectl exec` 只在 research、plugin-market-data、plugin-flex-query。`kubectl port-forward` 只有 monitoring 里的 `prometheus-kube-prometheus-stack-prometheus-0`。
+查库用 `agent_reader`。`kubectl exec` 与 `kubectl port-forward` 能用在哪里见 `AGENT_FACTS.md` §8c（以 `k8s/agent-access` 的 RBAC 为准）。
 
 ---
 
@@ -131,7 +131,7 @@ Ops Platform（火箭）与 Trade（载荷）必须先稳定；研究与分析�
 - **架构级决策不擅自做**（新 RPC / 新外部依赖 / 改公开接口 / 新增表或列）→ 列 2–3 个选项 + 推荐，等 Owner 确认
 - 最小化变更范围
 - 完成后输出结构化 Phase 报告；**不自动开始下一个 Phase**（除非 Owner 已确认「批量执行」→ `.claude/skills/batch-execution/`）
-- 集群写操作用 §3 的对照（`plan_manifest` / `apply_manifest`、`create_job_from_cronjob`、`delete_finished_jobs`、`delete_pod`、`rollout_restart_deployment`、`run_probe_pod`、`start_pipeline_run`，其余 `owner_run_command`）。不要 `kubectl apply` / `create` / `delete`。`kubectl exec` 只在 research、plugin-market-data、plugin-flex-query。`kubectl port-forward` 只有 Prometheus 那一个 Pod。查库用 `agent_reader`。
+- 集群写操作用 §3 的对照（`plan_manifest` / `apply_manifest`、`create_job_from_cronjob`、`delete_finished_jobs`、`delete_pod`、`rollout_restart_deployment`、`run_probe_pod`、`start_pipeline_run`，其余 `owner_run_command`）。不要 `kubectl apply` / `create` / `delete`。查库用 `agent_reader`。
 
 数据库设计标准见 **`.claude/skills/database-design/`**（新增/修改 PostgreSQL 表时触发）。
 

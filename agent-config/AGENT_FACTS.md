@@ -385,7 +385,7 @@ kubeconfig：`~/.kube/bifrost-k3s.yaml` 是只读身份 `system:serviceaccount:b
 | 起 run | `start_pipeline_run` |
 | 其余写 | `owner_run_command` |
 
-查库用 `agent_reader`。exec 只在 research、plugin-market-data、plugin-flex-query。port-forward 只有 monitoring 里的 `prometheus-kube-prometheus-stack-prometheus-0`。
+查库用 `agent_reader`。`kubectl exec` / `port-forward` 的范围以 `bifrost-trade-infra/k8s/agent-access/` 为准（`role-exec-*.yaml`、`role-portforward-monitoring.yaml`，由 `scripts/check_agent_access.py` 守住；集群拒绝其余的）：现在 exec 只在 research、plugin-market-data、plugin-flex-query，port-forward 只有 monitoring 里的 `prometheus-kube-prometheus-stack-prometheus-0`。
 
 | 节点 | IP | host-id | workload-pool | 角色 |
 |------|----|---------|---------------|------|
