@@ -9,11 +9,12 @@
 # Without the Secret every read of main records unreadable and no landing
 # runs.
 #
-# AGENTRT_LANDING_LIVE is "on" from the S3 opening (the Owner pushed this
-# change, the last opening step): the workers record the live mode, claim
-# under the signed landing rule and push platform's main as agentrt-lander.
-# To stop landings, set it back to "off": the workers then only reconcile main
-# and settle bounds and cards from the database, writing no claim or push.
+# AGENTRT_LANDING_LIVE_REPOS names the repositories that land live (S3
+# opening for platform, S6 for infra): the workers record the live mode, claim
+# under the signed landing rule and push those repositories' main as
+# agentrt-lander. To stop landings, set it to "": the workers then only
+# reconcile main and settle bounds and cards from the database, writing no
+# claim or push.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -24,12 +25,8 @@ spec:
       containers:
         - name: platform-api
           env:
-            - name: AGENTRT_LANDING_LIVE
-              value: "on"
             # W-31 S6 opening (2026-10-31): infra joins the live landing under
-            # the signed landing:dev v3. Present, this setting wins over the
-            # legacy switch above (landing/repos.go LiveRepos); set it to ""
-            # to stop new landings in every repository.
+            # the signed landing:dev v3 (landing/repos.go LiveRepos).
             - name: AGENTRT_LANDING_LIVE_REPOS
               value: "bifrost-platform,bifrost-trade-infra"
             # R5:5.7 countdown 20: a platform landing CI names its base M0, so
