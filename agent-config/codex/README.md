@@ -99,7 +99,7 @@ trusted_hash = "sha256:54ead03e5d5092a3d63f264a99879a710eb716396910dee4542061b0b
    - 非交互：跑 `python3 bifrost-trade-infra/agent-config/codex/check-codex-guard.py`，它会打出当前的 key 和哈希，按上面的格式写进 `[hooks.state."<key>"] trusted_hash`。
    - hooks.json 的命令改了（例如 S0-1 改路径）就要重做这一步。
 5. 写 `~/.codex/AGENTS.md`（指针）。
-6. 验收：`python3 bifrost-trade-infra/agent-config/codex/check-codex-guard.py --probe`。`--probe` 会在临时 git 仓库里让 Codex 跑一次 `git add -A`，要被 preflight 拦下、暂存区为空。不带 `--probe` 只查配置，不调模型。`bash scripts/check-agent-config-parity.sh` 在本机装了 codex 时会跑不带 `--probe` 的那一版。
+6. 验收：`python3 bifrost-trade-infra/agent-config/codex/check-codex-guard.py --probe`。`--probe` 会在临时 git 仓库里让 Codex 跑一次 `git add -A`，要被 preflight 拦下、暂存区为空。不带 `--probe` 只查配置，不调模型。`bash scripts/check-governance-consistency.sh` 在本机装了 codex 时会跑不带 `--probe` 的那一版。
 
 ## 检查器失败的含义（Work 616，2026-10-26）
 

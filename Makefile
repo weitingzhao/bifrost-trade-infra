@@ -687,11 +687,11 @@ sync-flex-tokens:
 
 # ── Agent 治理配置 ────────────────────────────────────────────────────────────
 
-# Cursor ↔ Claude 双轨治理配置一致性校验。治理层位于 agent-config/，
-# 并在工作区根 (../) symlink 回 CLAUDE.md / .claude / .cursor / .mcp.json / scripts。
-# 见工作区 CLAUDE.md §7 / .cursor/rules/workspace.mdc §4。
+# 治理配置一致性校验。治理层位于 agent-config/，
+# 并在工作区根 (../) symlink 回 CLAUDE.md / .claude / .mcp.json / scripts。
+# 见工作区 CLAUDE.md §7
 check-agent-parity:
-	bash agent-config/scripts/check-agent-config-parity.sh
+	bash agent-config/scripts/check-governance-consistency.sh
 
 # 代码健康度棘轮 — 结构性腐化的机械闸门（重复函数、超大文件、契约覆盖、镜像版本档数）。
 # 与 check-legacy-css.sh 同一契约：指标只许下降；低于基线时必须调低 baselines.env，
