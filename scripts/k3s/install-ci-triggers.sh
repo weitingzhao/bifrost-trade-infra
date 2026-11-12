@@ -66,6 +66,9 @@ kubectl apply -f "${ROOT}/k8s/cicd/tekton/rbac-trigger.yaml"
 echo "==> Code-health ratchet Task"
 kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-code-health.yaml"
 
+echo "==> bifrost-ci-platform build cache claim (CI-7; test-api and test-console mount it)"
+kubectl apply -f "${ROOT}/k8s/cicd/tekton/pvc-ci-build-cache.yaml"
+
 echo "==> bifrost-ci-platform Tasks (changes, test-api; R5:5.7-1)"
 kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-ci-platform-changes.yaml"
 kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-ci-platform-test-api.yaml"

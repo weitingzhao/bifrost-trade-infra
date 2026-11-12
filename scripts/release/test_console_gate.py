@@ -62,16 +62,36 @@ set -euo pipefail
 [ "${REUSE:-no}" != yes ] || exit 0
 ws="$(workspaces.source.path)"
 
+# CI-7: npm ci still builds node_modules from nothing, but takes the
+# packages from the shared cache instead of the registry
+# (--prefer-offline: no freshness check of cached metadata; the
+# lockfile pins every version and integrity). npm's cache is made for
+# concurrent use. npm never trims it, so it has a directory per month
+# and a run deletes only the months before last, which no running run
+# uses; nothing clears or locks the directory in use.
+cache=/ci-cache/npm
+month="$(date -u +%Y-%m)"
+year="${month%-*}" mon="${month#*-}"
+if [ "${mon}" = 01 ]; then last="$((year - 1))-12"; else last="$(printf '%s-%02d' "${year}" "$((10#${mon} - 1))")"; fi
+export npm_config_cache="${cache}/${month}"
+mkdir -p "${npm_config_cache}"
+for old in "${cache}"/*; do
+  case "${old##*/}" in "${month}"|"${last}") continue ;; esac
+  [ -d "${old}" ] || continue
+  echo "==> removing the npm cache of ${old##*/}"
+  rm -rf "${old}" 2>/dev/null || true
+done
+
 # Scripts on: bifrost-ui's prepare builds dist/, which is not in git.
 echo "==> Installing bifrost-ui"
 cd "${ws}/bifrost-ui"
-npm ci --no-audit --no-fund
+npm ci --prefer-offline --no-audit --no-fund
 test -f dist/index.d.ts || { echo "bifrost-ui dist/index.d.ts missing after npm ci"; exit 1; }
 
 cd "${ws}/bifrost-platform/console"
 
 echo "==> npm ci"
-npm ci --no-audit --no-fund
+npm ci --prefer-offline --no-audit --no-fund
 
 echo "==> tsc --noEmit"
 npx tsc --noEmit
@@ -93,8 +113,10 @@ echo "==> Console type-check, lint, tests and build passed"
 # Subsets, not a denylist. Today's task uses all of these and no others.
 # A legitimate new key is added to the matching set, with a comment saying why.
 ALLOWED_TASK_KEYS = frozenset({"name", "runAfter", "timeout", "params", "workspaces", "taskSpec"})
-ALLOWED_TASKSPEC_KEYS = frozenset({"params", "workspaces", "steps"})
-ALLOWED_STEP_KEYS = frozenset({"name", "image", "computeResources", "env", "script"})
+# volumes / volumeMounts (CI-7, 2026-11-12): npm's download cache on the shared claim
+# ci-build-cache, pinned exactly in EXPECTED_CONSOLE below.
+ALLOWED_TASKSPEC_KEYS = frozenset({"params", "workspaces", "volumes", "steps"})
+ALLOWED_STEP_KEYS = frozenset({"name", "image", "volumeMounts", "computeResources", "env", "script"})
 WANTED_RUN_AFTER = ["clone", "clone-ui"]
 
 # The whole test-console task. A deliberate change edits this literal in the
@@ -112,10 +134,14 @@ EXPECTED_CONSOLE = {
         "workspaces": [
             {"name": "source"},
         ],
+        "volumes": [
+            {"name": "build-cache", "persistentVolumeClaim": {"claimName": "ci-build-cache"}},
+        ],
         "steps": [
             {
                 "name": "typecheck-lint-test-build",
                 "image": "node:20-slim",
+                "volumeMounts": [{"name": "build-cache", "mountPath": "/ci-cache"}],
                 "computeResources": {
                     "requests": {"cpu": "2", "memory": "1Gi"},
                     "limits": {"cpu": "2", "memory": "4Gi"},

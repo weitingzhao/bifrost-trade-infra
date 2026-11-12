@@ -375,11 +375,13 @@ def run_api(tmp_path: Path, api: Path, scope: str, part: str = "all"):
     ran = tmp_path / "ran"
     shutil.rmtree(ran, ignore_errors=True)
     ran.mkdir()
-    script = api_script().replace("$(workspaces.source.path)", str(tmp_path))
+    # The build cache volume (/ci-cache, CI-7) is a directory of this test. These cases
+    # check which packages a run tests, so every call runs them: no cached results.
+    script = api_script().replace("$(workspaces.source.path)", str(tmp_path)).replace("/ci-cache", str(tmp_path / "ci-cache"))
     results = {name: str(tmp_path / ("result-" + name)) for name in
                ("API_SCOPE_RESULT", "FAILED_TESTS_RESULT", "API_PACKAGES_RESULT", "API_STORE_RUN_RESULT", "API_SCOPE_WHY_RESULT")}
-    return subprocess.run(["bash"], input=script, cwd=api, env={**go_env(tmp_path), "RAN_DIR": str(ran), "API_SCOPE": scope,
-                          "API_PART": part, **results}, capture_output=True, text=True, timeout=300), ran
+    return subprocess.run(["bash"], input=script, cwd=api, env={**go_env(tmp_path), "GOFLAGS": "-count=1", "RAN_DIR": str(ran),
+                          "API_SCOPE": scope, "API_PART": part, **results}, capture_output=True, text=True, timeout=300), ran
 
 
 @pytest.mark.skipif(shutil.which("go") is None, reason="go is not installed")

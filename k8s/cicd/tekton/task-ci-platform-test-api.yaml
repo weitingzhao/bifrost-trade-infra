@@ -43,6 +43,12 @@ spec:
   volumes:
     - name: pgdata
       emptyDir: {}
+    # CI-7: Go's build and module cache, shared by every run on every node
+    # (pvc-ci-build-cache.yaml, NFS ReadWriteMany). A Task volume, not a
+    # workspace, so the runs' creators pass nothing new.
+    - name: build-cache
+      persistentVolumeClaim:
+        claimName: ci-build-cache
   sidecars:
     - name: postgres
       image: ghcr.io/cloudnative-pg/postgresql:17.9@sha256:ae81813008a9ef66ee9b348114c96d11c204981ac0d74b38f07fae4174c2973e
@@ -108,8 +114,13 @@ spec:
           value: $(workspaces.source.path)/legacy-5a8edd55/api
         # With these set the agentrt tests must run: a missing server
         # fails them instead of skipping them.
+        # application_name names the Postgres sidecar's version: Go's test
+        # cache keys a result by the environment the test read, so a new
+        # server version (change it with the image above) reruns the
+        # database tests instead of reusing results from the old one. pgx
+        # sends it to the server as a session setting; no test parses it.
         - name: AGENTRT_TEST_PG
-          value: host=127.0.0.1 port=5432 user=postgres sslmode=disable
+          value: host=127.0.0.1 port=5432 user=postgres sslmode=disable application_name=ci-pg17.9
         - name: AGENTRT_TEST_REDIS
           value: redis://127.0.0.1:6379/0
         - name: AGENTRT_TEST_REQUIRED
@@ -146,6 +157,9 @@ spec:
           value: $(results.api-store-run.path)
         - name: API_SCOPE_WHY_RESULT
           value: $(results.api-scope-why.path)
+      volumeMounts:
+        - name: build-cache
+          mountPath: /ci-cache
       # Go runs as many tests at once as it has CPUs (GOMAXPROCS follows this
       # limit); most of them wait on the database above (R5:5.7 CI time).
       computeResources:
@@ -171,6 +185,32 @@ spec:
         case "${part}" in all|store|rest) ;; *) echo "unknown part ${part}"; exit 1 ;; esac
         STORE_PACKAGE=./internal/agentrt/store
         export LC_ALL=C
+        # CI-7: the build cache on ci-build-cache. GOCACHE holds compiled
+        # packages, vet results and test results; Go keys them by content, by
+        # the package directory (the workspace is /workspace/source in every
+        # run) and, for a test result, by the environment variables and files
+        # the test read (a file by its size and mtime, and a fresh clone gives
+        # every file a new mtime, so a test that opens checkout files reruns).
+        # go test has no -count=1, so a package whose inputs did not change
+        # reports (cached). Go trims GOCACHE itself: entries unused for 5 days
+        # go. The module cache is never trimmed, so it has a directory per
+        # month, and a run deletes only the months before last, which no
+        # running run uses. Nothing clears or locks the directory in use; Go's
+        # caches are safe for concurrent use by many go commands.
+        cache=/ci-cache/go
+        month="$(date -u +%Y-%m)"
+        year="${month%-*}" mon="${month#*-}"
+        if [ "${mon}" = 01 ]; then last="$((year - 1))-12"; else last="$(printf '%s-%02d' "${year}" "$((10#${mon} - 1))")"; fi
+        export GOCACHE="${cache}/build" GOMODCACHE="${cache}/mod/${month}"
+        mkdir -p "${GOCACHE}" "${GOMODCACHE}"
+        for old in "${cache}/mod"/*; do
+          case "${old##*/}" in "${month}"|"${last}") continue ;; esac
+          [ -d "${old}" ] || continue
+          echo "==> removing the module cache of ${old##*/}"
+          # Go writes the module cache read-only.
+          chmod -R u+w "${old}" 2>/dev/null || true
+          rm -rf "${old}" 2>/dev/null || true
+        done
         printf full > "$API_SCOPE_RESULT"
         for result in "$FAILED_TESTS_RESULT" "$API_PACKAGES_RESULT" "$API_STORE_RUN_RESULT" "$API_SCOPE_WHY_RESULT"; do
           : > "$result"
@@ -327,7 +367,7 @@ spec:
             fi
             echo "==> console scope: go test ${CONSOLE_SCOPE_PACKAGES}; no go vet (the Go code is main's)"
             # shellcheck disable=SC2086
-            go test ${CONSOLE_SCOPE_PACKAGES} -count=1 -timeout="${BIFROST_GO_TEST_TIMEOUT}"
+            go test ${CONSOLE_SCOPE_PACKAGES} -timeout="${BIFROST_GO_TEST_TIMEOUT}"
             echo "==> Go API tests passed (console scope)"
             exit 0
           fi
@@ -381,7 +421,7 @@ spec:
           cd api
           if [ "${part}" = store ]; then
             echo "==> go test ${STORE_PACKAGE} (part store); full: ${why}"
-            go test "${STORE_PACKAGE}" -count=1 -timeout="${BIFROST_GO_TEST_TIMEOUT}"
+            go test "${STORE_PACKAGE}" -timeout="${BIFROST_GO_TEST_TIMEOUT}"
             echo "==> Go API tests passed (part store)"
             exit 0
           fi
@@ -393,12 +433,12 @@ spec:
             packages="$(go list ./... | grep -vxF "${store_import}")"
             echo "==> go test: $(printf '%s\n' "${packages}" | wc -l | tr -d ' ') packages, every one but ${store_import} (part rest); full: ${why}"
             # shellcheck disable=SC2086
-            go test ${packages} -count=1 -timeout="${BIFROST_GO_TEST_TIMEOUT}"
+            go test ${packages} -timeout="${BIFROST_GO_TEST_TIMEOUT}"
             echo "==> Go API tests passed (part rest)"
             exit 0
           fi
           echo "==> go test ./... (full: ${why})"
-          go test ./... -count=1 -timeout="${BIFROST_GO_TEST_TIMEOUT}"
+          go test ./... -timeout="${BIFROST_GO_TEST_TIMEOUT}"
           echo "==> Go API tests passed"
           exit 0
         fi

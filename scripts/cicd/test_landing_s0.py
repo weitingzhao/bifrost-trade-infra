@@ -56,6 +56,32 @@ def test_t50_receives_a_pinned_baseline_before_api_tests():
     assert "when" not in legacy and "onError" not in legacy
 
 
+def test_build_cache_is_one_shared_claim_and_keys_on_the_database_version():
+    # CI-7: test-api, test-api-store and test-console mount the RWX claim ci-build-cache
+    # as a Task volume (no new Pipeline workspace), and go test caches results.
+    claim = yaml.safe_load((PIPELINE.parent / "pvc-ci-build-cache.yaml").read_text())
+    assert claim["kind"] == "PersistentVolumeClaim" and claim["metadata"]["name"] == "ci-build-cache"
+    assert claim["spec"]["accessModes"] == ["ReadWriteMany"] and claim["spec"]["storageClassName"] == "nfs-fast"
+    spec = pipeline()
+    assert [w["name"] for w in spec["workspaces"]] == ["source"]
+    tasks = {t["name"]: t for t in spec["tasks"]}
+    for name in ("test-api", "test-console"):
+        task = tasks[name]["taskSpec"]
+        volumes = {v["name"]: v for v in task["volumes"]}
+        assert volumes["build-cache"] == {"name": "build-cache", "persistentVolumeClaim": {"claimName": "ci-build-cache"}}
+        step = task["steps"][0]
+        assert {"name": "build-cache", "mountPath": "/ci-cache"} in step["volumeMounts"]
+        assert "/ci-cache/" in step["script"]
+    api = tasks["test-api"]["taskSpec"]
+    assert "-count=1" not in "\n".join(l for l in api["steps"][0]["script"].splitlines() if not l.strip().startswith("#"))
+    # A result Go cached against one Postgres must not answer for another: the
+    # sidecar's version is in the DSN the tests read.
+    image = next(s["image"] for s in api["sidecars"] if s["name"] == "postgres")
+    version = image.split(":", 1)[1].split("@", 1)[0]
+    env = {e["name"]: e.get("value") for e in api["steps"][0]["env"]}
+    assert env["AGENTRT_TEST_PG"].split()[-1] == "application_name=ci-pg" + version
+
+
 def test_vet_only_defect_stops_the_actual_ci_script(tmp_path):
     """Build and ordinary go test pass; full vet's lostcancel must stop CI.
 
@@ -84,6 +110,7 @@ def test_vet_only_defect_stops_the_actual_ci_script(tmp_path):
     spec = pipeline()
     task = next(t for t in spec["tasks"] if t["name"] == "test-api")
     script = task["taskSpec"]["steps"][0]["script"].replace("$(workspaces.source.path)", str(tmp_path))
+    script = script.replace("/ci-cache", str(tmp_path / "ci-cache"))
     r = subprocess.run(["bash"], input=script, cwd=api, env=env, capture_output=True, text=True)
     assert r.returncode != 0
     assert "cancel function" in r.stderr
@@ -196,6 +223,7 @@ esac
         path.chmod(0o755)
     task = next(t for t in pipeline()['tasks'] if t['name'] == 'test-api')
     script = task['taskSpec']['steps'][0]['script'].replace('$(workspaces.source.path)', str(tmp_path))
+    script = script.replace('/ci-cache', str(tmp_path / 'ci-cache'))
     env = {**os.environ, 'PATH': str(bins) + ':' + os.environ['PATH'],
            'GIT_CALLS': str(tmp_path / 'git-calls'), 'GO_CALLS': str(tmp_path / 'go-calls'), 'API_PART': 'rest'}
     paths = {}
@@ -226,8 +254,9 @@ esac
             assert run.returncode == 0, run.stdout + run.stderr
             assert packages == ''
             assert 'packages=github.com/' not in run.stdout
-            assert 'go test m/a -count=1' in go_calls
-            assert 'm/internal/agentrt/store -count' not in go_calls
+            # CI-7: no -count=1, so Go's test cache answers for unchanged packages.
+            assert 'go test m/a -timeout=' in go_calls and '-count' not in go_calls
+            assert 'm/internal/agentrt/store -timeout' not in go_calls
         else:
             assert run.returncode == 7, run.stdout + run.stderr
             assert len(packages.encode()) <= 1200
@@ -243,7 +272,7 @@ esac
                          env={**env, 'API_PART': 'store', 'LANDING_BASE': '', 'API_SCOPE_REQUEST': '',
                               'SELECTOR_CHANGED': '0', 'BASE_MISSING': '0', 'SELECTOR_STATUS': '7'})
     assert run.returncode == 0, run.stdout + run.stderr
-    assert 'go test ./internal/agentrt/store -count=1' in (tmp_path / 'go-calls').read_text()
+    assert 'go test ./internal/agentrt/store -timeout=' in (tmp_path / 'go-calls').read_text()
     assert 'packages=github.com/' not in run.stdout
     (scripts / 'test_api_scoped.sh').write_text('#!/bin/bash\necho "part=${API_SCOPED_PART:-none}"\nprintf incremental > "$API_SCOPE_RESULT"\n')
     for part in ('store', 'rest'):

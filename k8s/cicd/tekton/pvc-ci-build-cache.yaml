@@ -1,0 +1,34 @@
+# Build cache of bifrost-ci-platform (CI batch 1, CI-7): Go's build, vet and
+# test cache and module cache for test-api and test-api-store
+# (task-ci-platform-test-api.yaml), npm's download cache for test-console
+# (pipeline-ci-platform.yaml). The Tasks mount it as a Task volume, not as a
+# Pipeline workspace, so nothing that creates a bifrost-ci-platform run (the
+# trigger template, the platform's landing and full CI, B5) changes.
+#
+# The CI pods land on any amd64 node, so the claim is NFS (ReadWriteMany), not
+# local-path. Every run shares it at once; Go's and npm's caches are made for
+# concurrent use, and no step clears or locks the directory a run is using:
+# Go trims its build cache itself, the module and npm caches go by month and a
+# run deletes only the months before last (see the two Tasks).
+#
+# The size is a request, not a quota (nfs-subdir does not enforce it). Expected
+# use: Go build cache a few GB (5-day trim), one or two months of module cache
+# (about 1 GB each) and of npm cache (about 1 GB each).
+#
+# Not under Argo, and apply_manifest allows only Tekton objects in cicd: apply
+# it before the Tasks that mount it (a Pod whose claim is missing stays Pending).
+#   kubectl apply -f k8s/cicd/tekton/pvc-ci-build-cache.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ci-build-cache
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: ci-gate
+    bifrost.io/layer: L1
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: nfs-fast
+  resources:
+    requests:
+      storage: 40Gi
