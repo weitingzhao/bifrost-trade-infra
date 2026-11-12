@@ -3,15 +3,17 @@
 
 Argo CD applies k8s/overlays/platform-{stg,prod} with prune and selfHeal, so the
 ConfigMap cannot be generated only at deliver time: a file that is not in git is
-reverted or pruned. The copies stay in git, sync_platform_k8s_config.sh refreshes
-ops-context.yaml into both overlays, and this check fails when they drift.
+reverted or pruned. The copy stays in git, in the kustomize component
+k8s/components/platform-config that both overlays include;
+sync_platform_k8s_config.sh refreshes it, and this check fails when it drifts.
 
 Compares bytes, and prints the decisions[id → status] diff so a stale D10 is obvious.
 
 Also checks trust-overrides.yaml (W-32 B2): platform-api reads it from
 /app/config on every request, and a missing file silently drops every override
-(a demotion such as L0 is lost). Both overlay copies must equal the platform
-file and both configMapGenerators must list it.
+(a demotion such as L0 is lost). The component copy must equal the platform
+file, the component's configMapGenerator must list it, and both overlays must
+include the component.
 
 Also checks running-images.yaml (W-33) the same way: the Releases page reads
 which workloads to version from that file, and a missing ConfigMap entry makes
@@ -30,33 +32,37 @@ import re
 import sys
 
 INFRA = pathlib.Path(__file__).resolve().parent.parent
-COPIES = (
-    INFRA / "k8s" / "overlays" / "platform-stg" / "config" / "ops-context.yaml",
-    INFRA / "k8s" / "overlays" / "platform-prod" / "config" / "ops-context.yaml",
-)
+# The config files platform STG and PROD share live once, in this component.
+SHARED = INFRA / "k8s" / "components" / "platform-config"
+SHARED_KUSTOMIZATION = SHARED / "kustomization.yaml"
+COPIES = (SHARED / "config" / "ops-context.yaml",)
 
 
-TRUST_COPIES = (
-    INFRA / "k8s" / "overlays" / "platform-stg" / "config" / "trust-overrides.yaml",
-    INFRA / "k8s" / "overlays" / "platform-prod" / "config" / "trust-overrides.yaml",
-)
+TRUST_COPIES = (SHARED / "config" / "trust-overrides.yaml",)
 OVERLAY_KUSTOMIZATIONS = (
     INFRA / "k8s" / "overlays" / "platform-stg" / "kustomization.yaml",
     INFRA / "k8s" / "overlays" / "platform-prod" / "kustomization.yaml",
 )
-RUNNING_COPIES = (
-    INFRA / "k8s" / "overlays" / "platform-stg" / "config" / "running-images.yaml",
-    INFRA / "k8s" / "overlays" / "platform-prod" / "config" / "running-images.yaml",
-)
+RUNNING_COPIES = (SHARED / "config" / "running-images.yaml",)
 ACTUATION_COPIES = (
-    INFRA / "k8s" / "overlays" / "platform-stg" / "config" / "actuation-policy.yaml",
-    INFRA / "k8s" / "overlays" / "platform-prod" / "config" / "actuation-policy.yaml",
+    SHARED / "config" / "actuation-policy.yaml",
     INFRA / "k8s" / "cicd" / "tekton" / "apply-manifest" / "actuation-policy.yaml",
 )
 
 
+def check_shipped(name: str) -> list[str]:
+    """The component's generator lists config/<name> and both overlays include it."""
+    problems: list[str] = []
+    if f"- config/{name}" not in SHARED_KUSTOMIZATION.read_text():
+        problems.append(f"{SHARED_KUSTOMIZATION.relative_to(INFRA)} configMapGenerator does not list config/{name}")
+    for kust in OVERLAY_KUSTOMIZATIONS:
+        if "- ../../components/platform-config" not in kust.read_text():
+            problems.append(f"{kust.relative_to(INFRA)} does not include components/platform-config")
+    return problems
+
+
 def check_trust_overrides(source: pathlib.Path) -> list[str]:
-    """Overlay copies equal the platform file and every generator ships it."""
+    """The component copy equals the platform file and both overlays ship it."""
     if not source.is_file():
         return [f"missing source {source}"]
     problems: list[str] = []
@@ -66,14 +72,11 @@ def check_trust_overrides(source: pathlib.Path) -> list[str]:
             problems.append(f"missing copy {copy.relative_to(INFRA)}")
         elif copy.read_bytes() != src_bytes:
             problems.append(f"{copy.relative_to(INFRA)} is not byte-identical to {source}")
-    for kust in OVERLAY_KUSTOMIZATIONS:
-        if "- config/trust-overrides.yaml" not in kust.read_text():
-            problems.append(f"{kust.relative_to(INFRA)} configMapGenerator does not list config/trust-overrides.yaml")
-    return problems
+    return problems + check_shipped("trust-overrides.yaml")
 
 
 def check_running_images(source: pathlib.Path) -> list[str]:
-    """Overlay copies equal the platform file and every generator ships it."""
+    """The component copy equals the platform file and both overlays ship it."""
     if not source.is_file():
         return [f"missing source {source}"]
     problems: list[str] = []
@@ -83,14 +86,11 @@ def check_running_images(source: pathlib.Path) -> list[str]:
             problems.append(f"missing copy {copy.relative_to(INFRA)}")
         elif copy.read_bytes() != src_bytes:
             problems.append(f"{copy.relative_to(INFRA)} is not byte-identical to {source}")
-    for kust in OVERLAY_KUSTOMIZATIONS:
-        if "- config/running-images.yaml" not in kust.read_text():
-            problems.append(f"{kust.relative_to(INFRA)} configMapGenerator does not list config/running-images.yaml")
-    return problems
+    return problems + check_shipped("running-images.yaml")
 
 
 def check_actuation_policy(source: pathlib.Path) -> list[str]:
-    """Overlay and Tekton copies equal the platform file, and both generators ship it."""
+    """Component and Tekton copies equal the platform file, and both overlays ship it."""
     if not source.is_file():
         return [f"missing source {source}"]
     problems: list[str] = []
@@ -100,10 +100,7 @@ def check_actuation_policy(source: pathlib.Path) -> list[str]:
             problems.append(f"missing copy {copy.relative_to(INFRA)}")
         elif copy.read_bytes() != src_bytes:
             problems.append(f"{copy.relative_to(INFRA)} is not byte-identical to {source}")
-    for kust in OVERLAY_KUSTOMIZATIONS:
-        if "- config/actuation-policy.yaml" not in kust.read_text():
-            problems.append(f"{kust.relative_to(INFRA)} configMapGenerator does not list config/actuation-policy.yaml")
-    return problems
+    return problems + check_shipped("actuation-policy.yaml")
 
 
 def decisions(text: str) -> dict[str, str]:

@@ -18,8 +18,7 @@ FREEZE_DIR = ROOT / "k8s" / "release-freeze"
 WINDOW = ROOT / "k8s" / "cicd" / "tekton" / "task-release-window.yaml"
 POLICY_PATHS = [
     ROOT / "k8s" / "cicd" / "tekton" / "apply-manifest" / "actuation-policy.yaml",
-    ROOT / "k8s" / "overlays" / "platform-prod" / "config" / "actuation-policy.yaml",
-    ROOT / "k8s" / "overlays" / "platform-stg" / "config" / "actuation-policy.yaml",
+    ROOT / "k8s" / "components" / "platform-config" / "config" / "actuation-policy.yaml",
 ]
 EXPECTED_NAMES = {
     "crd.yaml",

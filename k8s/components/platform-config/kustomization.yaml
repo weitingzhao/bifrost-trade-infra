@@ -1,0 +1,26 @@
+# The part of ConfigMap bifrost-platform-config that is the same document in
+# platform STG and PROD: one copy of each bifrost-platform config/ file, which
+# scripts/sync_platform_k8s_config.sh refreshes and
+# scripts/check_ops_context_parity.py compares with platform main (TD-109).
+# Each platform overlay generates the ConfigMap with its own environments,
+# clusters and platform-auth; this component merges the shared files into it.
+# Kustomize >= 5.1 runs a kustomization's own generators before its components
+# (kubectl 1.31 in the ci-infra tools image, Argo CD 3.4 both qualify), so
+# `behavior: merge` finds the overlay's ConfigMap.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+configMapGenerator:
+  - name: bifrost-platform-config
+    behavior: merge
+    files:
+      - config/topology.yaml
+      - config/ops-context.yaml
+      - config/agent-tasks.yaml
+      - config/sessions-catalog.yaml
+      - config/release-rules.yaml
+      - config/trust-overrides.yaml
+      - config/running-images.yaml
+      - config/actuation-policy.yaml
+    options:
+      disableNameSuffixHash: true

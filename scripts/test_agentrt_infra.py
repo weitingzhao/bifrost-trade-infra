@@ -118,7 +118,7 @@ class AgentRuntimeInfraTests(unittest.TestCase):
                                      str(path.relative_to(ROOT)))
 
     def test_job_policy_allows_default_sa_in_both_namespaces(self):
-        policy = docs("k8s/overlays/platform-prod/config/actuation-policy.yaml")[0]
+        policy = docs("k8s/components/platform-config/config/actuation-policy.yaml")[0]
         self.assertEqual(policy["jobs"]["namespaces"]["bifrost-platform-prod"], "C")
         self.assertEqual(policy["jobs"]["namespaces"]["bifrost-platform-stg"], "B")
         self.assertIn("default", policy["admission"]["job_service_accounts"])

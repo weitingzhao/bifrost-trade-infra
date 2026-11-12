@@ -11,20 +11,17 @@ resources:
   - sa-kubeconfig.yaml
   - redis-agents.yaml
 
+# The config files both environments share come from the component; this
+# overlay generates the ConfigMap with the ones that differ per environment.
+components:
+  - ../../components/platform-config
+
 configMapGenerator:
   - name: bifrost-platform-config
     files:
       - config/environments.yaml
       - config/clusters.yaml
-      - config/topology.yaml
-      - config/ops-context.yaml
-      - config/agent-tasks.yaml
       - config/platform-auth.yaml
-      - config/sessions-catalog.yaml
-      - config/release-rules.yaml
-      - config/trust-overrides.yaml
-      - config/running-images.yaml
-      - config/actuation-policy.yaml
     options:
       disableNameSuffixHash: true
   # PROD-only patrol skill set. Hashed name, so a skill change rolls both

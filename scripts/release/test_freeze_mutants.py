@@ -21,8 +21,7 @@ COPY_PATHS = [
     "k8s/release-freeze",
     "k8s/cicd/tekton/task-release-window.yaml",
     "k8s/cicd/tekton/apply-manifest/actuation-policy.yaml",
-    "k8s/overlays/platform-prod/config/actuation-policy.yaml",
-    "k8s/overlays/platform-stg/config/actuation-policy.yaml",
+    "k8s/components/platform-config/config/actuation-policy.yaml",
     "scripts/release",
 ]
 
