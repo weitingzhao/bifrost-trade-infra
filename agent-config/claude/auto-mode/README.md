@@ -52,8 +52,8 @@ claude auto-mode critique   # AI 点评自定义规则（要求 claude CLI 已�
 
 - spine D10 → `UNLOCKED` 时：删掉 `hard_deny` 里的 "D10 Trade-Execution Freeze" 条目（与 `CLAUDE.md` §3、`preflight.js` 同步解冻）。
 - 节点、NodePort、Argo 同步策略、命名空间变化：先改 `AGENT_FACTS.md` §8c，再同步这里的 `environment`。
-- 这是 Claude 专属的 harness 强制层，Cursor 侧无对应文件，不做 parity；但**内容必须与** `AGENT_FACTS.md` /
-  `CLAUDE.md` / `trade-execution-freeze.mdc` 一致。
+- 这是 Claude 专属的 harness 强制层（工作区级的 Cursor 一侧已在 2026-11-12 删除）；**内容必须与** `AGENT_FACTS.md` /
+  `CLAUDE.md` 一致。
 
 ## 已知限制
 

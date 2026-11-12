@@ -8,7 +8,7 @@
   ],
   "soft_deny": [
     "$defaults",
-    "Kubernetes Deletes: `kubectl delete` of any live object and the MCP tools delete_pod / delete_pipeline_run / drain_node — propose first; the home cluster has single-node PROD placement and one shared database cluster.",
+    "Kubernetes Deletes: `kubectl delete` of any live object — propose first; the home cluster has single-node PROD placement and one shared database cluster.",
     "Database Dumps & Restores: `pg_dump` / `pg_restore` / `psql -f` against any bifrost_* database — a dump is the owner's brokerage data, and a restore into the wrong target is unrecoverable."
   ]
 }
