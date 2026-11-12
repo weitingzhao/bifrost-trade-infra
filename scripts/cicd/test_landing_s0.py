@@ -74,7 +74,9 @@ def test_build_cache_is_one_shared_claim_and_keys_on_the_database_version():
         assert "/ci-cache/" in step["script"]
     api = tasks["test-api"]["taskSpec"]
     code = [l.strip() for l in api["steps"][0]["script"].splitlines() if not l.strip().startswith("#")]
-    assert not [l for l in code if "-count=1" in l]
+    # No go test line forces a rerun; only the daily full CI does, through GOFLAGS.
+    assert not [l for l in code if "go test" in l and "-count" in l]
+    assert [l for l in code if "-count=1" in l] == ['export BIFROST_SLOW_TESTS=1 GOFLAGS="${GOFLAGS:+${GOFLAGS} }-count=1"']
     # A result Go cached against one Postgres must not answer for another: the
     # sidecar's version is in the DSN the tests read.
     image = next(s["image"] for s in api["sidecars"] if s["name"] == "postgres")
@@ -254,7 +256,7 @@ exit "${SELECTOR_STATUS:-0}"
     bins.mkdir()
     (bins / 'go').write_text('''#!/bin/bash
 echo "go $*" >> "$GO_CALLS"
-echo "slow=${BIFROST_SLOW_TESTS:-}" >> "$GO_CALLS.env"
+echo "slow=${BIFROST_SLOW_TESTS:-} goflags=${GOFLAGS:-}" >> "$GO_CALLS.env"
 if [ "$1" = list ]; then
   if [ "$2" = ./internal/agentrt/store ]; then echo m/internal/agentrt/store; else printf 'm/a\\nm/internal/agentrt/store\\n'; fi
 fi
@@ -274,7 +276,7 @@ esac
     script = task['taskSpec']['steps'][0]['script'].replace('$(workspaces.source.path)', str(tmp_path))
     script = script.replace('/ci-cache', str(tmp_path / 'ci-cache'))
     env = {**os.environ, 'PATH': str(bins) + ':' + os.environ['PATH'],
-           'GIT_CALLS': str(tmp_path / 'git-calls'), 'GO_CALLS': str(tmp_path / 'go-calls'), 'API_PART': 'rest'}
+           'GIT_CALLS': str(tmp_path / 'git-calls'), 'GO_CALLS': str(tmp_path / 'go-calls'), 'API_PART': 'rest', 'GOFLAGS': ''}
     paths = {}
     for name in ('API_SCOPE', 'FAILED_TESTS', 'API_PACKAGES', 'API_STORE_RUN', 'API_SCOPE_WHY'):
         paths[name] = tmp_path / name
@@ -298,9 +300,11 @@ esac
         assert 'github.com/' not in packages
         assert sum(len(p.read_bytes()) for p in paths.values()) <= 4096 - 512
         go_calls = (tmp_path / 'go-calls').read_text()
-        # Only the daily full CI (api-scope-request=full) runs the slow tests.
-        slow = set((tmp_path / 'go-calls.env').read_text().split())
-        assert slow == ({'slow=1'} if request == 'full' else {'slow='}), (request, slow)
+        # Only the daily full CI (api-scope-request=full) runs the slow tests, and
+        # it runs every test afresh (-count=1); other runs may take cached results.
+        seen = set((tmp_path / 'go-calls.env').read_text().splitlines())
+        want = {'slow=1 goflags=-count=1'} if request == 'full' else {'slow= goflags='}
+        assert seen == want, (request, seen)
         (tmp_path / 'go-calls.env').write_text('')
         if scope == 'full':
             # A full run keeps the split: part rest tests every package but
