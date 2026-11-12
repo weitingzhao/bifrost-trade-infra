@@ -504,9 +504,7 @@ def claim_ready(root,repo,env,git,run,args,base,commit):
         p=run(*args,success=False,extra={'TEST_CLAIMS':json.dumps(replies),
             'HANDIN_READY_TIMEOUT_SECONDS':'2','TEST_REAL_WAIT':'1' if len(replies)==1 else ''})
         # The stopwatch starts at the first claim, where the deadline starts:
-        # the reads before it (the task, its mission's landing and tasks, one
-        # hand-in per repository, R5:5.6-2) are not part of the wait, and under
-        # a loaded host they alone took a second (push-main, 8 files at a time).
+        # anything read before it is not part of the wait.
         elapsed=time.time()-float((root/'claim-started').read_text())
         # Bash SECONDS has one-second granularity; the deadline may be
         # reached up to one second earlier than a monotonic stopwatch.
@@ -586,44 +584,19 @@ def plan_node(root,repo,env,git,run,args,base,commit):
     run(*common,'--plan-node',success=False)
     assert before==(root/'calls').read_text(), 'an invalid step made an HTTP request'
 
-def one_per_repo(root,repo,env,git,run,args,base,commit):
-    # R5:5.6-2: a run is refused while another hand-in of the same repository
-    # and mission is on its way, before anything is bound; --allow-parallel
-    # with a reason lets it go on. A refused run reaches no claim and saves
-    # no binding.
+def parallel_handins(root,repo,env,git,run,args,base,commit):
+    # Cleanup wave 1 (2026-11-11) removed the one-hand-in-per-repository gate
+    # (R5:5.6-2): another hand-in of the same repository and mission on its way
+    # no longer stops a run, and --allow-parallel is accepted and ignored.
     other='t_'+'0'*25+'2'
     unresolved=json.dumps({'roots':[{'repo':'bifrost-platform','root':other,'class':'unresolved','reason':'awaiting_grant'}]})
-    on_stg=json.dumps({'roots':[{'repo':'bifrost-platform','root':other,'class':'unresolved','reason':'stg_running'}]})
     verifying=json.dumps({'tasks':[{'task_id':other,'repo':'bifrost-platform','role':'implement','subject_task_id':None,
         'executor_pin':'external:coordinator','state':'verifying'}]})
     def claims(): return [c for c in (json.loads(l) for l in (root/'calls').read_text().splitlines()) if c[-1].endswith('/claim/pinned')] if (root/'calls').exists() else []
-    for name,extra in (('landing view',{'TEST_LANDING_ROOTS':unresolved}),('on STG',{'TEST_LANDING_ROOTS':on_stg}),('open task',{'TEST_MISSION_TASKS':verifying})):
-        p=run(*args,success=False,extra=extra)
-        assert 'already has a hand-in on its way' in p.stderr and other in p.stderr and '--allow-parallel' in p.stderr, (name,p.stderr)
-        assert claims()==[], name
-    # Nothing was bound: the same key with another report is not "bound to a different report".
-    (root/'report2').write_text('another report\n')
-    other_report=[a if a!=str(root/'report') else str(root/'report2') for a in args]
-    p=run(*other_report,success=False,extra={'TEST_CLAIM_ERROR':'1'})
-    assert 'bound to a different report' not in p.stderr and 'no_lease' in p.stderr and len(claims())==1, p.stderr
-    args=other_report  # the key is bound to the second report from here on
-    # With a reason it goes on to the claim (stopped there by the fixture's no_lease).
+    p=run(*args,success=False,extra={'TEST_LANDING_ROOTS':unresolved,'TEST_MISSION_TASKS':verifying,'TEST_CLAIM_ERROR':'1'})
+    assert 'on its way' not in p.stderr and 'no_lease' in p.stderr and len(claims())==1, p.stderr
     p=run(*args,'--allow-parallel','two independent fixes',success=False,extra={'TEST_LANDING_ROOTS':unresolved,'TEST_CLAIM_ERROR':'1'})
-    assert 'going on in parallel: two independent fixes' in p.stderr and 'no_lease' in p.stderr and len(claims())==2
-    # Not on its way: another repository, a delivered root, a root landed that waits only for the mission's closing
-    # re-read of main (11-05, M-303), this task itself, an accepted or a checker task.
-    calm=json.dumps({'roots':[{'repo':'bifrost-trade-infra','root':other,'class':'unresolved'},{'repo':'bifrost-platform','root':other,'class':'delivered'},
-        {'repo':'bifrost-platform','root':other,'class':'unresolved','reason':'evidence','needs_evidence':True},
-        {'repo':'bifrost-platform','root':'t_'+'0'*25+'4','class':'unresolved','reason':'landed_unverified','needs_evidence':False},
-        {'repo':'bifrost-platform','root':task,'class':'unresolved'}]})
-    done=json.dumps({'tasks':[{'task_id':other,'repo':'bifrost-platform','role':'implement','subject_task_id':None,'executor_pin':'external:coordinator','state':'accepted'},
-        {'task_id':'t_'+'0'*25+'3','repo':'bifrost-platform','role':'review','subject_task_id':other,'executor_pin':None,'state':'running'},
-        {'task_id':task,'repo':'bifrost-platform','role':'implement','subject_task_id':None,'executor_pin':'external:coordinator','state':'ready'}]})
-    p=run(*args,success=False,extra={'TEST_LANDING_ROOTS':calm,'TEST_MISSION_TASKS':done,'TEST_CLAIM_ERROR':'1'})
-    assert 'on its way' not in p.stderr and 'no_lease' in p.stderr and len(claims())==3, p.stderr
-    # A landing view that cannot be read stops the run; it is never read as "nothing on its way".
-    p=run(*args,success=False,extra={'TEST_LANDING_CODE':'503'})
-    assert 'read the landing status of M-1: HTTP 503' in p.stderr and len(claims())==3, p.stderr
+    assert 'unknown' not in p.stderr and 'no_lease' in p.stderr and len(claims())==2, p.stderr
 
-for name,fn in [('B-03',http),('R-03',squash),('TD-458-squash',squash_attempts),('TD-458-prepared',squash_prepared),('TD-458-prepared-identity',squash_prepared_identity),('TD-458-legacy-identity',squash_legacy_identity),('R-04',recovery),('R-05',cleanup),('R-01-push',push_cleanup),('N-01',tokens),('N-02',refresh),('C-7-claim',claim_error),('TD-458-ready',claim_ready),('C-7-material',material),('D5-plan-node',plan_node),('5.6-2-one-per-repo',one_per_repo)]: test(name,fn)
+for name,fn in [('B-03',http),('R-03',squash),('TD-458-squash',squash_attempts),('TD-458-prepared',squash_prepared),('TD-458-prepared-identity',squash_prepared_identity),('TD-458-legacy-identity',squash_legacy_identity),('R-04',recovery),('R-05',cleanup),('R-01-push',push_cleanup),('N-01',tokens),('N-02',refresh),('C-7-claim',claim_error),('TD-458-ready',claim_ready),('C-7-material',material),('D5-plan-node',plan_node),('wave1-parallel-handins',parallel_handins)]: test(name,fn)
 PY

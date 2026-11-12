@@ -16,8 +16,6 @@
 #       Keep N on interrupted retries; earlier recovery messages remain intact.
 #       Every attempt keeps the first saved task identity, including prepared commits.
 #   handin.sh run --task t_… --report FILE --remote REMOTE [--key K] [--commit SHA]
-#       [--allow-parallel REASON]: refused while another hand-in of the same repository
-#       and mission is on its way (R5:5.6-2), unless a reason is given.
 #       claim/pinned, upload the report, start, computed, push the commit to
 #       the branch the platform gave, persist, submit; the lease is renewed
 #       every 60 s until it ends. A step whose answer is lost is sent again as
@@ -37,7 +35,7 @@
 # files under ~/.config/bifrost (HANDIN_AGENTD_TOKEN_FILE / HANDIN_PROPOSER_TOKEN_FILE).
 #   PLATFORM_AGENTRT_URL                platform-api base (default: the PROD VIP NodePort)
 #   HANDIN_HOST                         the external host (default: coordinator-mbp)
-#   HANDIN_READY_TIMEOUT_SECONDS        proposed-task wait limit (1..120, default: 120)
+#   HANDIN_READY_TIMEOUT_SECONDS        proposed-task wait limit in seconds (default: 120)
 #   AGENTRT_COORDINATOR_AGENTD_TOKEN    the execution principal agentd:coordinator-mbp
 #   AGENTRT_COORDINATOR_PROPOSER_TOKEN  the proposer seat seat:coordinator (propose only)
 # Refuse tracing before the first credential expansion, including a separate
@@ -362,46 +360,8 @@ valid_message() {
     printf '%s\n' "$message" | grep -qiE '^Change-Id:[[:space:]]*I[0-9a-f]{40}[[:space:]]*$'
 }
 
-# One hand-in per repository at a time (R5:5.6-2, the debt paydown plan D3
-# of 2026-11-05): a hand-in started while another of the same repository is
-# still on its way waits for a grant while the first one lands, main moves
-# under it, and its landing is discarded and asked for again (30 discarded
-# operations, 49.4 h of the 109.3 h spent waiting for grants, 10-22..11-05).
-# On its way: another task of the same repository and mission that the
-# landing view still counts unresolved, or that is not accepted yet. Read
-# before anything is bound, so a refusal leaves nothing to clean up.
-one_per_repo() {
-  local task="$1" allow="$2" repo mission busy
-  call agentd GET "/tasks/$task" ''
-  ok || die "run: read task: HTTP $CODE"
-  repo=$(printf '%s' "$RESPONSE" | jq -r '.repo // ""')
-  mission=$(printf '%s' "$RESPONSE" | jq -r '.mission_id // ""')
-  [ -n "$repo" ] && [ -n "$mission" ] || die 'run: the task names no repository or mission'
-  call agentd GET "/landing/missions/$mission" ''
-  ok || die "run: read the landing status of $mission: HTTP $CODE"
-  # A root that has landed and waits only for the mission's closing re-read of
-  # main (needs_evidence, or landed_unverified) is not on its way: that read
-  # comes when the mission closes, and the mission waits for its other slices
-  # (11-05: M-303's second slice was held behind its first, landed and on STG).
-  busy=$(printf '%s' "$RESPONSE" | jq -r --arg t "$task" --arg r "$repo" \
-    '[.roots[]? | select(.repo == $r and .root != $t and .class == "unresolved"
-      and .needs_evidence != true and .reason != "landed_unverified") | "\(.root) (\(.reason // "unresolved"))"] | join(", ")')
-  call agentd GET "/tasks?mission=$mission" ''
-  ok || die "run: read the tasks of $mission: HTTP $CODE"
-  busy=$(printf '%s' "$RESPONSE" | jq -r --arg t "$task" --arg r "$repo" --arg b "$busy" \
-    '[.tasks[]? | select(.repo == $r and .task_id != $t and .role == "implement" and .subject_task_id == null
-      and .executor_pin == "external:coordinator" and (.state | IN("accepted", "cancelled", "rejected") | not))
-      | "\(.task_id) (\(.state))"] as $open | ([$b] | map(select(. != "")) + $open) | join(", ")')
-  [ -z "$busy" ] && return 0
-  if [ -n "$allow" ]; then
-    printf 'handin: run: %s already has a hand-in on its way (%s); going on in parallel: %s\n' "$repo" "$busy" "$allow" >&2
-    return 0
-  fi
-  die "run: $repo already has a hand-in on its way: $busy. One per repository at a time (R5:5.6-2): wait for it to land, or pass --allow-parallel <reason>"
-}
-
 cmd_run() {
-  local task="" report="" remote="" key="" commit="" allow_parallel=""
+  local task="" report="" remote="" key="" commit=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --task) task="$2"; shift 2 ;;
@@ -409,13 +369,14 @@ cmd_run() {
       --remote) remote="$2"; shift 2 ;;
       --key) key="$2"; shift 2 ;;
       --commit) commit="$2"; shift 2 ;;
-      --allow-parallel) allow_parallel="$2"; shift 2 ;;
+      # The one-hand-in-per-repository gate (R5:5.6-2) was removed in cleanup
+      # wave 1 (2026-11-11); the flag stays accepted so existing callers work.
+      --allow-parallel) shift 2 ;;
       *) die "run: unknown $1" ;;
     esac
   done
   [ -n "$task" ] && [ -f "$report" ] && [ -n "$remote" ] || die 'run: --task, --report FILE and --remote are required'
   [ -n "$key" ] || key="$task:1"
-  one_per_repo "$task" "$allow_parallel"
   local sum binding saved base parents attempt epoch ref fence doc state
   sum="sha256:$(shasum -a 256 "$report" | cut -d' ' -f1)"
   binding=$(printf '%s\n' "$BASE_URL" "$HOST" "$task" "$key" | shasum -a 256 | cut -d' ' -f1)
@@ -505,7 +466,7 @@ cmd_run() {
 # body/key, and keep the sleep interruptible through the normal cleanup path.
 claim_pinned() {
   local body="$1" timeout="${HANDIN_READY_TIMEOUT_SECONDS:-120}" delay=1 remaining proposed_error=""
-  [[ "$timeout" =~ ^[1-9][0-9]{0,2}$ ]] && [ "$timeout" -le 120 ] || die 'run: HANDIN_READY_TIMEOUT_SECONDS must be in 1..120'
+  [[ "$timeout" =~ ^[1-9][0-9]*$ ]] || die 'run: HANDIN_READY_TIMEOUT_SECONDS must be a positive number of seconds'
   local call_deadline=$((SECONDS + timeout))
   while true; do
     call agentd POST /claim/pinned "$body"
