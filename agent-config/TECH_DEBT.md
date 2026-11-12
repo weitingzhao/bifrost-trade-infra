@@ -13,6 +13,7 @@
 
 ## 待你签收
 
+- **TD-535** — push-main 进入时把环境里的 git 配置（`GIT_CONFIG_COUNT` / `KEY_*` / `VALUE_*` / `PARAMETERS`，即你推 main 时的 pushurl 覆盖）存起来并清掉，fetch、扫描、推前测试都在干净环境里跑，只在读推送地址和最后那次推送时还回去（infra `c00c1e85`）。验收：PASS 2026-11-12 `c00c1e85`，带覆盖与不带覆盖跑 `test_push_main.py` 都是 68 passed，`scripts/release` 全量 42 / 42。防线：`test_push_main.py` 两条新测试（`RATCHETS.md`「push-main 的推前测试与扫描看不到环境里的 git 配置（TD-535）」），对修复前的脚本都红。后续：无后续：你下次带覆盖推 main 不用再加 `--skip-tests`，那次就是实推确认。
 - **TD-298** — 工作区级的 Cursor 一侧在清理第 2 波（2026-11-12）整体删除（rules、skills、hooks 模板、`install-hooks.py`、`install-mcp.py`），这一条要守的「Cursor 真的加载 preflight」没有对象了。验收：无（对象已删）；`bash scripts/check-governance-consistency.sh` 不再有 Cursor 段。防线：RATCHETS「Cursor 真的加载 preflight（TD-298）」一行随之删除，没有替代：仓库里不再有 Cursor 配置可查。后续：无后续：Cursor 不再是受治理的工作区 Agent（06 上 agentd 的 `exec:cursor` 在单仓 checkout 里跑，另有 Landlock 写墙）。
 - **TD-288** — 01（唯一控制面）10-10 01:18Z 计划外重启后观察 30 天，没有复发：当前开机时间仍是 10-10 05:36:03Z 那次计划内滚动重启。验收：PASS 2026-11-09 `e8768d63`，开机时间变化 0、计划内 0、计划外 0；Prometheus 历史只到 10-30 06:00Z（retention 10d），更早一段由当前开机时间直接证明。防线：`BifrostNodeUnexpectedReboot`（`RATCHETS.md`「节点非计划重启呼 Owner」，W-38 `c5c5f36b`，`make check-alert-rules` 通过）。后续：无后续：原因未知但告警已在，再出现会呼你，读日志步骤写在条目 Fix 里。
 - **TD-473** — Dagster daemon 不再自己当 PID 1：两个 Pod 共享进程命名空间，由 pause 回收孤儿；run 进 `QueuedRunCoordinator` 队列，同时最多 2 个（research `badd5d6`，#255 上线，字段归属转给 `bifrost-applier`，以后改 dagster.yaml 可走 apply_manifest）。验收：PASS 2026-11-02，一小时后僵尸 0，补跑 42 个同时最多 2 个、0 重启、内存峰值 2.27 GB。防线：`RATCHETS.md`「Dagster Pod 有回收孤儿的 PID 1，run 排队有上限」。后续：提议的 pids 占比告警没做（要改 research-api 指标和告警规则，你定要不要）；10-30 的 option_daily 与分钟线由周二 00:45 UTC 自愈按日期回补；`depth_holes:option_daily` 另案（任务卡 task_da77aa95）。
@@ -3590,7 +3591,8 @@
 
 **P2 · cicd · push-main.sh 跑测试前没有清掉 GIT_CONFIG_*：Owner 用 pushurl 覆盖推 platform 时，覆盖泄进 test_push_main 的夹具推送，16 个测试红**
 
-- **状态**：未开始（2026-11-11 记，统筹实测）。
+- **状态**：待你签收（2026-11-12，infra `c00c1e85`：push-main 进入时把 `GIT_CONFIG_COUNT`、`GIT_CONFIG_KEY_*`、`GIT_CONFIG_VALUE_*`、`GIT_CONFIG_PARAMETERS` 存起来并从环境里清掉；fetch、干净工作树、code-health 扫描、推前测试、共享 checkout 跟进都在清掉后的环境里跑；只有两条与推送本身有关的 git 命令拿回它们：Gitea 为主检查读 origin 的推送地址（判断推到哪里），和最后的 `push origin <commit>:refs/heads/main`。`push_main_tests.py` 不用改：它从 push-main 继承的环境里已经没有这些变量。此前：未开始（2026-11-11 记，统筹实测））。
+- **验收结果**：PASS 2026-11-12 `c00c1e85`：带覆盖（`GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=remote.origin.pushurl GIT_CONFIG_VALUE_0=http://invalid.example/x.git`）跑 `python3 -m pytest scripts/release/test_push_main.py -q` 68 passed，不带覆盖 68 passed；`python3 scripts/release/push_main_tests.py scripts/release` 42 / 42 runs passed（32 个文件）。两条新测试对着修复前的 push-main.sh 都红（阳性对照）。Owner 实推 platform 不加 `--skip-tests` 的那次还没发生，下次推时即是实推确认。
 - **证据**：
   - 11-11 Owner 按记忆 owner_push_main_platform 的做法，在命令前加 `GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=remote.origin.pushurl GIT_CONFIG_VALUE_0=http://weitingzhao@…` 推 platform。
   - 这组环境变量被 push-main 原样传给测试：`scripts/release/push-main.sh:390` 直接 `python3 push_main_tests.py`。测试里夹具仓库的 `git push` 被改写成推往真实 Gitea 地址，test_push_main 16 个测试红。
@@ -3599,8 +3601,8 @@
   - Owner 只要按规定用账号覆盖去推，就跑不了推前测试，只能跳过；
   - 夹具推送有可能真的打到 Gitea。
 - **修法**：push-main 在建测试工作树、跑测试（以及 code-health 扫描）之前，`unset` 所有 `GIT_CONFIG_COUNT` 和 `GIT_CONFIG_KEY_*`、`GIT_CONFIG_VALUE_*`，只在最后 `git push` 那一步保留。另外，`push_main_tests.py` 起子进程时用干净的 git 环境。
-- **防线**：`scripts/release/test_push_main.py` 加一条：带着 pushurl 覆盖调用 push-main 的测试阶段时，夹具推送仍然推到夹具仓库，16 个测试照常通过。
-- **验收**：Owner 带覆盖推一次 platform，不加 `--skip-tests`，测试全过。
+- **防线**：`scripts/release/test_push_main.py`：`test_git_config_in_the_environment_reaches_only_the_push`（git 包装器记下每次调用：只有读推送地址和最后的推送看得到覆盖，扫描看不到，推送落在覆盖指向的裸仓库）、`test_the_tests_run_without_the_environments_git_config`（推前测试里种一个测试，它推自己的夹具裸仓库并断言环境里没有 `GIT_CONFIG_*`）；模块本身也清掉这些变量，直接带覆盖跑这个文件也全过。登记在 `RATCHETS.md`「push-main 的推前测试与扫描看不到环境里的 git 配置（TD-535）」。
+- **验收**：在 infra 根带覆盖跑 `env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=remote.origin.pushurl GIT_CONFIG_VALUE_0=http://invalid.example/x.git python3 -m pytest scripts/release/test_push_main.py -q`，全过（只跑测试，不推任何东西）；实推确认：Owner 带覆盖推一次 platform，不加 `--skip-tests`，测试全过。
 
 ### TD-488
 
