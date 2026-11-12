@@ -4,7 +4,6 @@ description: >-
   Owner-triggered batch execution protocol — orchestrate all program phases via
   subagents with global QA and a structured Batch Execution Report. Use when Owner
   says 批量执行, batch execute, or confirms batch mode for a delivery program.
-parity-id: batch-execution-v2
 ---
 
 # Batch Execution Protocol

@@ -13,6 +13,7 @@
 
 ## 待你签收
 
+- **TD-298** — 工作区级的 Cursor 一侧在清理第 2 波（2026-11-12）整体删除（rules、skills、hooks 模板、`install-hooks.py`、`install-mcp.py`），这一条要守的「Cursor 真的加载 preflight」没有对象了。验收：无（对象已删）；`bash scripts/check-governance-consistency.sh` 不再有 Cursor 段。防线：RATCHETS「Cursor 真的加载 preflight（TD-298）」一行随之删除，没有替代：仓库里不再有 Cursor 配置可查。后续：无后续：Cursor 不再是受治理的工作区 Agent（06 上 agentd 的 `exec:cursor` 在单仓 checkout 里跑，另有 Landlock 写墙）。
 - **TD-288** — 01（唯一控制面）10-10 01:18Z 计划外重启后观察 30 天，没有复发：当前开机时间仍是 10-10 05:36:03Z 那次计划内滚动重启。验收：PASS 2026-11-09 `e8768d63`，开机时间变化 0、计划内 0、计划外 0；Prometheus 历史只到 10-30 06:00Z（retention 10d），更早一段由当前开机时间直接证明。防线：`BifrostNodeUnexpectedReboot`（`RATCHETS.md`「节点非计划重启呼 Owner」，W-38 `c5c5f36b`，`make check-alert-rules` 通过）。后续：无后续：原因未知但告警已在，再出现会呼你，读日志步骤写在条目 Fix 里。
 - **TD-473** — Dagster daemon 不再自己当 PID 1：两个 Pod 共享进程命名空间，由 pause 回收孤儿；run 进 `QueuedRunCoordinator` 队列，同时最多 2 个（research `badd5d6`，#255 上线，字段归属转给 `bifrost-applier`，以后改 dagster.yaml 可走 apply_manifest）。验收：PASS 2026-11-02，一小时后僵尸 0，补跑 42 个同时最多 2 个、0 重启、内存峰值 2.27 GB。防线：`RATCHETS.md`「Dagster Pod 有回收孤儿的 PID 1，run 排队有上限」。后续：提议的 pids 占比告警没做（要改 research-api 指标和告警规则，你定要不要）；10-30 的 option_daily 与分钟线由周二 00:45 UTC 自愈按日期回补；`depth_holes:option_daily` 另案（任务卡 task_da77aa95）。
 - **TD-155** — 推送不再等镜像同步才起 CI：Gitea 做主后推送直接落在 Gitea，推送钩子当即起 CI（切法第 A–D 批，第 D 批 infra `5000f42`）。验收：PASS 2026-10-23，platform `6eb392e0` 推分支 3 秒、推 main 2 秒就有 `ci-platform-*`，没有手工同步。防线：`RATCHETS.md`「推送即起 CI，没有 CI 就不推不发」（push-main 第 4 步、release.sh 的 ci_gate、平台 PROD 发布的 CI 检查）。后续：无后续：钩子坏了只会让推 main 和发版因「没有 CI」被拒，不会悄悄发出去；不另加告警。
@@ -1511,7 +1512,7 @@
 
 **P1 · agent-governance · Cursor never loaded the project hooks: it refuses a hooks.json reached through the workspace's .cursor symlink, so preflight.js did not gate Cursor sessions (proven back to 2026-09-28)**
 
-- **状态**：观察中（到 10-17，看 hooks 日志是否每次都有 `Loaded … user hook(s)`、有没有误拦。10-10 已修并实测：`~/.cursor/hooks.json` 由 `agent-config/cursor/install-hooks.py` 生成，日志 14:54:28Z `Loaded 3 user hook(s) for steps: beforeShellExecution, beforeMCPExecution, stop`，不用重载窗口；在临时空仓库里 `git add -A` 被拦，日志里 `"permission": "deny"`；`node scripts/agent-guard/test.js` 136 / 136）
+- **状态**：待你签收（2026-11-12 清理第 2 波：工作区级的 Cursor 一侧整体删除，`install-hooks.py`、`cursor/hooks.json` 模板和治理检查里的 Cursor 段都没了，本条没有对象；Cursor 若继续用，闸门靠本机用户级 `~/.cursor/hooks.json` 现有的接线，仓库不再维护。此前：观察中（到 10-17，看 hooks 日志是否每次都有 `Loaded … user hook(s)`、有没有误拦。10-10 已修并实测：`~/.cursor/hooks.json` 由 `agent-config/cursor/install-hooks.py` 生成，日志 14:54:28Z `Loaded 3 user hook(s) for steps: beforeShellExecution, beforeMCPExecution, stop`，不用重载窗口；在临时空仓库里 `git add -A` 被拦，日志里 `"permission": "deny"`；`node scripts/agent-guard/test.js` 136 / 136））
 - **Claim**: The workspace's `.cursor` is a symlink to `bifrost-trade-infra/agent-config/cursor`. Cursor refuses a project `hooks.json` reached through a symlink below the workspace root, and no user-level `~/.cursor/hooks.json` existed, so neither `beforeShellExecution` nor `beforeMCPExecution` ran `preflight.js` in Cursor. Every Cursor session (and every Cursor subagent) ran with no mechanical gate: D10, shared-worktree staging, dev-service, approval-bypass and token-file rules held only as far as the agent followed the written rules. `check-agent-config-parity.sh` only checked that the project file named `preflight.js`, so it stayed green the whole time.
 - **Measured**: MEASURED 2026-10-10 in Cursor's hooks logs. Every retained session log (10 sessions, 2026-09-28 to 2026-10-10) has `Refusing to load Project hooks.json via symlink below workspace root: …/stocks/.cursor/hooks.json`, `ERROR: Failed to parse project hooks configuration` and `No user hooks configuration found`. The oldest retained log starts 2026-09-28T17:33Z and already refuses; Cursor keeps only the last 10 sessions, so nothing earlier can be checked. The symlink dates from 2026-08-27; whether Cursor loaded it before 09-28 is unknown.
 - **Evidence**:
@@ -2899,7 +2900,7 @@
 - **影响**：无法确认实际 Codex 接线，完整 parity 不满足验收；未提交的 infra 路径修复不会改变对 `origin/main` 的检查结果。
 - **修法**：本片已移除 infra 路径常量、增加工作区定位回归；Codex 检查器补启动诊断、字节分帧、RPC/目录覆盖校验及子进程回收，失败继续阻断。platform 另行将 `BENCH_REPOS` 的默认值改为 `BIFROST_WORKSPACE` 或从工作目录上溯 marker，缺失时明确失败；本片按 BRIEF 不改 platform。修复经正常流程进入两仓 main 后，由可正常启动 app-server 的既有受信工作区重跑完整检查；不更改 trust、沙箱策略、远端引用或基线来制造通过。
 - **防线**：`RATCHETS.md`「Codex 检查失败不误报成功（Work 616 / TD-442）」；保留完整 parity 全部检查项。
-- **验收命令**：infra 根运行 `python3 -m unittest discover -s agent-config/codex -p 'test_*.py' -v`、`python3 -m pytest -q scripts/benchmark`；完整工作区内运行 `bash scripts/check-agent-config-parity.sh`，确认实际使用待验收 infra 的治理文件，exit 0 才通过。未提交 infra 路径修复可单独运行 `BIFROST_WORKSPACE=<workspace> python3 agent-config/scripts/check_hardcoded_paths.py --worktree --new-only --repos bifrost-trade-infra`，此命令不替代完整验收。
+- **验收命令**：infra 根运行 `python3 -m unittest discover -s agent-config/codex -p 'test_*.py' -v`、`python3 -m pytest -q scripts/benchmark`；完整工作区内运行 `bash scripts/check-governance-consistency.sh`（旧名 `check-agent-config-parity.sh` 仍可调用），确认实际使用待验收 infra 的治理文件，exit 0 才通过。未提交 infra 路径修复可单独运行 `BIFROST_WORKSPACE=<workspace> python3 agent-config/scripts/check_hardcoded_paths.py --worktree --new-only --repos bifrost-trade-infra`，此命令不替代完整验收。
 
 ### TD-443
 

@@ -15,9 +15,6 @@
  * 本适配层对 404/405 静默跳过 —— 端点上线后自动生效。
  *
  * 同时上报本会话的标题给 Commit Lineage（TD-197，见 report-thread-title.js）。
- * Cursor 没有会话标题，所以 Cursor 侧没有这一步。
- *
- * 对等文件: .cursor/hooks/on-session-stop.js
  */
 'use strict'
 

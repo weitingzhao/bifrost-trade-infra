@@ -237,10 +237,8 @@ async function hostBeat(variant) {
   const home = h.tmpHome(`noop-host-${variant}`)
   const ws = path.join(home, 'ws')
   fs.mkdirSync(path.join(ws, '.claude'), { recursive: true })
-  fs.mkdirSync(path.join(ws, '.cursor'), { recursive: true })
   fs.symlinkSync(VARIANTS[variant], path.join(ws, 'scripts'))
   fs.copyFileSync(path.join(h.HERE, '..', 'claude', 'settings.json'), path.join(ws, '.claude', 'settings.json'))
-  fs.copyFileSync(path.join(h.HERE, '..', 'cursor', 'hooks.json'), path.join(ws, '.cursor', 'hooks.json'))
   seedHome(home)
   const srv = await h.fakeServer()
   try {

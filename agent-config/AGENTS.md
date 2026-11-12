@@ -1,6 +1,6 @@
 # AGENTS.md — Bifrost 工作区（`/stocks`）
 
-Instructions for **Claude Code, Cursor Agent, Codex**, and other coding agents working in this workspace.
+Instructions for **Claude Code, Codex**, and other coding agents working in this workspace.
 
 本文件只是入口，不写规则正文。规则只有一份，在下面列出的文件里；和本文件不一致时以它们为准。
 
@@ -9,10 +9,9 @@ Instructions for **Claude Code, Cursor Agent, Codex**, and other coding agents w
 | 你是 | 已经自动加载 | 开工前还要读 |
 |------|-------------|-------------|
 | Claude Code | `CLAUDE.md` | 无 |
-| Cursor Agent | `.cursor/rules/*.mdc` | 无 |
-| Codex 和其他 Agent | 只有本文件 | `CLAUDE.md` 全文、`AGENT_FACTS.md` |
+| Codex、Cursor 和其他 Agent | 只有本文件 | `CLAUDE.md` 全文、`AGENT_FACTS.md` |
 
-- **规则**：`CLAUDE.md`（Cursor 侧对等的是 `.cursor/rules/`）。
+- **规则**：`CLAUDE.md`（工作区级的 Cursor 规则副本已在 2026-11-12 删除，规则只有这一份）。
 - **事实**：`AGENT_FACTS.md`：仓库清单、端口、已退役实体、运行环境、权威源链。
 
 ## 硬边界在哪里
@@ -34,7 +33,6 @@ Instructions for **Claude Code, Cursor Agent, Codex**, and other coding agents w
 | Agent | 闸门接在哪里 | 说明 |
 |-------|-------------|------|
 | Claude Code | `.claude/settings.json` 的 `PreToolUse` | `CLAUDE.md` §7 |
-| Cursor Agent | 用户级 `~/.cursor/hooks.json`，由 `bifrost-trade-infra/agent-config/cursor/install-hooks.py` 从 `.cursor/hooks.json` 生成 | `.cursor/rules/workspace.mdc` §4；Cursor 不加载经符号链接的项目级 hooks（TD-298） |
 | Codex | `~/.codex/hooks.json` 的 `PreToolUse` | `bifrost-trade-infra/agent-config/codex/README.md` |
 
 ## 子仓库
@@ -43,4 +41,4 @@ Instructions for **Claude Code, Cursor Agent, Codex**, and other coding agents w
 
 ## 维护
 
-实体文件是 `bifrost-trade-infra/agent-config/AGENTS.md`，工作区根的 `AGENTS.md` 是指向它的链接（重建命令见 `agent-config/README.md`）。这里只放指针；规则改在 `CLAUDE.md` 和 `.cursor/rules/`，两侧 parity 不变。
+实体文件是 `bifrost-trade-infra/agent-config/AGENTS.md`，工作区根的 `AGENTS.md` 是指向它的链接（重建命令见 `agent-config/README.md`）。这里只放指针；规则改在 `CLAUDE.md`。

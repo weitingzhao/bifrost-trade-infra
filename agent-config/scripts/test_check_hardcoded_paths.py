@@ -77,7 +77,7 @@ class ExitCode(unittest.TestCase):
 
 
 class Cli(unittest.TestCase):
-    """The command check-agent-config-parity.sh runs, against a throwaway workspace."""
+    """The command check-governance-consistency.sh runs, against a throwaway workspace."""
 
     def run_cli(self, ws: Path, baseline: Path, *extra: str) -> subprocess.CompletedProcess:
         return subprocess.run(

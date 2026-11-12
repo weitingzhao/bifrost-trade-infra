@@ -140,7 +140,7 @@ def stage(args, name, infra, platform):
     elif name in RETIRED:
         print(f"{name}: retired")
     elif name == "parity-static":
-        script = infra / "agent-config/scripts/check-agent-config-parity.sh"
+        script = infra / "agent-config/scripts/check-governance-consistency.sh"
         # Older scripts silently ignore arguments and consult host hooks.
         if "--static-tree" not in script.read_text():
             raise Error("parity_static_unsupported")

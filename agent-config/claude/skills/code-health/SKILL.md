@@ -5,7 +5,6 @@ description: >-
   Use when a code-health check fails, when lowering a baseline in baselines.env,
   when adding a metric to scan.sh, when reading Ops Console → Code Health, or when
   deciding whether a conclusion rests on verified code or on stale memory.
-parity-id: code-health-v11
 ---
 
 # 代码健康度棘轮
@@ -149,7 +148,7 @@ CI 链：Gitea push → `el-bifrost-ci` → CEL 路由 → PipelineRun → `bifr
 
 ## 认知新鲜度
 
-`bash scripts/check-agent-config-parity.sh` 第 6 节比对各 repo 与 `origin/main`。
+`bash scripts/check-governance-consistency.sh` 第 6 节比对各 repo 与 `origin/main`。
 会话开始、长时间中断恢复后必跑。
 
 **结论必须标注来源**：是「基于刚核实的代码」还是「基于可能过时的记忆」。

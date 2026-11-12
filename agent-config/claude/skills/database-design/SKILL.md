@@ -4,7 +4,6 @@ description: >-
   PostgreSQL 设计标准 — 表命名、主键/外键列名、strategy_* 与 gate_safety_* 边界表、
   jsonb vs 子表、dim 枚举、环境隔离。Use when adding or changing any PostgreSQL table,
   column, DDL, or migration in bifrost-trade-core / api / worker / research.
-parity-id: database-design-v5
 ---
 
 # Database Design Standards (数据库设计标准)

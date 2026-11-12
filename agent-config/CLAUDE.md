@@ -1,9 +1,3 @@
-<!--
-parity-ids: workspace-v29, language-v1, agent-modes-v4, trade-execution-freeze-v4, dev-services-v3, phase-execution-v4, shared-worktree-v4, business-first-v1
-对等文件: .cursor/rules/{workspace,language,bifrost-agent-modes,trade-execution-freeze,dev-services,phase-execution}.mdc
-改任一侧必须同步另一侧并 bump 两侧版本号；校验: bash scripts/check-agent-config-parity.sh（= make check-agent-parity in bifrost-trade-infra）
--->
-
 # CLAUDE.md — Bifrost 工作区
 
 与本项目用户对话**一律使用中文回复**（无论用户用何种语言提问）。
@@ -20,7 +14,7 @@ Bifrost = 三个域，边界不可跨越（spine **D13**）：
 
 | 域 | Repos | 数据库 |
 |----|-------|--------|
-| **Trade (OLTP)** | `bifrost-trade-{core,socket,worker,api,frontend,infra}` | `bifrost_{dev,stg,prod}` |
+| **Trade (OLTP)** | `bifrost-trade-{core,worker,api,frontend,infra}` | `bifrost_{dev,stg,prod}` |
 | **Research (OLAP)** | `bifrost-research` | `bifrost_golden_source` |
 | **Ops (控制面)** | `bifrost-platform` + `bifrost-platform-plugin{,-market-data,-flex-query}` | 控制面状态 |
 
@@ -258,31 +252,26 @@ release.sh、`start_pipeline_run`、`gitops_sync_app`，不再被 auto mode 拦�
 
 ---
 
-## 7. 双轨维护（Cursor ↔ Claude）
+## 7. 治理文件只有一份（Cursor 一侧已删）
 
-本项目同时被 Cursor Agent 与 Claude Code 使用，两侧各维护一套完整规则：
+工作区级的 Cursor 规则、skill、hooks 模板与安装脚本已在清理第 2 波（2026-11-12）删除，不再双轨维护，也不再有 `parity-id`。
+规则只写在 `CLAUDE.md`（本文件）和 `.claude/skills/`；Codex 与其他 Agent 从 `AGENTS.md`（三家入口，只放指针）找到这里。
+子仓库自己的 `.cursor/` 目录（例如 core 的 `versioning.mdc`）不在此列。
 
-| Claude 侧 | Cursor 侧 |
-|-----------|----------|
-| `CLAUDE.md`（本文件） | `.cursor/rules/workspace.mdc` |
-| `.claude/skills/` | `.cursor/skills/` |
-| `.claude/commands/` | `.cursor/commands/` |
-| `.claude/settings.json` hooks | 用户级 `~/.cursor/hooks.json`，由 `bifrost-trade-infra/agent-config/cursor/install-hooks.py` 从 `.cursor/hooks.json` 生成（Cursor 拒绝经符号链接的项目级文件，TD-298） |
-| — 共用 —— | `AGENT_FACTS.md` · `AGENTS.md`（三家入口，只放指针；Codex 只读它）· `scripts/agent-guard/preflight.js` |
+提交治理改动前在工作区根跑 `bash scripts/check-governance-consistency.sh`（已退役实体、D10 与 spine、preflight 与心跳钩子接线、
+仓库新鲜度、家目录路径棘轮）。完整检查必须覆盖待验收 checkout 的治理文件，并以脚本 exit 0 为准。独立 worktree 需有完整工作区布局；
+链接到共享 checkout 的规则不能证明当前修改通过。Codex 检查器启动失败、超时或响应缺失表示「验证未完成」，不能推断 hook 未运行，
+也不能记为 PASS。路径棘轮扫描各仓库 `origin/main`；未提交修改另跑 `check_hardcoded_paths.py --worktree --new-only`，局部通过不替代完整验收。
+不得跳过检查、放宽基线或移动远端跟踪引用制造通过。
 
-**改动任一侧的规则，必须同步另一侧并 bump 两侧的 `parity-id`。**
-提交前在工作区根跑 `bash scripts/check-agent-config-parity.sh`；infra 根的入口是 `make check-agent-parity`（实际脚本 `agent-config/scripts/check-agent-config-parity.sh`）。
+MCP：Claude `.mcp.json` 把平台 server 指到 PROD VIP `http://192.168.10.100:30876`。`bifrost-platform` 与 `bifrost-kubernetes` 的 `MCP_WRITES=on`（本分支在 B1R 上 PROD 之后才合并；以 `off` 合并会让写工具中断）。`bifrost-approve` 只在 Claude 侧（Cursor 的 MCP 模板随 Cursor 一侧删除）。只有 `bifrost-local` 可以指向 `127.0.0.1`。令牌不要求进进程环境：MCP 进程从 `~/.config/bifrost/mcp-tokens.env`（权限 600）读三个键（B1R 实现，见 `.mcp.json.README.md`）。`preflight.js` 拦截直接打 `/api/v1/approvals/<id>/approve|reject`、用浏览器打开 `#approvals` 去点，以及读取或引用 admin 令牌和该文件；`mcp__bifrost-approve__*` 放行。原因见 ADR §5「已知的接受风险」。
 
-完整 parity 必须覆盖待验收 checkout 的治理文件，并以脚本 exit 0 为准。独立 worktree 需有完整工作区布局；链接到共享 checkout 的规则不能证明当前修改通过。Codex 检查器启动失败、超时或响应缺失表示「验证未完成」，不能推断 hook 未运行，也不能记为 PASS。路径棘轮扫描各仓库 `origin/main`；未提交修改另跑 `check_hardcoded_paths.py --worktree --new-only`，局部通过不替代完整验收。不得跳过检查、放宽基线或移动远端跟踪引用制造通过。
-
-MCP：Claude `.mcp.json` 把平台 server 指到 PROD VIP `http://192.168.10.100:30876`。`bifrost-platform` 与 `bifrost-kubernetes` 的 `MCP_WRITES=on`（本分支在 B1R 上 PROD 之后才合并；以 `off` 合并会让写工具中断）。`bifrost-approve` 只在 Claude 侧；Cursor 模板只有 `cursor/mcp.servers.json` 一份（platform 的 `config/cursor-mcp-bridges.json` 已删，卡 8），不含它。只有 `bifrost-local` 可以指向 `127.0.0.1`。令牌不要求进进程环境：MCP 进程从 `~/.config/bifrost/mcp-tokens.env`（权限 600）读三个键（B1R 实现，见 `.mcp.json.README.md`）。`preflight.js` 拦截直接打 `/api/v1/approvals/<id>/approve|reject`、用浏览器打开 `#approvals` 去点，以及读取或引用 admin 令牌和该文件；`mcp__bifrost-approve__*` 放行。原因见 ADR §5「已知的接受风险」。
-
-事实与硬边界**只有一份实现**（`AGENT_FACTS.md` + `preflight.js`），不复制到两侧。
+事实与硬边界**只有一份实现**（`AGENT_FACTS.md` + `preflight.js`）。
 
 ### 存放位置
 
 治理层实体在 **`bifrost-trade-infra/agent-config/`**（纳入 infra 版本控制与 CI），
-工作区根的 `CLAUDE.md` / `AGENT_FACTS.md` / `DESIGN_CONTRACTS.md` / `.mcp.json` / `.claude` / `.cursor` / `scripts` 均为符号链接。
+工作区根的 `CLAUDE.md` / `AGENT_FACTS.md` / `DESIGN_CONTRACTS.md` / `.mcp.json` / `.claude` / `scripts` 均为符号链接（旧的 `.cursor` 链接指向已删目录，可以删掉）。
 布局、链接重建命令与路径约定见 `bifrost-trade-infra/agent-config/README.md`。
 
 ---
@@ -290,7 +279,7 @@ MCP：Claude `.mcp.json` 把平台 server 指到 PROD VIP `http://192.168.10.100
 ## 8. Claude Code 运行配置（auto mode · 会话分组）
 
 - **认知起点**：开工先读 `AGENT_FACTS.md` §8c（运行时与安全事实：公开仓、节点池、NodePort、Argo 同步策略、IB 接入模型、敏感位置）。
-- **auto mode 规则**是 Claude 专属的 harness 强制层（与 §3 硬边界同源，对等于 Cursor 侧 `.mdc` 规则，不另做 parity）：
+- **auto mode 规则**是 Claude 专属的 harness 强制层（与 §3 硬边界同源）：
   生效位置只有用户级 `~/.claude/settings.json`——分类器不读项目级 `.claude/settings{,.local}.json` 里的 `autoMode`，
   所以工作区规则也合并写在用户级。payload 与应用脚本在 `.claude/auto-mode/`（`apply-auto-mode.sh`）——**由 Owner 执行**：
   分类器禁止 Agent 改写自己的 auto mode 规则，Agent 只准备 payload 并报告，不绕过。是否生效以 `claude auto-mode config` 为准。

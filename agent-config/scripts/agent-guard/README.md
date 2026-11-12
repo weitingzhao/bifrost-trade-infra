@@ -1,7 +1,7 @@
 # Agent Guard — 硬边界机械拦截
 
-Cursor 与 Claude **共用同一份实现**。双轨维护（`CLAUDE.md` §7）下，规则文档各写一份，
-但硬边界只有这一份代码 —— 这是两侧唯一不可能漂移的部分。
+Claude、Codex（以及仍认 Cursor 钩子协议的会话）**共用同一份实现**。规则文档只有 `CLAUDE.md` 一份（§7），
+硬边界只有这一份代码。
 
 ## 文件
 
@@ -19,8 +19,9 @@ Cursor 与 Claude **共用同一份实现**。双轨维护（`CLAUDE.md` §7）�
 | shell 执行前 | `PreToolUse` matcher `Bash\|Edit\|Write\|MultiEdit\|NotebookEdit\|Read\|WebFetch` | `beforeShellExecution` | `PreToolUse`（全部工具，经 `codex-pretooluse.js`） |
 | MCP 调用前 | `PreToolUse` matcher `mcp__.*` | `beforeMCPExecution` | 同上 |
 
-配置分别在 `.claude/settings.json`、`.cursor/hooks.json` 和用户级 `~/.codex/hooks.json`（不进仓库，内容见 `agent-config/codex/README.md`）。
-`scripts/check-agent-config-parity.sh` 会校验两侧都已接线。
+配置在 `.claude/settings.json` 和用户级 `~/.codex/hooks.json`（不进仓库，内容见 `agent-config/codex/README.md`）。
+工作区级的 Cursor hooks 模板已在 2026-11-12 删除；`preflight.js` 仍认 Cursor 的事件格式，表里那一列只说明协议。
+`scripts/check-governance-consistency.sh` 会校验 Claude 一侧已接线，本机装了 codex 时也查 Codex。
 
 ## 拦截什么
 
@@ -119,6 +120,6 @@ Owner 把 D10 改成 `UNLOCKED`，拦截自动停止 —— 不需要改代码�
 1. 先跑 `node scripts/agent-guard/test.js` 确认现有用例仍全绿
 2. 在 `test.js` 里**先加一条应为 ALLOW 的用例**（复现误报）
 3. 再改 `preflight.js` 让它变绿，且原有用例不许变红
-4. 跑 `bash scripts/check-agent-config-parity.sh`
+4. 跑 `bash scripts/check-governance-consistency.sh`
 
 **不要**为了绕过而删规则或改 spine 的 D10 —— 那是 Owner 的决定。

@@ -1,14 +1,13 @@
 ---
-parity-id: agent-facts-v13
-generated: 2026-10-23
+generated: 2026-11-12
 authority: bifrost-platform/config/ops-context.yaml (spine) + 磁盘扫描
 ---
 
 # AGENT_FACTS — Bifrost 工作区事实基线
 
-> **本文件是 Cursor 与 Claude 两侧治理文档的共同事实源。**
-> 任何规则文件（`.cursor/rules/*.mdc` 或 `CLAUDE.md`）在陈述"有哪些 repo / 端口 / 已退役什么"时，
-> 必须与本文件一致。修改本文件需同时 bump `parity-id` 并跑 `scripts/check-agent-config-parity.sh`。
+> **本文件是治理文档的共同事实源**（`CLAUDE.md`、`.claude/skills/`、`AGENTS.md` 指向的规则都以它为准）。
+> 任何规则文件在陈述"有哪些 repo / 端口 / 已退役什么"时，必须与本文件一致。
+> 修改本文件后跑 `bash scripts/check-governance-consistency.sh`。工作区级的 Cursor 一侧与 `parity-id` 已在 2026-11-12 删除。
 >
 > **本文件不是决策源。** 决策与里程碑的权威源永远是 spine（见 §5）。
 
@@ -209,7 +208,7 @@ Owner **2026-08-31** 签批 D-14GF.1–6（R1）；同日 GitHub Archive + 授�
 - **本地 dev 服务**：`bdev` CLI + tmux session `bifrost`，声明在 `~/.bifrost-dev/sessions.yaml`
 - **工作区根不写死**（W-36，2026-10-10）：本机是 `~/Desktop/stocks`，但仓库里的代码和配置不认这个路径。需要根的地方读 `BIFROST_WORKSPACE`，
   没设就从自身位置往上找 `bifrost-platform/config/ops-context.yaml`；Claude hooks 用 `$CLAUDE_PROJECT_DIR`，`.mcp.json` 用 `${BIFROST_WORKSPACE:-.}`，
-  用户级配置（`~/.cursor/mcp.json`、`~/.cursor/hooks.json`、`~/.codex/hooks.json`、auto mode）由安装脚本渲染。棘轮：`make check-hardcoded-paths`（infra）。
+  用户级配置（`~/.codex/hooks.json`、auto mode）由安装脚本或 README 里的步骤渲染。棘轮：`make check-hardcoded-paths`（infra）。
   旧名 `GIT_WORKSPACE_ROOT`（git-bridge）、`BIFROST_WORKSPACE_ROOT`（code health）仍被读取
 
 ---
@@ -252,7 +251,7 @@ Owner **2026-08-31** 签批 D-14GF.1–6（R1）；同日 GitHub Archive + 授�
 | 端点 | `GET /api/v1/code-health`（viewer）· `POST /api/v1/code-health/report`（operator） |
 | MCP | `get_code_health` |
 | UI | Console → Mission Control → **Code Health**；Observability 三条 `code_health` signal（satellite / research / rocket，均为 `evidence` + `optionalContract`） |
-| Skill | `.claude/skills/code-health/` ·`.cursor/skills/code-health/`（`parity-id: code-health-v4`） |
+| Skill | `.claude/skills/code-health/` |
 
 **契约**：无数据 → `NOT OBSERVED`，链路每一层都不得显示为健康。
 
@@ -280,8 +279,13 @@ Owner **2026-08-31** 签批 D-14GF.1–6（R1）；同日 GitHub Archive + 授�
 实盘下单、daemon 自动交易扩容、S08 execution wiring 全部禁止。
 解锁需要 **两个条件同时满足**：Owner 明文书面指令 **且** spine `decisions[id=D10].status` → `UNLOCKED`。
 
-机械强制：`scripts/agent-guard/preflight.js`（Claude `PreToolUse` + Cursor `beforeShellExecution`）
-运行时读 spine 的 D10 状态决定拦截与否 —— 闸门与 spine 同源，只有一个开关。
+机械强制：`scripts/agent-guard/preflight.js`（Claude `PreToolUse`、Codex `PreToolUse`）
+运行时读 spine 的 D10 状态决定拦截与否 —— 闸门与 spine 同源，只有一个开关。被拦下时不要绕过、不要"修复" guard 文件，直接报告 Owner。
+
+权威链：① spine `bifrost-platform/config/ops-context.yaml` → `decisions[id=D10]`；
+② `bifrost-platform/console/src/lib/architecture/tradeIbClientMigrationRolloutCatalog.ts`；
+③ `agent-config/AGENT_MODES.md` → `FORBIDDEN_ACTIONS`；④ Ops Console → Architecture → Plugins → Trade IB Migration → Rollout。
+禁止与允许的动作清单见 `CLAUDE.md` §3。
 
 Infra guards（未解锁前不得"修复"）：
 
@@ -319,26 +323,25 @@ D10 冻结的那个进程只有一个，但在代码、集群与界面上有十�
 
 ---
 
-## 8b. MCP 工具面（Claude 侧 `.mcp.json` · Cursor 侧 `~/.cursor/mcp.json`）
+## 8b. MCP 工具面（`.mcp.json`）
 
-源码 `bifrost-platform/mcp/`（stdio + 官方 SDK）。平台 server 指向 PROD `http://192.168.10.100:30876`（VIP + NodePort 30876）。Claude 侧 8 个 server；Cursor 模板不含 `bifrost-approve`。工具数是 `reg()` / focus 白名单的实测，含跨 server 重叠：
+源码 `bifrost-platform/mcp/`（stdio + 官方 SDK）。平台 server 指向 PROD `http://192.168.10.100:30876`（VIP + NodePort 30876）。共 8 个 server。工具数是 `reg()` / focus 白名单的实测，含跨 server 重叠：
 
-| server | focus | 工具 | 令牌角色 | 哪一侧 |
+| server | focus | 工具 | 令牌角色 | 说明 |
 |--------|-------|------|---------|--------|
-| `bifrost-platform` | — | 75 | operator | 两侧。`MCP_WRITES=on`（合并时的状态） |
-| `bifrost-kubernetes` | `kubernetes` | 18 | operator | 两侧。同上 |
-| `bifrost-redis` | `redis` | 6 | **viewer** | 两侧 |
-| `bifrost-postgres` | `postgres` | 8 | **viewer** | 两侧 |
-| `bifrost-prometheus` | `prometheus` | 4 | **viewer** | 两侧 |
-| `bifrost-trade-api` | — | 12 | Trade 网关（只读） | 两侧 |
-| `bifrost-local` | `local` | 5 | operator | 两侧。唯一的 `127.0.0.1:8780`（bdev / git-bridge） |
-| `bifrost-approve` | `approve` | 3 | **admin**（钉 `PLATFORM_ADMIN_TOKEN`） | **仅 Claude** |
+| `bifrost-platform` | — | 75 | operator | `MCP_WRITES=on`（合并时的状态） |
+| `bifrost-kubernetes` | `kubernetes` | 18 | operator | 同上 |
+| `bifrost-redis` | `redis` | 6 | **viewer** | — |
+| `bifrost-postgres` | `postgres` | 8 | **viewer** | — |
+| `bifrost-prometheus` | `prometheus` | 4 | **viewer** | — |
+| `bifrost-trade-api` | — | 12 | Trade 网关（只读） | — |
+| `bifrost-local` | `local` | 5 | operator | 唯一的 `127.0.0.1:8780`（bdev / git-bridge） |
+| `bifrost-approve` | `approve` | 3 | **admin**（钉 `PLATFORM_ADMIN_TOKEN`） | 聊天里批审批单 |
 
 - **令牌分级是机械强制**：只读桥钉 viewer（TD-225）；`bifrost-approve` 用同一钉法钉 admin。进程环境优先；没有时从 `~/.config/bifrost/mcp-tokens.env`（权限 600）读 `PLATFORM_VIEWER_TOKEN`、`PLATFORM_OPERATOR_TOKEN`、`PLATFORM_ADMIN_TOKEN`。非回环地址不读 `bifrost-platform/.env`。生成命令不打印值，见 `.mcp.json.README.md`。Mac mini 上的线程以后同样需要这份文件
 - 写开关在合并时就是 `on`：这个分支等 B1R 在 PROD 上线之后才合并，以 `off` 合并会让所有线程的写工具中断。B 级直调，C/D 级改为创建申请并返回申请号。见 `.mcp.json.README.md`
 - focus 白名单在 `mcp/platform/src/focusBridges.ts`。`local` 与 `approve` 在 `index.ts` 里单独注册，不进这张表
-- 配置里不写令牌值：Claude `.mcp.json` 写 `${PLATFORM_*_TOKEN:-}`；Cursor 模板不写令牌键，只钉 `PLATFORM_TOKEN_ENV_KEY`，由 server 自己从上面那份文件读
-- Cursor 用户级 `~/.cursor/mcp.json` 由 `agent-config/cursor/install-mcp.py` 从模板渲染（路径换成本机工作区根，先备份，600），装完要在 Cursor 里重载 MCP
+- 配置里不写令牌值：Claude `.mcp.json` 写 `${PLATFORM_*_TOKEN:-}`
 - `preflight.js` 拦截直接请求 `/api/v1/approvals/<id>/approve|reject`、浏览器打开 `#approvals` 去点，以及读取或引用 `PLATFORM_ADMIN_TOKEN` 与 `mcp-tokens.env`。`mcp__bifrost-approve__*` 放行。ADR §5「已知的接受风险」
 - `mcp/unifi/` 未注册（D9 网络执行路径）
 - 详见 `.mcp.json.README.md`
@@ -480,5 +483,5 @@ Tekton 流水线：`bifrost-ci-{frontend,platform,python}` · `bifrost-deliver-{
 1. 读 spine `bifrost-platform/config/ops-context.yaml` 的 `deployment` / `focus` / `milestones` / `decisions`
 2. 读 `agent-config/AGENT_MODES.md` 的 `FORBIDDEN_ACTIONS` 与 `AGENT_MODES`
 3. 磁盘扫描核对 repo 清单、端口、页面数
-4. bump `parity-id`（`agent-facts-v<n+1>`）+ 更新 `generated:`
-5. 跑 `bash scripts/check-agent-config-parity.sh`
+4. 更新 `generated:`
+5. 跑 `bash scripts/check-governance-consistency.sh`

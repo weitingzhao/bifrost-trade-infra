@@ -202,19 +202,26 @@ def test_kustomize_only_local_render(tmp_path, monkeypatch):
 
 def test_parity_static_pass_reject_and_no_host(tmp_path):
     # Real entry point, no .git, refs, hooks or installed Codex in this fixture.
-    (tmp_path / '.cursor/rules').mkdir(parents=True)
-    (tmp_path / '.cursor/skills').mkdir()
     (tmp_path / '.claude/skills').mkdir(parents=True)
     (tmp_path / 'bifrost-platform/config').mkdir(parents=True)
-    (tmp_path / 'CLAUDE.md').write_text('parity-ids: sample-v1\nBLOCKED\n')
-    (tmp_path / 'AGENT_FACTS.md').write_text('facts\n')
-    (tmp_path / '.cursor/rules/sample.mdc').write_text('parity-id: sample-v1\n')
-    (tmp_path / '.cursor/rules/trade-execution-freeze.mdc').write_text('BLOCKED\n')
+    (tmp_path / 'CLAUDE.md').write_text('D10 BLOCKED\n')
+    (tmp_path / 'AGENT_FACTS.md').write_text('D10 BLOCKED\n')
     (tmp_path / 'bifrost-platform/config/ops-context.yaml').write_text('- id: D10\n  status: BLOCKED\n')
-    script = ROOT / 'agent-config/scripts/check-agent-config-parity.sh'
+    script = ROOT / 'agent-config/scripts/check-governance-consistency.sh'
     cmd = ['bash', str(script), '--static-tree', str(tmp_path)]
     assert subprocess.run(cmd, capture_output=True, check=False).returncode == 0
-    (tmp_path / '.cursor/rules/sample.mdc').write_text('parity-id: sample-v2\n')
+    # The old name stays a thin wrapper while the base coverage_infra.py and the
+    # Makefile still call it; base copies check that it names --static-tree.
+    old = ROOT / 'agent-config/scripts/check-agent-config-parity.sh'
+    assert '--static-tree' in old.read_text()
+    assert subprocess.run(['bash', str(old), '--static-tree', str(tmp_path)], capture_output=True, check=False).returncode == 0
+    # A retired repository named as live, in either spelling, is drift.
+    for line in ('Trade repos: `bifrost-trade-{core,socket,api}`\n', 'start bifrost-trade-socket\n', 'run the Celery worker\n'):
+        (tmp_path / 'CLAUDE.md').write_text('D10 BLOCKED\n' + line)
+        assert subprocess.run(cmd, capture_output=True, check=False).returncode == 1, line
+    (tmp_path / 'CLAUDE.md').write_text('D10 BLOCKED\nbifrost-trade-socket 已归档\n')
+    assert subprocess.run(cmd, capture_output=True, check=False).returncode == 0
+    (tmp_path / 'AGENT_FACTS.md').write_text('facts\n')
     assert subprocess.run(cmd, capture_output=True, check=False).returncode == 1
     (tmp_path / 'CLAUDE.md').unlink()
     assert subprocess.run(cmd, capture_output=True, check=False).returncode == 1

@@ -3,7 +3,7 @@
 **Program:** `trade-dev-inner-loop`  
 **Status:** active (Owner sign-off pending)  
 **Catalog:** `bifrost-platform/console/src/lib/architecture/tradeDevInnerLoopCatalog.ts`  
-**Skill:** `.cursor/skills/trade-dev-inner-loop/SKILL.md`
+**Skill:** `.claude/skills/trade-dev-inner-loop/SKILL.md`
 
 This document is the authoritative Product-mode contract for day-to-day Trade UI development against K3s `bifrost-dev`. Live trading remains **D10 BLOCKED**.
 

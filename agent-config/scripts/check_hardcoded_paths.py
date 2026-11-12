@@ -17,7 +17,7 @@ bifrost-platform/config/ops-context.yaml; docs write ~/... or <workspace>/....
 
 Exit 0 = at or below baseline everywhere and baseline exact, 1 = a new or grown file, or a
 baseline entry that can be lowered (run --update and commit it). With --new-only a baseline
-that can be lowered is only reported (check-agent-config-parity.sh, Owner 2026-10-10 card 7).
+that can be lowered is only reported (check-governance-consistency.sh, Owner 2026-10-10 card 7).
 Repos missing from the workspace (e.g. CI with one checkout) are skipped.
 """
 

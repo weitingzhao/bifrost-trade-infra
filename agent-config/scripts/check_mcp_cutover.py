@@ -7,6 +7,10 @@
   Any other server that sets MCP_WRITES must also be on.
 - Token env values stay interpolations. This script never prints those values.
 
+The default check reads .mcp.json. The workspace Cursor template
+(cursor/mcp.servers.json) was deleted in cleanup wave 2 (2026-11-12); --cursor
+still checks any other Cursor config by the same rules.
+
     python3 agent-config/scripts/check_mcp_cutover.py
     python3 agent-config/scripts/check_mcp_cutover.py --self-test
     python3 agent-config/scripts/check_mcp_cutover.py --cursor ~/.cursor/mcp.json
@@ -113,10 +117,7 @@ def check_paths(pairs: list[tuple[Path, str]]) -> list[str]:
 
 
 def default_pairs(extra_cursor: list[Path]) -> list[tuple[Path, str]]:
-    pairs = [
-        (AGENT_CONFIG / ".mcp.json", "claude"),
-        (AGENT_CONFIG / "cursor" / "mcp.servers.json", "cursor"),
-    ]
+    pairs = [(AGENT_CONFIG / ".mcp.json", "claude")]
     pairs.extend((path, "cursor") for path in extra_cursor)
     return pairs
 
@@ -230,7 +231,7 @@ def self_test() -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--self-test", action="store_true")
-    parser.add_argument("--cursor", action="append", default=[], type=Path, help="extra Cursor template")
+    parser.add_argument("--cursor", action="append", default=[], type=Path, help="a Cursor MCP config to check as well")
     args = parser.parse_args()
     if args.self_test:
         return self_test()

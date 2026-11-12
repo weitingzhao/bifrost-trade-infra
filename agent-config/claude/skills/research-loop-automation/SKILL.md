@@ -6,7 +6,6 @@ description: >-
   Copilot reading runs and composing one daily digest, unattended auto-accept on a
   leash. Use when executing program research-loop-automation phases (A1–D4) or when the
   Owner says Loop automation / lens registry / Analyze hubs / daily digest / persona models.
-parity-id: research-loop-automation-v2
 ---
 
 # Research Loop Automation (Waves A–D)
@@ -57,7 +56,7 @@ Parallel: A1 → (A2 ∥ A3 ∥ A4) → A5 · B1 ∥ B2 ∥ B3 → B4 · C after
 ```bash
 cd bifrost-research && make lint && make test && make test-mcp && make check-code-health
 cd bifrost-trade-frontend && npm run lint && npm run test:run && npm run build && npm run check:legacy-css && npm run check:code-health
-bash scripts/check-agent-config-parity.sh
+bash scripts/check-governance-consistency.sh
 ```
 
 Acceptance on DEV: Vite `:5173` against `192.168.10.73:30882` (D-IL1). Cron facts: `kubectl logs -n research job/research-harness-<id>` (KUBECONFIG `~/.kube/bifrost-k3s.yaml`).
@@ -71,7 +70,7 @@ Acceptance on DEV: Vite `:5173` against `192.168.10.73:30882` (D-IL1). Cron fact
 | Harness Cron (plan, persona, entry) | `k8s/engines/cronjob-harness.yaml` |
 | Dagster aux assets (EOD, digest, outcomes, weekly policy) | `k8s/orchestration/dagster.yaml` (`-dagster` tag) |
 
-Procedure: `.claude/skills/research-release/SKILL.md` (Cursor: `.cursor/skills/research-release/SKILL.md`).
+Procedure: `.claude/skills/research-release/SKILL.md`.
 
 ## Key files
 

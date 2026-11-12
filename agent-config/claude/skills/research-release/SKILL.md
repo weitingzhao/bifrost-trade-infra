@@ -5,7 +5,6 @@ description: >-
   research-api / research-mcp, bumping the research image version, running
   bifrost-deliver-research, or debugging ImagePullBackOff / mirror-sync /
   kaniko failures in the research namespace.
-parity-id: research-release-v5
 ---
 
 # Research 发布流程

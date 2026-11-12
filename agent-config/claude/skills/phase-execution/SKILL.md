@@ -4,7 +4,6 @@ description: >-
   Agent 执行纪律 — Phase / Wave 多步骤工程任务的结构化报告、进度追踪与 sign-off 流程。
   Use when executing a numbered Phase or Wave, resuming a program across chats, running
   per-phase verification, or when Owner asks 继续 / 全量 Review / Phase 完成报告.
-parity-id: phase-execution-v4
 ---
 
 # Phase Execution Protocol（Agent 执行纪律）
@@ -17,7 +16,7 @@ parity-id: phase-execution-v4
    - 当前 Phase 编号与状态
    - 前置 Phase 已完成
    - Owner 已做的架构决策（Decision Log）
-2. **读取对应 SKILL.md**（Cursor: `.cursor/skills/{project}/SKILL.md` · Claude: `.claude/skills/{project}/SKILL.md`），了解：
+2. **读取对应 SKILL.md**（`.claude/skills/{project}/SKILL.md`），了解：
    - 需修改的文件列表
    - 验证命令
    - 架构约束
@@ -75,7 +74,7 @@ Build Desk（Briefing / In Flight / Delivery、`/api/v1/programs`、`config/prog
 
 ### Batch execution mode exception（批量执行）
 
-当 Owner 已确认 **batch mode**（说「批量执行」或「执行」且上下文为 delivery program batch run — 见 `{.cursor,.claude}/skills/batch-execution/OWNER_COMMANDS.md`）时：
+当 Owner 已确认 **batch mode**（说「批量执行」或「执行」且上下文为 delivery program batch run — 见 `.claude/skills/batch-execution/OWNER_COMMANDS.md`）时：
 
 - **允许自动推进**到下一个 Phase，无需每 Phase 等待「继续」
 - **仅在以下情况暂停**并报告 Owner：

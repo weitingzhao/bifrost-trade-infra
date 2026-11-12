@@ -59,7 +59,7 @@ function copyTree(tag) {
   fs.mkdirSync(scripts, { recursive: true })
   for (const f of FILES) fs.copyFileSync(path.join(h.HERE, f), path.join(scripts, f))
   fs.symlinkSync(path.join(h.HERE, 'testdata'), path.join(scripts, 'testdata'))
-  for (const [dir, f] of [['claude', 'settings.json'], ['cursor', 'hooks.json']]) {
+  for (const [dir, f] of [['claude', 'settings.json']]) {
     fs.mkdirSync(path.join(root, 'agent-config', dir), { recursive: true })
     fs.copyFileSync(path.join(h.HERE, '..', dir, f), path.join(root, 'agent-config', dir, f))
   }
