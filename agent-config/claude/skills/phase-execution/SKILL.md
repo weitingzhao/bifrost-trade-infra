@@ -1,10 +1,10 @@
 ---
 name: phase-execution
 description: >-
-  Agent 执行纪律 — Phase / Wave 多步骤工程任务的自检、结构化报告、进度追踪与 sign-off 流程。
+  Agent 执行纪律 — Phase / Wave 多步骤工程任务的结构化报告、进度追踪与 sign-off 流程。
   Use when executing a numbered Phase or Wave, resuming a program across chats, running
-  per-phase self-checks, or when Owner asks 继续 / 全量 Review / Phase 完成报告.
-parity-id: phase-execution-v3
+  per-phase verification, or when Owner asks 继续 / 全量 Review / Phase 完成报告.
+parity-id: phase-execution-v4
 ---
 
 # Phase Execution Protocol（Agent 执行纪律）
@@ -30,11 +30,6 @@ Build Desk（Briefing / In Flight / Delivery、`/api/v1/programs`、`config/prog
 
 ## 执行过程中
 
-4. **每个逻辑单元**（一个模块 / 一个函数 / 一个文件组）完成后，立即运行自检：
-   - Python: `make lint && make test`（或 `ruff check . && pytest -m 'not ib and not db'`）
-   - TypeScript: `npm run lint && npm run build`（前端另加 `npm run check:legacy-css`）
-   - Go: `go build ./... && go test ./...`
-   - 如果失败：**自行修复直到通过**，不等用户提醒
 5. **架构级决策不擅自做**。以下属于架构级：
    - 新增 RPC op / 改变数据流方向
    - 新增外部依赖（pip/npm package）
@@ -42,7 +37,6 @@ Build Desk（Briefing / In Flight / Delivery、`/api/v1/programs`、`config/prog
    - 新增数据库表或列
    - 遇到时：明确列出 2–3 个选项 + 推荐 → 等 Owner 确认
 6. **最小化变更范围**：只改 Phase scope 内的代码，不做 scope 外的 refactor。
-7. **不引入 TODO / FIXME**：当前 Phase 能解决的问题当场解决。
 
 ## 完成 Phase 后
 
@@ -85,7 +79,7 @@ Build Desk（Briefing / In Flight / Delivery、`/api/v1/programs`、`config/prog
 
 - **允许自动推进**到下一个 Phase，无需每 Phase 等待「继续」
 - **仅在以下情况暂停**并报告 Owner：
-  - 该 Phase 的验证命令 / 自检在 **2 次重试后仍失败**
+  - 该 Phase 的验证命令在 **2 次重试后仍失败**
   - 遇到架构级决策（rule 5）
   - program 文档的验收标准未覆盖的新需求
   - Owner 明确说「停」/「pause」

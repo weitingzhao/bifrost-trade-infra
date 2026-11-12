@@ -1,5 +1,5 @@
 <!--
-parity-ids: workspace-v28, language-v1, agent-modes-v4, trade-execution-freeze-v4, dev-services-v3, phase-execution-v3, shared-worktree-v4, business-first-v1
+parity-ids: workspace-v29, language-v1, agent-modes-v4, trade-execution-freeze-v4, dev-services-v3, phase-execution-v4, shared-worktree-v4, business-first-v1
 对等文件: .cursor/rules/{workspace,language,bifrost-agent-modes,trade-execution-freeze,dev-services,phase-execution}.mdc
 改任一侧必须同步另一侧并 bump 两侧版本号；校验: bash scripts/check-agent-config-parity.sh（= make check-agent-parity in bifrost-trade-infra）
 -->
@@ -134,9 +134,8 @@ Ops Platform（火箭）与 Trade（载荷）必须先稳定；研究与分析�
 多步骤工程任务（Phase / Wave）遵循 **`.claude/skills/phase-execution/`**。要点：
 
 - 开工前读 spine + 对应 SKILL.md；Owner 已定的方案不重新提议
-- 每个逻辑单元完成后立即自检：Python `make lint && make test` · TS `npm run lint && npm run build` · Go `go build ./... && go test ./...`；失败自行修复
 - **架构级决策不擅自做**（新 RPC / 新外部依赖 / 改公开接口 / 新增表或列）→ 列 2–3 个选项 + 推荐，等 Owner 确认
-- 最小化变更范围；不引入 TODO / FIXME
+- 最小化变更范围
 - 完成后输出结构化 Phase 报告；**不自动开始下一个 Phase**（除非 Owner 已确认「批量执行」→ `.claude/skills/batch-execution/`）
 - 集群写操作用 §3 的对照（`plan_manifest` / `apply_manifest`、`create_job_from_cronjob`、`delete_finished_jobs`、`delete_pod`、`rollout_restart_deployment`、`run_probe_pod`、`start_pipeline_run`，其余 `owner_run_command`）。不要 `kubectl apply` / `create` / `delete`。`kubectl exec` 只在 research、plugin-market-data、plugin-flex-query。`kubectl port-forward` 只有 Prometheus 那一个 Pod。查库用 `agent_reader`。
 
@@ -242,10 +241,6 @@ release.sh、`start_pipeline_run`、`gitops_sync_app`，不再被 auto mode 拦�
 - **未结的债**只在 `bifrost-trade-infra/agent-config/TECH_DEBT.md`。审计扫出来的、日常工作里撞上的，都直接加一条（证据 `文件:行`、修法、防线），编号接着最大号往下排。
 - **修完就删**：修复上线、对应防线到位后，删掉那一条；提交信息写上对应的防线。历史留在 git 里，台账里不留。
 - **防线**登记在同目录的 `RATCHETS.md`。每关掉一项债，要么加一条或扩大一条防线，要么写明为什么没有可行的防线。
-- **签收流程**（Owner 2026-10-06，借鉴已删的 Build Desk）：每项有「状态」（未开始 / 在做 / 观察中（到哪天、看什么）/ 待你签收）和「验收」命令。
-  进「待你签收」前必须重跑验收、写回 `验收结果：PASS 日期 提交号`，并在文件顶部「待你签收」一节加一行（改了什么、验收、防线、后续 —— 引出的新编号或「无后续：理由」）。
-  Owner 回「签收 TD-n」才删条目；回「打回 TD-n：原因」就回到「在做」。「上次查看」行是「自上次以来」的基线，Owner 说「看过了」再挪到当前提交。
-  台账页用 `agent-config/scripts/render-tech-debt-page.py` 生成，版式每一轮相同。
 - 记忆只记判断和教训，不记债的状态。
 
 ---

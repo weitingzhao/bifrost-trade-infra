@@ -4,7 +4,7 @@ description: >-
   Owner-triggered batch execution protocol — orchestrate all program phases via
   subagents with global QA and a structured Batch Execution Report. Use when Owner
   says 批量执行, batch execute, or confirms batch mode for a delivery program.
-parity-id: batch-execution-v1
+parity-id: batch-execution-v2
 ---
 
 # Batch Execution Protocol
@@ -56,7 +56,7 @@ For each pending phase (sequential unless the program doc says phases are indepe
    - The program skill path
    - Scope constraint: current phase only
 2. **Self-check** when the subagent returns:
-   - Run the phase's verify command (if the program doc names one) plus the repo gates (phase-execution rule 4)
+   - Run the phase's verify command (if the program doc names one)
    - On failure: retry phase work up to **2 times**; then **PAUSE** and report to Owner
 3. **Record progress** in the program doc (phase ✅, date, change summary — phase-execution rule 8) and in the
    in-chat Phase report. There is no Console or MCP progress API: Build Desk (`/api/v1/programs`,
