@@ -1,0 +1,56 @@
+# promtool unit test for BifrostRenovateStale. Run: make check-alert-rules.
+rule_files:
+  - bifrost-alerting-rules.yaml
+
+evaluation_interval: 5m
+
+tests:
+  - name: a daily run that stops succeeding fires after 3 days and 30 minutes pending
+    # 5m: a sample older than Prometheus's 5-minute lookback is not seen
+    interval: 5m
+    input_series:
+      # created at 0; succeeds at 0h and 24h, then never
+      - series: 'kube_cronjob_created{namespace="cicd",cronjob="renovate"}'
+        values: '0x1300'
+      - series: 'kube_cronjob_status_last_successful_time{namespace="cicd",cronjob="renovate"}'
+        values: '0x287 86400x1012'
+    alert_rule_test:
+      - eval_time: 95h
+        alertname: BifrostRenovateStale
+        exp_alerts: []
+      - eval_time: 98h
+        alertname: BifrostRenovateStale
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "Renovate has not succeeded for 3 days"
+              description: "CronJob cicd/renovate looks up newer versions of the pinned open-source components and opens pull requests in Gitea. A failed run says why in its log: no tokens (Secret cicd/renovate), a token Gitea or GitHub no longer accepts, or a registry it could not reach. Read `kubectl -n cicd logs job/<latest renovate job>`."
+
+  - name: a job that never succeeded fires on the absent series
+    # 5m: a sample older than Prometheus's 5-minute lookback is not seen
+    interval: 5m
+    input_series:
+      - series: 'kube_cronjob_created{namespace="cicd",cronjob="renovate"}'
+        values: '0x1300'
+    alert_rule_test:
+      - eval_time: 71h
+        alertname: BifrostRenovateStale
+        exp_alerts: []
+      - eval_time: 74h
+        alertname: BifrostRenovateStale
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "Renovate has not succeeded for 3 days"
+              description: "CronJob cicd/renovate looks up newer versions of the pinned open-source components and opens pull requests in Gitea. A failed run says why in its log: no tokens (Secret cicd/renovate), a token Gitea or GitHub no longer accepts, or a registry it could not reach. Read `kubectl -n cicd logs job/<latest renovate job>`."
+
+  - name: before the job exists nothing fires
+    # 5m: a sample older than Prometheus's 5-minute lookback is not seen
+    interval: 5m
+    input_series: []
+    alert_rule_test:
+      - eval_time: 100h
+        alertname: BifrostRenovateStale
+        exp_alerts: []

@@ -1,0 +1,24 @@
+# Renovate: once a day it reads renovate.json in bifrost-trade-infra, looks up
+# newer versions of the pinned open-source components and opens a pull request
+# in Gitea for each, with the upstream change notes. It never merges and has no
+# cluster rights (no service account token). An Agent reads each pull request,
+# runs scripts/k3s/pluto-report.sh and takes the change through STG and PROD.
+#
+# Apply (the Owner; cicd):  kubectl apply -k k8s/cicd/renovate
+# The two tokens are the Owner's: Secret cicd/renovate, keys gitea-token and
+# github-com-token, created with scripts/gitea/put-renovate-tokens.sh
+# (secret.yaml.example shows the shape). Until the Secret exists the job fails
+# at start and changes nothing.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: cicd
+
+resources:
+  - cronjob.yaml
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: bifrost
+      app.kubernetes.io/component: renovate
+    includeSelectors: false

@@ -401,6 +401,29 @@ spec:
               overwritten), or Gitea unreadable. Read `kubectl -n cicd logs job/<latest
               bifrost-github-sync-reconcile job> -c sync`.
 
+        # Renovate (k8s/cicd/renovate) runs once a day and opens the upgrade pull requests an
+        # Agent then walks through STG and PROD. Three days without a success means new
+        # upstream versions are no longer being noticed.
+        - alert: BifrostRenovateStale
+          expr: |
+            time() - max(kube_cronjob_status_last_successful_time{namespace="cicd",cronjob="renovate"}) > 259200
+            or
+            (
+              (time() - max(kube_cronjob_created{namespace="cicd",cronjob="renovate"}) > 259200)
+              and on()
+              absent(kube_cronjob_status_last_successful_time{namespace="cicd",cronjob="renovate"})
+            )
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Renovate has not succeeded for 3 days"
+            description: >-
+              CronJob cicd/renovate looks up newer versions of the pinned open-source components
+              and opens pull requests in Gitea. A failed run says why in its log: no tokens
+              (Secret cicd/renovate), a token Gitea or GitHub no longer accepts, or a registry it
+              could not reach. Read `kubectl -n cicd logs job/<latest renovate job>`.
+
         # Since the switch, people, agents, CI and the GitHub copy all depend on Gitea.
         - alert: BifrostGiteaUnavailable
           expr: |

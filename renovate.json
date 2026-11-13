@@ -41,7 +41,7 @@
       "customType": "regex",
       "description": "Image tags in the few manifests that carry a `# renovate:` line above `image:`",
       "managerFilePatterns": [
-        "/^k8s/(system|cicd/gitea)/.+\\.yaml$/"
+        "/^k8s/(system|cicd/gitea|cicd/renovate)/.+\\.yaml$/"
       ],
       "matchStrings": [
         "# renovate: datasource=docker depName=(?<depName>\\S+)\\n\\s*image: \\S+?:(?<currentValue>[^\\s@]+)"

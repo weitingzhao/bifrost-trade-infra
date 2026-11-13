@@ -137,6 +137,14 @@ maintainers:
     max_tier: B
     detected_by: BifrostGitHubSyncStale
     status: active
+  - id: cronjob/cicd/renovate
+    what: "Daily 09:10 UTC: Renovate reads renovate.json in bifrost-trade-infra, looks up newer versions of the pinned open-source components and opens pull requests in Gitea with the upstream change notes. It never merges, cannot push main, and has no cluster credentials."
+    runs_on: cluster:cicd/CronJob
+    schedule: "10 9 * * * UTC"
+    env: shared
+    max_tier: B
+    detected_by: BifrostRenovateStale
+    status: active
   - id: cronjob/data/backup-retry
     what: "Every 15 minutes in the 04:00-09:00 UTC window, creates a retry Backup if today's CNPG backup failed."
     runs_on: cluster:data/CronJob
