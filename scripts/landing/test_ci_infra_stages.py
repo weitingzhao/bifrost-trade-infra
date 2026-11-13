@@ -164,7 +164,7 @@ def test_statics_success_missing_and_failure(tmp_path):
     scripts.mkdir(parents=True)
     platform.mkdir()
     names = ('check_admission_guards.py', 'check_agent_access.py', 'check_platform_maintenance.py',
-             'check_alert_routing.py', 'check-release-chain.py')
+             'check_alert_routing.py', 'check-release-chain.py', 'check_owner_exec.py')
     for n in names:
         (scripts / n).write_text('import sys\nassert "--live" not in sys.argv\n')
     # The ops-context comparison reads the platform checkout this run resolved.

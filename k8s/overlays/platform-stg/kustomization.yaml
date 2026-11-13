@@ -10,6 +10,7 @@ resources:
   - ops-http-redirect.yaml
   - sa-kubeconfig.yaml
   - redis-agents.yaml
+  - owner-exec.yaml
 
 # The config files both environments share come from the component; this
 # overlay generates the ConfigMap with the ones that differ per environment.

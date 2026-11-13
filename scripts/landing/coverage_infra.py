@@ -88,6 +88,10 @@ def statics(infra, platform):
     for name in ("check_admission_guards.py", "check_agent_access.py", "check_platform_maintenance.py",
                  "check_alert_routing.py"):
         run([sys.executable, "-I", infra / "scripts" / name], cwd=infra)
+    # owner-exec's test seed never reaches a PROD manifest, and the STG Pod that
+    # uses it has no cluster identity. The self-test is the positive control.
+    run([sys.executable, "-I", infra / "scripts/check_owner_exec.py", "--self-test"], cwd=infra)
+    run([sys.executable, "-I", infra / "scripts/check_owner_exec.py"], cwd=infra)
     # Infra's copies of platform config/ (spine, trust overrides, running images,
     # actuation policy) follow the platform main resolved for this run (TD-109).
     # Only infra is judged: ci-platform no longer runs this comparison.
