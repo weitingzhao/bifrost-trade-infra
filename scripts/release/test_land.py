@@ -302,7 +302,7 @@ def test_ci_wait_gives_a_starting_run_time_and_then_answers():
 
 class Gitea:
     """A stub of the calls. `behind`, `moved`, `exists`, `busy`, `deny`, `conflict`,
-    `files` and `moves` shape its answers."""
+    `files`, `bare` and `moves` shape its answers."""
 
     def __init__(self, **kw):
         self.kw, self.calls, self.main, self.rebased = kw, [], MAIN, False
@@ -323,6 +323,9 @@ class Gitea:
                 gitea.calls.append(("GET", self.path, None, self.headers.get("Authorization")))
                 if self.path.endswith("/branches/main"):
                     return self.answer(200, {"commit": {"id": gitea.main}})
+                if "/commits" in self.path:
+                    trailer = "" if kw.get("bare") else "\n\nChange-Id: I" + "1" * 40
+                    return self.answer(200, [{"sha": SHA, "commit": {"message": "fix: a thing" + trailer}}])
                 if "/files" in self.path:
                     return self.answer(200, [{"filename": n} for n in kw.get("files", ["docs/RELEASE.md"])])
                 return self.answer(200, [gitea.pull()])
@@ -459,6 +462,13 @@ def test_other_paths_and_the_same_paths_in_another_repository_are_taken():
         gitea = Gitea(files=files)
         assert run_land(gitea, repo=repo) == ("landed", ""), files
     assert module()["guarded"](policy(), PLATFORM, set(guard_paths(PLATFORM))) == guard_paths(PLATFORM)[0]
+
+
+def test_a_commit_without_a_change_id_is_refused_before_anything_is_changed():
+    gitea = Gitea(bare=True, behind=True)
+    outcome, problem = run_land(gitea)
+    assert outcome == "" and "no Change-Id trailer" in problem and SHA[:12] in problem
+    assert gitea.merges() == [] and gitea.paths("/update") == [] and gitea.waits == []
 
 
 def test_a_red_or_late_ci_is_the_refusal():

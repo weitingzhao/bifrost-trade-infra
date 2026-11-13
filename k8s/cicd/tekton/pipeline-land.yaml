@@ -106,6 +106,7 @@ spec:
               TOKEN_FILE = '/etc/gitea-merger/password'  # kubernetes.io/basic-auth, put-reader-token.sh merger
               TABLE = '/etc/landing/repos.json'
               POLICY = '/etc/release-policy/policy.yaml'  # canonical JSON
+              CHANGE_ID = re.compile(r'^Change-Id: \S+$', re.M)
               RUNS = 'https://kubernetes.default.svc/apis/tekton.dev/v1/namespaces/cicd/pipelineruns'
               SA = '/var/run/secrets/kubernetes.io/serviceaccount/'
               OUTCOME = '/tekton/results/outcome'
@@ -208,6 +209,22 @@ spec:
                       return None, 'refused: the branch moved after this run started; its new push has its own run'
                   return pull, ''
 
+              def lineage(token, api, number):
+                  """'' when every commit of the pull request carries a Change-Id trailer. The agents
+                  share one Gitea account, so the trailers are the record of which change a commit
+                  is (CLAUDE.md, Owner 2026-10-06); this lane is where every commit to main passes."""
+                  for page in range(1, 11):
+                      code, commits = call(token, 'GET', api + '/pulls/%d/commits?limit=50&page=%d' % (number, page))
+                      if code != 200 or not isinstance(commits, list):
+                          return 'refused: could not read the commits of the pull request (%s)' % code
+                      for item in commits:
+                          if not CHANGE_ID.search((item.get('commit') or {}).get('message') or ''):
+                              return ('refused: commit %s has no Change-Id trailer (scripts/git-hooks adds it; '
+                                      'a clone without the hook adds it by hand)' % str(item.get('sha'))[:12])
+                      if len(commits) < 50:
+                          return ''
+                  return 'refused: more than 500 commits in one pull request'
+
               def matches(pattern, name):
                   """The release policy's globs: ** spans directories, * and ? stay inside one segment."""
                   out, i = '', 0
@@ -293,6 +310,8 @@ spec:
                   pull, problem = pull_request(token, api, branch, commit, repo)
                   if not problem:
                       problem = not_taken(token, api, pull['number'], policy, repo)
+                  if not problem:
+                      problem = lineage(token, api, pull['number'])
                   if problem:
                       return '', problem
                   for _ in range(2):  # before the wait, and once more when main moved during it
