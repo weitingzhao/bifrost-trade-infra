@@ -267,8 +267,11 @@ spec:
         # Reads outside api/ that touch nothing a console-scope change can, one file and the one
         # target it may reach (file=target); any other target of the same file counts as new:
         # devsession/catalog_repo_test.go joins ../../.. (".") with config/sessions-catalog.yaml;
-        # codehealth/scanner.go walks up to ".", the workspace of a running platform-api.
-        CONSOLE_SCOPE_KNOWN="api/internal/devsession/catalog_repo_test.go=. api/internal/codehealth/scanner.go=."
+        # codehealth/scanner.go walks up to ".", the workspace of a running platform-api;
+        # unitscript's tests read bifrost.units.yaml and the Go test files under api/ from
+        # "." (manifest_guard_test.go) and run the entry scripts in scripts/ci
+        # (unit_go_test_test.go), none of which a console-scope change touches.
+        CONSOLE_SCOPE_KNOWN="api/internal/devsession/catalog_repo_test.go=. api/internal/codehealth/scanner.go=. api/internal/unitscript/manifest_guard_test.go=. api/internal/unitscript/unit_go_test_test.go=scripts/ci"
         if [ "${API_SCOPE:-full}" = "console" ] && [ -z "${LANDING_BASE:-}" ] && [ "${API_SCOPE_REQUEST:-}" != full ]; then
           scope_check="$(mktemp -d)"
           cat > "${scope_check}/main.go" <<'GO'

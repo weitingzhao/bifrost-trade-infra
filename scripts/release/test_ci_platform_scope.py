@@ -433,6 +433,8 @@ BASE_TREE = {
     "api/internal/cluster/a_test.go": 'root := filepath.Clean(filepath.Join(filepath.Dir(source), "../../.."))\n',
     "api/internal/devsession/catalog_repo_test.go": 'root := filepath.Clean(filepath.Join("..", "..", ".."))\n',
     "api/internal/codehealth/scanner.go": 'filepath.Join(wd, "../../..")\n',
+    "api/internal/unitscript/manifest_guard_test.go": 'root := filepath.Join(filepath.Dir(file), "..", "..", "..")\n',
+    "api/internal/unitscript/unit_go_test_test.go": 'p := filepath.Join(filepath.Dir(file), "..", "..", "..", "scripts", "ci", name)\n',
     "api/internal/store/f_test.go": 'const f = "../../../console/src/api/__fixtures__/x.json"\n',
     "api/internal/delivery/c_test.go": 'dir := "../../../../bifrost-trade-infra/k8s/cicd/tekton"\n',
     "api/cmd/agentd/install_test.go": 'filepath.Abs("../../../agent/deploy/install-agentd.sh")\n',
