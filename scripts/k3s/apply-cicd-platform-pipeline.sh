@@ -47,7 +47,6 @@ kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-rollout-verify-platform.yaml"
 # TD-419 (the application pinned to the run's digests); its pipeline refuses to run without them.
 kubectl apply -f "${ROOT}/k8s/cicd/tekton/rbac-deliver-migrate-stg.yaml"
 kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-agentrt-migrate-stg.yaml"
-kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-agentd-package.yaml"
 kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-promote-platform-images.yaml"
 kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-argocd-pin-sync-platform.yaml"
 kubectl apply -f "${ROOT}/k8s/cicd/tekton/pipeline-deliver-platform.yaml"

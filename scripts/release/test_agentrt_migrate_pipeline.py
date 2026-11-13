@@ -70,7 +70,10 @@ def test_stg_pipeline_migrates_before_promotion_sync_and_rollout():
     m = p["agentrt-migrate"]
     assert m["taskRef"] == {"name": "bifrost-agentrt-migrate-stg"}
     assert m["runAfter"] == ["build-platform-api", "clone-ui"]
-    assert m["workspaces"] == [{"name": "ci-source", "workspace": "build-context"}]
+    # 2026-11-13: the migrate task no longer selects a CI run for the agentd package (the
+    # agentd-package step was removed: a release of a commit main had moved past failed in
+    # it, bifrost-deliver-platform-1794606777), so it takes no checkout.
+    assert "workspaces" not in m
     assert m["params"] == [
         {"name": "apiDigest", "value": "$(tasks.build-platform-api.results.digest)"},
         {"name": "deliverRun", "value": "$(context.pipelineRun.name)"},
