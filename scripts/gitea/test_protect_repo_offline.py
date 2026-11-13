@@ -333,17 +333,17 @@ def test_platform_existing_protection_requests_unchanged(fake, tmp_path, with_ag
     state.write_text(json.dumps(initial))
     result = run("--apply", repo="bifrost-platform")
     assert result.returncode == 0, result.stderr
-    actual_calls, actual_state = calls.read_text(), json.loads(state.read_text())
-    # Execute the reviewed commit with the very same transport and input.
-    for name in ("protect-repo.sh", "protection_policy.py"):
-        old = subprocess.run(["git", "-C", str(HERE), "show", "9e079f2:scripts/gitea/" + name],
-                             check=True, capture_output=True, text=True).stdout
-        (tmp_path / name).write_text(old)
-    state.write_text(json.dumps(initial))
-    result = run("--apply", repo="bifrost-platform")
-    assert result.returncode == 0, result.stderr
-    assert calls.read_text() == actual_calls
-    assert json.loads(state.read_text()) == actual_state
+    # What the reviewed scripts (9e079f2) did with this input, written out here. The test
+    # used to run that commit's files from `git show`; the commit is on no branch, so a fresh
+    # clone and the CI checkout could not read it and the test could only pass on a machine
+    # that happened to keep the object.
+    rules = "/repos/bifrost/bifrost-platform/branch_protections"
+    reads = ["GET /user ", "GET " + rules + " "]
+    if with_agent:
+        reads += ["GET " + rules + " ", "DELETE " + rules + "/agent%2F%2A%2A ", "GET " + rules + " "]
+        del initial["agent/**"]
+    assert calls.read_text().splitlines() == reads
+    assert json.loads(state.read_text()) == initial
 
 
 @pytest.mark.parametrize("pattern", ["release/[", "{release/*", "release/[a-bc]", "release/[]", "release/\\"])
