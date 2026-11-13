@@ -537,6 +537,7 @@ def test_a_commit_without_a_change_id_is_refused_before_anything_is_changed():
     "Change-Id: Iabc",
     "fix\n\nSee Change-Id: Iabc in the tracker\nWork: x",
     "fix\n\nChange-Id: two words\nWork: x",
+    "fix\n\nChange-Id: Iabc\n\n(cherry picked from commit " + "9" * 40 + ")",
 ])
 def test_a_change_id_in_the_body_is_not_a_trailer(message):
     assert module()["change_id"](message) is None
@@ -549,6 +550,9 @@ def test_a_change_id_in_the_body_is_not_a_trailer(message):
     ("fix" + TRAILERS, "I" + "1" * 40),
     ("fix\n\nbody\n\nClaude-Session: s\nChange-Id: Iabc\nCo-Authored-By: A B <a@b.c>\n", "Iabc"),
     ("fix\n\nWork: TD-1,\n TD-2\nChange-Id: Iabc", "Iabc"),
+    # 2026-11-13, land-ncbhb: a cherry-picked commit was refused as having no trailer
+    ("fix\n\nbody\n\nClaude-Session: s\nChange-Id: Iabc\nWork: LANE-x\n(cherry picked from commit " + "9" * 40 + ")", "Iabc"),
+    ("fix\n\n(cherry picked from commit " + "9" * 40 + ")\nChange-Id: Iabc", "Iabc"),
 ])
 def test_a_change_id_in_the_trailer_block_is_read(message, found):
     assert module()["change_id"](message) == found
