@@ -39,9 +39,9 @@ spec:
   # inputs a later run with the same trees does not need to test again
   # (CI root design, wave 1). A skipped clone emits nothing.
   results:
-    - name: repo-commit
+    - name: source-commit
       value: $(tasks.clone.results.commit)
-    - name: repo-tree
+    - name: source-tree
       value: $(tasks.clone.results.tree)
     - name: core-commit
       value: $(tasks.clone-core.results.commit)
