@@ -849,9 +849,14 @@ def test_protected_files_unchanged():
     # fresh run (the reuse task now always writes it); rollout/digest semantics stay unchanged.
     # Cleanup wave 1 (2026-11-11): the gate takes the newest Succeeded STG run of the commit,
     # not only the newest STG run; rollout/digest semantics stay unchanged.
+    # CI root design, landing wave 1 block G (2026-11-13, b808144d and 9b77384a): the
+    # embedded source gate asks the PROD platform's evidence ledger for the commit's CI
+    # first (CI_GATE_LEDGER) and falls back to the retained runs; rollout/digest
+    # semantics stay unchanged. The pin was not moved with those two commits: this
+    # directory's tests are not among the ones ci-infra runs.
     hashes = {
         "task-deliver-platform.yaml": "3c039ec342b7224ec593ee9d76566037b750878b522ecb75bc4c1e75188972aa",
-        "pipeline-deliver-platform-prod.yaml": "89af4518f6bd003b86232add7b99af9b19dba2598d95778cc249cb945b56c94c",
+        "pipeline-deliver-platform-prod.yaml": "8cde94a27333a6e7a8a0683d6018cc83626fcc59abc90cb2d45b339c9683e6e6",
     }
     for filename, expected in hashes.items():
         assert (
