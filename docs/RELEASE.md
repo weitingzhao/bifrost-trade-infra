@@ -243,6 +243,20 @@ STG 的 `rollout` 引用 `bifrost-rollout-verify-platform`，先重启并等待�
   加一行；要公开的再在 GitHub 建一个空库，同步会把 main 推过去。
 - **Gitea 挂了**：告警 `BifrostGiteaUnavailable`；恢复见 `docs/runbooks/gitea-restore.md`（每晚加密备份），不要从 GitHub 重建仓库（GitHub 只有 main 和标签）。
 
+## 怎么进 main：推 `ready/<名字>`（2026-11-13 起，infra 和 platform）
+
+从最新的 main 牵出分支，改完推到 `ready/<名字>`。之后没有人要动手：
+
+1. 这次推送起两个运行：仓库自己的 CI（整套，拿 main 当时的头当基线），和落地流水线 `bifrost-land`（`k8s/cicd/tekton/pipeline-land.yaml`）。
+2. 分支落后于 main 时，落地流水线让 Gitea 把它变基到最新的 main。提交号会变，新的提交自己再走一遍第 1 步；这次运行以 `rebased` 结束。有冲突时它拒绝，要自己变基后重推。
+3. CI 绿了，它开合并请求并把同一个提交合进 main（提交号不变），然后删掉 `ready/` 分支。CI 红了它拒绝，main 不动。
+
+它不收的两样：改交易守护路径的提交（签名发布规则里 `no_d10_paths` 那一组）；没有 `Change-Id` 尾注的提交。Secret 清单由 CI 的 statics 段拒。
+
+哪些仓库走这条路只写在一处：`pipeline-land.yaml` 里的 `LANDING_REPOS`。加一个仓库是那里加一行、应用一次这个流水线，再由 Owner 在 Gitea 把合入账号加进那个仓库的合并白名单。
+
+看结果：`wait_for_pipeline_run`，流水线名 `bifrost-land`，按提交号。改坏了：revert 那个提交，同样推 `ready/`。
+
 ## 发布窗口：推 main 或起 deliver 之前先看
 
 ```bash
