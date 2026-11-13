@@ -271,7 +271,7 @@ spec:
                       return [], 'refused: more than 500 commits in one pull request'
                   if commit not in commits or not all(re.fullmatch(r'[0-9a-f]{40}', sha) for sha in commits):
                       return [], 'refused: the branch moved while this run read it; its new push has its own run'
-                  return commits, ''
+                  return commits[::-1], ''  # Gitea lists newest first; oldest first, like the walk
 
               def walked(token, api, commit, base):
                   """(the commit ids from `base` up to `commit`, oldest first, '') for a branch Gitea has
@@ -435,7 +435,9 @@ spec:
                                   again = []
                                   if not problem:
                                       again, problem = checked(token, api, commits, policy, repo)
-                                  if not problem and again != ids:
+                                  # The same changes, whatever the order: the pull request lists its
+                                  # commits newest first, the walk from the new head reads oldest first.
+                                  if not problem and sorted(again) != sorted(ids):
                                       problem = 'refused: the branch changed during its rebase; its new push has its own run'
                               known = base
                           if problem:

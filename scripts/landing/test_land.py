@@ -321,10 +321,15 @@ class Gitea:
 
     def __init__(self, **kw):
         self.kw, self.calls, self.main, self.head = kw, [], MAIN, "c" * 40 if kw.get("moved") else SHA
-        self.lag, self.merged, self.shown = 0, None, self.head
+        self.lag, self.merged, self.shown, self.shown_older = 0, None, self.head, "4" * 40
         mine = {"message": kw.get("message", "fix: a thing" + TRAILERS), "files": kw.get("files", ["docs/RELEASE.md"])}
         # Another version of the branch, clean in every way: what a moved branch would show.
         self.commits = {self.head: mine, OTHER: {"message": "fix: clean" + TRAILERS, "files": ["docs/x.md"]}}
+        self.older = None
+        if kw.get("two"):  # a branch of two commits: `older`, then the head on top of it
+            self.older = "4" * 40
+            mine["parent"] = self.older
+            self.commits[self.older] = {"message": "fix: first\n\nChange-Id: Ifirst", "files": ["docs/first.md"]}
 
     def call(self, token, method, url, body=None):
         assert url.startswith(self.HOST + "/"), url
@@ -335,7 +340,8 @@ class Gitea:
                 return 200, {"commit": {"id": self.main}}
             if "/pulls/7/commits" in path:
                 # After a rebase the list still shows the commits from before it, as Gitea's does.
-                return 200, [{"sha": kw.get("listed", self.shown)}]
+                rows = [kw.get("listed", self.shown)] + ([self.shown_older] if self.older else [])
+                return 200, [{"sha": sha} for sha in rows]  # newest first, as Gitea lists them
             if "/git/commits/" in path:
                 sha = path.rsplit("/", 1)[1]
                 if sha not in self.commits:
@@ -354,6 +360,10 @@ class Gitea:
             kw["behind"] = False  # Gitea put the branch on main: a new commit, the same change
             old, self.head = self.head, "%040x" % (int(self.head, 16) + 1)
             self.commits[self.head] = dict(self.commits[old], parent=self.main)
+            if self.older:  # both commits get new ids, in the same order
+                was, self.older = self.older, "%040x" % (int(self.older, 16) + 1)
+                self.commits[self.older] = dict(self.commits[was], parent=self.main)
+                self.commits[self.head]["parent"] = self.older
             self.lag = kw.get("lag", 0)  # reads for which the pull request still shows the old merge_base
             return 200, None
         if kw.get("busy", 0) > 0:
@@ -586,6 +596,20 @@ def test_after_a_rebase_the_commits_are_followed_from_the_new_head_and_not_read_
     scope["call"] = gitea.call
     assert scope["walked"]("tok", gitea.HOST + "/api/v1/repos/bifrost/x", NEXT, MAIN) == ([NEXT], "")
     assert "could not follow" in scope["walked"]("tok", gitea.HOST + "/api/v1/repos/bifrost/x", NEXT, "e" * 40)[1]
+
+
+def test_a_branch_of_two_commits_is_followed_through_its_rebase():
+    """Why: land-9n5sh, 2026-11-13. A branch of two commits (Change-Ids Ie2093f6c… on I96d6fc10…)
+    was overtaken; Gitea rebased it, and the run refused it as "changed during its rebase". The
+    pull request lists its commits newest first and the walk from the rebased head reads them
+    oldest first, so the same two Change-Ids compared unequal. Every branch this lane had been
+    tried with until then had one commit."""
+    gitea = Gitea(behind=True, two=True)
+    assert run_land(gitea) == ("landed", "")
+    assert gitea.landed["commit"] == NEXT
+    assert gitea.landed["change-ids"] == "Ifirst,I" + "1" * 40  # oldest first, before and after a rebase
+    gitea = Gitea(two=True)
+    assert run_land(gitea) == ("landed", "") and gitea.landed["change-ids"] == "Ifirst,I" + "1" * 40
 
 
 def test_a_rebased_branch_is_checked_again_and_must_be_the_same_change():
