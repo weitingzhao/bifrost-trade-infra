@@ -101,7 +101,8 @@ def test_one_trigger_and_one_template_start_it_and_the_trigger_names_no_reposito
     (el,) = [d for d in docs if d["kind"] == "EventListener" and d["metadata"]["name"] == "bifrost-ci"]
     assert [t["name"] for t in el["spec"]["triggers"] if t["template"]["ref"] == "bifrost-land-template"] == ["land"]
     assert " ".join(filters()["land"].split()).endswith("body.repository.name.matches('^[a-z0-9-]{1,100}$')")
-    assert "bifrost-" not in filters()["land"]
+    assert "repository.name ==" not in filters()["land"] and "repository.name in" not in filters()["land"]
+    assert not [repo for repo in table() if repo in filters()["land"]]
 
 
 def test_the_pipeline_names_no_repository_and_every_row_is_complete():
@@ -142,11 +143,20 @@ def test_a_ready_ref_or_repository_name_that_is_not_plain_starts_nothing():
         assert "land" not in fired(push(repo, REF)), repo
 
 
-def test_the_lander_starts_no_landing():
+def test_the_lander_and_the_merging_account_start_no_landing():
+    """A push by bifrost-merger is Gitea rebasing a branch for a run that is still going and
+    follows it; a second run for the same change would race it. Its CI gate still starts."""
     for repo in (PLATFORM, INFRA):
-        body = push(repo, REF)
-        body["pusher"] = {"login": "agentrt-lander"}
-        assert "land" not in fired(body), repo
+        for pusher in ({"login": "agentrt-lander"}, {"login": "bifrost-merger"}, {"username": "bifrost-merger"},
+                       {"login": "bifrost-merger", "username": "bifrost-merger"}):
+            body = push(repo, REF)
+            body["repository"]["full_name"] = "bifrost/" + repo
+            body["pusher"] = pusher
+            assert "land" not in fired(body), (repo, pusher)
+        body["pusher"] = {"login": "bifrost-merger", "username": "bifrost-merger"}
+        assert fired(body) == (["platform-ci-ready"] if repo == PLATFORM else ["infra-ci"])
+        body["pusher"] = {"login": "bifrost-mbp", "username": "bifrost-mbp"}
+        assert "land" in fired(body)
 
 
 def test_the_ready_binding_and_template_pass_on_the_repository_commit_and_branch():
@@ -203,8 +213,9 @@ def test_land_is_inline_takes_the_pushed_commit_and_talks_to_gitea_only():
         "repo": "$(params.repo)", "commit": "$(params.revision)", "branch": "$(params.branch)"}
     assert "GITEA = 'http://gitea.cicd.svc.cluster.local:3000'" in script()
     assert "$(params" not in script() and "$(tasks" not in script()
-    assert pipeline()["results"] == [{"name": "outcome", "description": pipeline()["results"][0]["description"],
-                                      "value": "$(tasks.land.results.outcome)"}]
+    assert {r["name"]: r["value"] for r in pipeline()["results"]} == {
+        name: "$(tasks.land.results.%s)" % name for name in ("outcome", "commit", "change-ids")}
+    assert [r["name"] for r in land_task()["taskSpec"]["results"]] == ["outcome", "commit", "change-ids"]
 
 
 # --- which CI runs count -------------------------------------------------------------
@@ -300,7 +311,7 @@ class Gitea:
     HOST = "http://gitea.test"
 
     def __init__(self, **kw):
-        self.kw, self.calls, self.main, self.rebased = kw, [], MAIN, False
+        self.kw, self.calls, self.main, self.head = kw, [], MAIN, "c" * 40 if kw.get("moved") else SHA
 
     def call(self, token, method, url, body=None):
         assert url.startswith(self.HOST + "/"), url
@@ -314,13 +325,14 @@ class Gitea:
                 return 200, [{"sha": SHA, "commit": {"message": "fix: a thing" + trailer}}]
             if "/files" in path:
                 return 200, [{"filename": n} for n in kw.get("files", ["docs/RELEASE.md"])]
-            return 200, [self.pull()]
+            return (200, self.pull()) if path.endswith("/pulls/7") else (200, [self.pull()])
         if path.endswith("/pulls"):
             return (409, {"message": "exists"}) if kw.get("exists") else (201, self.pull())
         if "/update" in path:
             if kw.get("conflict"):
                 return 409, {"message": "rebase failed because of conflict"}
-            self.rebased = True
+            kw["behind"] = False  # Gitea put the branch on main: a new commit
+            self.head = "%040x" % (int(self.head, 16) + 1)
             return 200, None
         if kw.get("busy", 0) > 0:
             kw["busy"] -= 1
@@ -331,8 +343,8 @@ class Gitea:
         return 200, None
 
     def pull(self):
-        return {"number": 7, "head": {"ref": "ready/x", "sha": "c" * 40 if self.kw.get("moved") else SHA},
-                "base": {"ref": "main"}, "merge_base": "d" * 40 if self.kw.get("behind") else MAIN}
+        return {"number": 7, "head": {"ref": "ready/x", "sha": self.head},
+                "base": {"ref": "main"}, "merge_base": "d" * 40 if self.kw.get("behind") else self.main}
 
     def paths(self, word):
         return [c for c in self.calls if word in c[1]]
@@ -341,22 +353,27 @@ class Gitea:
         return self.paths("/pulls/7/merge")
 
 
-def run_land(gitea, ref=REF, commit=SHA, repo=PLATFORM, wait=None):
+NEXT = "%040x" % (int(SHA, 16) + 1)  # the stub's head after one rebase
+IDS = "I" + "1" * 40
+
+
+def run_land(gitea, ref=REF, commit=SHA, repo=PLATFORM, wait=None, budget=3000):
+    """(outcome, refusal); the whole answer is left in gitea.landed."""
     waits = []
 
     def waited(commit, ci, base):
-        waits.append((ci["pipeline"], base))
-        if gitea.kw.get("moves") and len(waits) == 1:
+        waits.append((ci["pipeline"], base, commit))
+        if len(waits) <= gitea.kw.get("moves", 0):
             gitea.kw["behind"] = True  # another branch landed while CI ran
-            gitea.main = "f" * 40
+            gitea.main = "%040x" % (int("f" * 39 + "0", 16) + len(waits))
         return "green"
 
     scope = module()
     scope["call"] = gitea.call
-    got = scope["land"]("tok", table(), policy(), repo, ref, commit, wait=wait or waited,
-                        gitea=gitea.HOST, tries=3, pause=0)
+    gitea.landed, problem = scope["land"]("tok", table(), policy(), repo, ref, commit, wait=wait or waited,
+                                          gitea=gitea.HOST, tries=3, pause=0, budget=budget)
     gitea.waits = waits
-    return got
+    return gitea.landed.get("outcome", ""), problem
 
 
 def test_a_green_branch_on_top_of_main_is_merged_as_the_same_commit():
@@ -367,14 +384,15 @@ def test_a_green_branch_on_top_of_main_is_merged_as_the_same_commit():
     assert {c[3] for c in gitea.calls} == {"token tok"}
     assert gitea.calls[0][2]["head"] == "ready/x" and gitea.calls[0][2]["base"] == "main"
     assert {c[1].split("/pulls")[0].split("/branches")[0] for c in gitea.calls} == {"/api/v1/repos/bifrost/bifrost-platform"}
-    assert gitea.waits == [("bifrost-ci-platform", MAIN)]
+    assert gitea.waits == [("bifrost-ci-platform", MAIN, SHA)]
+    assert gitea.landed == {"outcome": "landed", "commit": SHA, "change-ids": IDS}
 
 
 def test_the_same_code_lands_another_listed_repository_with_its_own_ci():
     gitea = Gitea()
     assert run_land(gitea, repo=INFRA) == ("landed", "")
     assert {c[1].split("/pulls")[0].split("/branches")[0] for c in gitea.calls} == {"/api/v1/repos/bifrost/bifrost-trade-infra"}
-    assert gitea.waits == [("bifrost-ci-infra", MAIN)]
+    assert gitea.waits == [("bifrost-ci-infra", MAIN, SHA)]
 
 
 def test_an_open_pull_request_for_the_branch_is_used():
@@ -389,23 +407,48 @@ def test_gitea_still_checking_is_waited_for():
     assert len(gitea.merges()) == 3
 
 
-def test_a_branch_behind_main_is_rebased_by_gitea_before_any_ci_is_waited_for():
+def test_a_branch_behind_main_is_rebased_and_the_same_run_lands_the_new_commit():
+    """One push, one run: Succeeded means on main. The run that had Gitea rebase the branch
+    goes on with the new commit; it waits for that commit's CI and merges that commit. What
+    it reports is the commit on main, which is not the pushed one, and the Change-Ids, which
+    the rebase did not change. (2026-11-13: a run that ended `rebased` read as landed, and
+    the pusher waited fifteen minutes for a commit id that would never be on main.)"""
     gitea = Gitea(behind=True)
-    assert run_land(gitea) == ("rebased", "")
+    assert run_land(gitea) == ("landed", "")
     assert [c[1] for c in gitea.paths("/update")] == ["/api/v1/repos/bifrost/bifrost-platform/pulls/7/update?style=rebase"]
-    assert gitea.merges() == [] and gitea.waits == []
+    assert gitea.waits == [("bifrost-ci-platform", MAIN, NEXT)]  # no CI was waited for on the stale commit
+    (merge,) = gitea.merges()
+    assert merge[2]["head_commit_id"] == NEXT
+    assert gitea.landed == {"outcome": "landed", "commit": NEXT, "change-ids": IDS} and gitea.main == NEXT
 
 
-def test_main_moving_while_ci_ran_is_a_rebase_too_and_not_a_merge():
-    gitea = Gitea(moves=True)
-    assert run_land(gitea) == ("rebased", "")
-    assert len(gitea.waits) == 1 and len(gitea.paths("/update")) == 1 and gitea.merges() == []
+def test_main_moving_while_ci_ran_is_followed_as_often_as_it_happens():
+    gitea = Gitea(moves=2)
+    assert run_land(gitea) == ("landed", "")
+    assert [w[2] for w in gitea.waits] == [SHA, NEXT, "%040x" % (int(SHA, 16) + 2)]
+    assert len(gitea.paths("/update")) == 2 and len(gitea.merges()) == 1
+    assert gitea.landed["commit"] == "%040x" % (int(SHA, 16) + 2)
+
+
+def test_main_that_never_stops_moving_is_a_refusal_when_the_time_is_up():
+    gitea = Gitea(moves=10 ** 6)
+    outcome, problem = run_land(gitea, budget=0.2)
+    assert outcome == "" and "main kept moving" in problem and gitea.merges() == []
+
+
+def test_a_rebased_head_that_cannot_be_read_is_a_refusal():
+    gitea = Gitea(behind=True)
+    gitea.head = "not-a-commit-after-this"
+    module_scope = module()
+    module_scope["call"] = gitea.call
+    assert module_scope["rebased_head"]("tok", gitea.HOST + "/api/v1/repos/bifrost/x", gitea.pull(), tries=2, pause=0) == (
+        None, "refused: Gitea rebased the branch but its new head could not be read; push ready/ again")
 
 
 def test_a_stale_ci_answer_on_an_unmoved_main_is_asked_again_and_then_refused():
     gitea = Gitea()
     outcome, problem = run_land(gitea, repo=INFRA, wait=lambda commit, ci, base: "stale")
-    assert outcome == "" and "main kept moving" in problem and gitea.merges() == []
+    assert outcome == "" and "did not judge" in problem and gitea.merges() == []
 
 
 def test_a_rebase_gitea_cannot_do_is_a_refusal_that_says_what_to_do():

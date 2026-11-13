@@ -2,8 +2,9 @@
 # clicks merge. A push to refs/heads/ready/<name> of a repository listed in LANDING_REPOS below
 # starts that repository's CI gate and this pipeline beside it (trigger-trade-ci.yaml `land`).
 # It opens the pull request, brings a branch that is behind main up to date (a rebase by
-# Gitea, whose push starts the next run), waits for that commit's CI to be green, read from
-# the cluster's own PipelineRuns, then rebase-merges the same commit as bifrost-merger: the
+# Gitea, which this same run then follows: one push, one run, Succeeded means on main), waits
+# for the commit's CI to be green, read from the cluster's own PipelineRuns, then
+# rebase-merges that commit as bifrost-merger: the
 # only identity besides the Owner on main's merge whitelist. A commit status decides nothing
 # here: on Gitea 1.21 any account with write access can post one.
 # There is one landing pipeline. What differs between repositories is a row in the
@@ -35,8 +36,14 @@ spec:
       description: The pushed ref, refs/heads/ready/<name>.
   results:
     - name: outcome
-      description: landed, or rebased (the branch was behind main; its new commit has its own run).
+      description: landed. A run that did not land fails; its last log line says why.
       value: $(tasks.land.results.outcome)
+    - name: commit
+      description: The commit now on main. Not the pushed one when the branch had to be rebased.
+      value: $(tasks.land.results.commit)
+    - name: change-ids
+      description: The Change-Id trailers of the landed commits, comma separated; they do not change in a rebase.
+      value: $(tasks.land.results.change-ids)
   tasks:
     - name: freeze-check
       taskRef:
@@ -59,6 +66,8 @@ spec:
           - name: branch
         results:
           - name: outcome
+          - name: commit
+          - name: change-ids
         volumes:
           - name: gitea-merger
             secret:
@@ -132,10 +141,10 @@ spec:
               GITEA = 'http://gitea.cicd.svc.cluster.local:3000'
               TOKEN_FILE = '/etc/gitea-merger/password'  # kubernetes.io/basic-auth, put-reader-token.sh merger
               POLICY = '/etc/release-policy/policy.yaml'  # canonical JSON
-              CHANGE_ID = re.compile(r'^Change-Id: \S+$', re.M)
+              CHANGE_ID = re.compile(r'^Change-Id: (\S+)$', re.M)
               RUNS = 'https://kubernetes.default.svc/apis/tekton.dev/v1/namespaces/cicd/pipelineruns'
               SA = '/var/run/secrets/kubernetes.io/serviceaccount/'
-              OUTCOME = '/tekton/results/outcome'
+              RESULTS = '/tekton/results/'
 
               def row(table, repo):
                   """The repository's row, or None: only a listed repository lands."""
@@ -236,20 +245,23 @@ spec:
                   return pull, ''
 
               def lineage(token, api, number):
-                  """'' when every commit of the pull request carries a Change-Id trailer. The agents
-                  share one Gitea account, so the trailers are the record of which change a commit
-                  is (CLAUDE.md, Owner 2026-10-06); this lane is where every commit to main passes."""
+                  """(Change-Ids, '') when every commit of the pull request carries a Change-Id trailer.
+                  The agents share one Gitea account, so the trailers are the record of which change a
+                  commit is (CLAUDE.md, Owner 2026-10-06); this lane is where every commit to main passes."""
+                  ids = []
                   for page in range(1, 11):
                       code, commits = call(token, 'GET', api + '/pulls/%d/commits?limit=50&page=%d' % (number, page))
                       if code != 200 or not isinstance(commits, list):
-                          return 'refused: could not read the commits of the pull request (%s)' % code
+                          return ids, 'refused: could not read the commits of the pull request (%s)' % code
                       for item in commits:
-                          if not CHANGE_ID.search((item.get('commit') or {}).get('message') or ''):
-                              return ('refused: commit %s has no Change-Id trailer (scripts/git-hooks adds it; '
-                                      'a clone without the hook adds it by hand)' % str(item.get('sha'))[:12])
+                          found = CHANGE_ID.findall((item.get('commit') or {}).get('message') or '')
+                          if not found:
+                              return ids, ('refused: commit %s has no Change-Id trailer (scripts/git-hooks adds it; '
+                                           'a clone without the hook adds it by hand)' % str(item.get('sha'))[:12])
+                          ids.append(found[-1])
                       if len(commits) < 50:
-                          return ''
-                  return 'refused: more than 500 commits in one pull request'
+                          return ids, ''
+                  return ids, 'refused: more than 500 commits in one pull request'
 
               def matches(pattern, name):
                   """The release policy's globs: ** spans directories, * and ? stay inside one segment."""
@@ -324,49 +336,77 @@ spec:
                   print('landed %s on main through pull request #%d' % (commit, pull['number']))
                   return ''
 
-              def land(token, table, policy, repo, ref, commit, wait=ci_wait, gitea=GITEA, tries=24, pause=5):
-                  """(outcome, refusal): ('landed', ''), ('rebased', '') or ('', why not)."""
+              def rebased_head(token, api, pull, tries=12, pause=5):
+                  """(the branch's new head, '') once Gitea shows the rebase; (None, refusal) otherwise."""
+                  for _ in range(tries):
+                      code, now = call(token, 'GET', api + '/pulls/%d' % pull['number'])
+                      head = (now or {}).get('head', {}).get('sha') if code == 200 else None
+                      if head and head != pull.get('head', {}).get('sha') and re.fullmatch(r'[0-9a-f]{40}', head):
+                          return head, ''
+                      time.sleep(pause)
+                  return None, 'refused: Gitea rebased the branch but its new head could not be read; push ready/ again'
+
+              def land(token, table, policy, repo, ref, commit, wait=ci_wait, gitea=GITEA, tries=24, pause=5,
+                       budget=50 * 60):
+                  """(what landed, refusal): ({'outcome': 'landed', 'commit': ..., 'change-ids': ...}, '') or
+                  ({}, why not). One push is one run: a branch behind main is rebased by Gitea and this
+                  run goes on with the new commit, as often as main moves, until it is merged or the
+                  time is up. The trigger starts no second run for the merging account's own push."""
                   found = re.fullmatch(r'refs/heads/(ready/[A-Za-z0-9._/-]{1,100})', ref)
                   if not found or not re.fullmatch(r'[0-9a-f]{40}', commit):
-                      return '', 'refused: not a ready/ branch with a full commit id'
+                      return {}, 'refused: not a ready/ branch with a full commit id'
                   entry = row(table, repo)
                   if entry is None:
-                      return '', 'refused: this repository is not in LANDING_REPOS (pipeline-land.yaml)'
+                      return {}, 'refused: this repository is not in LANDING_REPOS (pipeline-land.yaml)'
                   branch, api = found.group(1), gitea + '/api/v1/repos/bifrost/' + repo
                   pull, problem = pull_request(token, api, branch, commit, repo)
                   if not problem:
                       problem = not_taken(token, api, pull['number'], policy, repo)
+                  ids = []
                   if not problem:
-                      problem = lineage(token, api, pull['number'])
+                      ids, problem = lineage(token, api, pull['number'])
                   if problem:
-                      return '', problem
-                  for _ in range(2):  # before the wait, and once more when main moved during it
+                      return {}, problem
+                  deadline, pushed, stale = time.time() + budget, commit, 0
+                  while time.time() < deadline:
                       base, problem = up_to_date(token, api, pull)
                       if problem == 'rebased':
-                          print('the branch was behind main; Gitea rebased it and the new commit has its own run')
-                          return 'rebased', ''
+                          commit, problem = rebased_head(token, api, pull, pause=pause)
+                          if not problem:
+                              print('the branch was behind main; Gitea rebased %s to %s and this run goes on with it'
+                                    % (pushed[:12], commit[:12]), flush=True)
+                              pull, problem = pull_request(token, api, branch, commit, repo)
+                          if problem:
+                              return {}, problem
+                          continue
                       if problem:
-                          return '', problem
+                          return {}, problem
                       got = wait(commit, entry['ci'], base)
                       if got not in ('green', 'stale'):
-                          return '', got
+                          return {}, got
                       pull, problem = pull_request(token, api, branch, commit, repo)
                       if problem:
-                          return '', problem
+                          return {}, problem
                       code, main = call(token, 'GET', api + '/branches/main')
                       still = code == 200 and main.get('commit', {}).get('id') == base == pull.get('merge_base')
                       if got == 'green' and still:
                           problem = merge(token, api, pull, commit, tries, pause)
-                          return ('', problem) if problem else ('landed', '')
-                  return '', 'refused: main kept moving while this commit was checked; push ready/ again'
+                          if problem:
+                              return {}, problem
+                          return {'outcome': 'landed', 'commit': commit, 'change-ids': ','.join(ids[:40])}, ''
+                      stale += still
+                      if stale > 1:
+                          return {}, 'refused: CI did not judge %s against main as it is now; push ready/ again' % commit
+                  return {}, 'refused: main kept moving for %d minutes while this change was checked; push ready/ again' % (budget // 60)
 
               if __name__ == '__main__':
                   if not os.path.exists(TOKEN_FILE):
                       sys.exit('refused: Secret cicd/gitea-merger is not installed')
                   with open(TOKEN_FILE) as handle, open(POLICY) as signed:
-                      outcome, problem = land(handle.read().strip(), json.loads(os.environ['LANDING_REPOS']), json.load(signed),
-                                              os.environ['REPO'], os.environ['BRANCH'], os.environ['COMMIT'])
+                      landed, problem = land(handle.read().strip(), json.loads(os.environ['LANDING_REPOS']), json.load(signed),
+                                             os.environ['REPO'], os.environ['BRANCH'], os.environ['COMMIT'])
                   if problem:
                       sys.exit(problem)
-                  with open(OUTCOME, 'w') as handle:
-                      handle.write(outcome)
+                  for name, value in landed.items():
+                      with open(RESULTS + name, 'w') as handle:
+                          handle.write(value)

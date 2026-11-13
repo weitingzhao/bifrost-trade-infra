@@ -461,6 +461,8 @@ spec:
     # by the pipeline; the name is pinned to a plain one and is data. A repository's CI gate
     # starts beside it from its own trigger (bifrost-trade-infra: infra-ci above, whose clone
     # task takes main as the base of a commit that heads a ready/ branch).
+    # A push by bifrost-merger is Gitea rebasing a branch for a landing run that is still going:
+    # that run follows the new commit, so no second one starts (the CI gate still does).
     - name: land
       interceptors:
         - ref:
@@ -473,8 +475,8 @@ spec:
                 body.after != '0000000000000000000000000000000000000000' &&
                 body.ref.matches('^refs/heads/ready/[A-Za-z0-9._/-]{1,100}$') &&
                 (!has(body.pusher) ||
-                  ((!has(body.pusher.login) || body.pusher.login != 'agentrt-lander') &&
-                   (!has(body.pusher.username) || body.pusher.username != 'agentrt-lander'))) &&
+                  ((!has(body.pusher.login) || (body.pusher.login != 'agentrt-lander' && body.pusher.login != 'bifrost-merger')) &&
+                   (!has(body.pusher.username) || (body.pusher.username != 'agentrt-lander' && body.pusher.username != 'bifrost-merger')))) &&
                 body.repository.name.matches('^[a-z0-9-]{1,100}$')
       bindings:
         - ref: bifrost-gitea-push-ready
