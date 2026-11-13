@@ -1,14 +1,16 @@
 # Owner 2026-11-12 / 2026-11-13: main takes a change only through a pull request, and nobody
-# clicks merge. A push to refs/heads/ready/<name> of a repository listed in landing-repos.yaml
+# clicks merge. A push to refs/heads/ready/<name> of a repository listed in LANDING_REPOS below
 # starts that repository's CI gate and this pipeline beside it (trigger-trade-ci.yaml `land`).
 # It opens the pull request, brings a branch that is behind main up to date (a rebase by
 # Gitea, whose push starts the next run), waits for that commit's CI to be green, read from
 # the cluster's own PipelineRuns, then rebase-merges the same commit as bifrost-merger: the
 # only identity besides the Owner on main's merge whitelist. A commit status decides nothing
 # here: on Gitea 1.21 any account with write access can post one.
-# There is one landing pipeline. What differs between repositories is a row in
-# landing-repos.yaml; a second pipeline that mounts the merger token fails
-# scripts/release/test_land.py.
+# There is one landing pipeline. What differs between repositories is a row in the
+# LANDING_REPOS value below, the one place those facts are written (the scripts and tests of
+# this repository read it from this file); a second pipeline that mounts the merger token
+# fails scripts/release/test_land.py. It is in this file and not a ConfigMap because the apply
+# lane takes no ConfigMap in cicd (apply-manifest/actuation-policy.yaml).
 # It is its own pipeline because a task that writes must come after the release freeze check
 # (scripts/release/freeze_chain.py), and CI itself must keep running during a freeze.
 apiVersion: tekton.dev/v1
@@ -24,7 +26,7 @@ spec:
   params:
     - name: repo
       type: string
-      description: The repository's name; a key of landing-repos.yaml, nothing else is taken from it.
+      description: The repository's name; a key of LANDING_REPOS, nothing else is taken from it.
     - name: revision
       type: string
       description: The pushed commit (40 hex).
@@ -61,9 +63,6 @@ spec:
           - name: gitea-merger
             secret:
               secretName: gitea-merger
-          - name: landing-repos
-            configMap:
-              name: bifrost-landing-repos
           # The policy the Owner signed (release.sh policy sign). Its no_d10_paths group is the
           # one list of trade-execution guard paths; this lane does not take a change to them.
           - name: release-policy
@@ -76,13 +75,41 @@ spec:
               - name: gitea-merger
                 mountPath: /etc/gitea-merger
                 readOnly: true
-              - name: landing-repos
-                mountPath: /etc/landing
-                readOnly: true
               - name: release-policy
                 mountPath: /etc/release-policy
                 readOnly: true
             env:
+              # One row for each repository whose main takes a green ready/ branch.
+              #   ci.pipeline     the repository's CI gate
+              #   ci.params       params a run of that gate must carry to count as the whole suite
+              #   ci.results      results it must report, each one of the listed values
+              #   ci.base_result  the result that names the commit the run was judged against; it
+              #                   must be main's head at the merge (a ready/ run of bifrost-ci-infra
+              #                   takes main as its base, task-ci-infra-clone.yaml)
+              #   merger          the Secret in cicd that holds the merging account's token
+              - name: LANDING_REPOS
+                value: |
+                  {
+                    "bifrost-platform": {
+                      "ci": {
+                        "pipeline": "bifrost-ci-platform",
+                        "params": {
+                          "base": "",
+                          "repo-url": "http://gitea.cicd.svc.cluster.local:3000/bifrost/bifrost-platform.git"
+                        },
+                        "results": {"api-scope": ["full", "console"]}
+                      },
+                      "merger": "gitea-merger"
+                    },
+                    "bifrost-trade-infra": {
+                      "ci": {
+                        "pipeline": "bifrost-ci-infra",
+                        "params": {"purpose": "push"},
+                        "base_result": "base-commit"
+                      },
+                      "merger": "gitea-merger"
+                    }
+                  }
               - name: REPO
                 value: $(params.repo)
               - name: COMMIT
@@ -104,7 +131,6 @@ spec:
               # Fixed: the token is never sent to an address a caller chose.
               GITEA = 'http://gitea.cicd.svc.cluster.local:3000'
               TOKEN_FILE = '/etc/gitea-merger/password'  # kubernetes.io/basic-auth, put-reader-token.sh merger
-              TABLE = '/etc/landing/repos.json'
               POLICY = '/etc/release-policy/policy.yaml'  # canonical JSON
               CHANGE_ID = re.compile(r'^Change-Id: \S+$', re.M)
               RUNS = 'https://kubernetes.default.svc/apis/tekton.dev/v1/namespaces/cicd/pipelineruns'
@@ -305,7 +331,7 @@ spec:
                       return '', 'refused: not a ready/ branch with a full commit id'
                   entry = row(table, repo)
                   if entry is None:
-                      return '', 'refused: this repository is not in landing-repos.yaml'
+                      return '', 'refused: this repository is not in LANDING_REPOS (pipeline-land.yaml)'
                   branch, api = found.group(1), gitea + '/api/v1/repos/bifrost/' + repo
                   pull, problem = pull_request(token, api, branch, commit, repo)
                   if not problem:
@@ -337,8 +363,8 @@ spec:
               if __name__ == '__main__':
                   if not os.path.exists(TOKEN_FILE):
                       sys.exit('refused: Secret cicd/gitea-merger is not installed')
-                  with open(TOKEN_FILE) as handle, open(TABLE) as rows, open(POLICY) as signed:
-                      outcome, problem = land(handle.read().strip(), json.load(rows), json.load(signed),
+                  with open(TOKEN_FILE) as handle, open(POLICY) as signed:
+                      outcome, problem = land(handle.read().strip(), json.loads(os.environ['LANDING_REPOS']), json.load(signed),
                                               os.environ['REPO'], os.environ['BRANCH'], os.environ['COMMIT'])
                   if problem:
                       sys.exit(problem)

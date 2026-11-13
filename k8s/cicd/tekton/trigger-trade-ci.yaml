@@ -119,7 +119,7 @@ spec:
 
 ---
 # --- TriggerBinding and TriggerTemplate: a ready/ push → bifrost-land (pipeline-land.yaml) ---
-# The one landing pipeline for every repository listed in landing-repos.yaml. The
+# The one landing pipeline for every repository listed in LANDING_REPOS (pipeline-land.yaml). The
 # repository's name is passed on only to be looked up there.
 # MIGRATION (2026-11-13, hours): bifrost-platform still lands through bifrost-land-platform
 # above, untouched, until this pipeline has landed bifrost-trade-infra for real. The next
@@ -542,7 +542,7 @@ spec:
         - ref: bifrost-gitea-push-platform-ready
       template:
         ref: bifrost-land-platform-template
-    # One landing trigger for every repository: which ones land is landing-repos.yaml, read
+    # One landing trigger for every repository: which ones land is LANDING_REPOS (pipeline-land.yaml), read
     # by the pipeline; the name is pinned to a plain one and is data. A repository's CI gate
     # starts beside it from its own trigger (bifrost-trade-infra: infra-ci above, whose clone
     # task takes main as the base of a commit that heads a ready/ branch).

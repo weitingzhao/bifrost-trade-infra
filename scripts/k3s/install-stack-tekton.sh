@@ -96,7 +96,6 @@ else
   kubectl apply -f "${ROOT}/k8s/cicd/tekton/task-ci-platform-test-api.yaml"
   kubectl apply -f "${ROOT}/k8s/cicd/tekton/pipeline-ci-platform.yaml"
   kubectl apply -f "${ROOT}/k8s/cicd/tekton/pipeline-land-platform.yaml"
-  kubectl apply -f "${ROOT}/k8s/cicd/tekton/landing-repos.yaml"
   kubectl apply -f "${ROOT}/k8s/cicd/tekton/pipeline-land.yaml"
   kubectl apply -f "${ROOT}/k8s/cicd/tekton/trigger-trade-ci.yaml"
 fi

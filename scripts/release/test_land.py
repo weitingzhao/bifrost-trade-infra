@@ -4,7 +4,7 @@ the repository's CI gate runs on the whole suite, and bifrost-land beside it pas
 release freeze check, opens the pull request, has Gitea rebase a branch that is behind main,
 waits for that gate, and merges the same commit as bifrost-merger, the only non-Owner identity
 on main's merge whitelist. There is one landing pipeline for every repository; what differs is
-a row in landing-repos.yaml. Pinned here: that there is only one, who starts a landing, where
+a row in LANDING_REPOS (pipeline-land.yaml). Pinned here: that there is only one, who starts a landing, where
 the token is, which CI runs count, and what `land` refuses."""
 
 import json
@@ -21,7 +21,6 @@ from test_ci_branch_trigger import SHA, ZERO, fired, filters, push
 ROOT = Path(__file__).resolve().parents[2]
 TEKTON = ROOT / "k8s/cicd/tekton"
 PIPELINE = TEKTON / "pipeline-land.yaml"
-TABLE = TEKTON / "landing-repos.yaml"
 CI_PIPELINE = TEKTON / "pipeline-ci-platform.yaml"
 TRIGGER = TEKTON / "trigger-trade-ci.yaml"
 MAIN = "b" * 40
@@ -35,7 +34,9 @@ def pipeline():
 
 
 def table():
-    return json.loads(yaml.safe_load(TABLE.read_text())["data"]["repos.json"])
+    """LANDING_REPOS: the one place a repository's landing facts are written."""
+    (value,) = [e["value"] for e in land_task()["taskSpec"]["steps"][0]["env"] if e["name"] == "LANDING_REPOS"]
+    return json.loads(value)
 
 
 def policy():
@@ -112,7 +113,7 @@ def test_one_trigger_and_one_template_start_it_and_the_trigger_names_no_reposito
 
 
 def test_the_pipeline_names_no_repository_and_every_row_is_complete():
-    assert not [repo for repo in table() if repo in PIPELINE.read_text()]
+    assert not [repo for repo in table() if repo in script()]
     assert set(table()) == {PLATFORM, INFRA}
     mounted = {v["secret"]["secretName"] for v in land_task()["taskSpec"]["volumes"] if "secret" in v}
     for repo, entry in table().items():
