@@ -2,11 +2,13 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "description": [
     "Renovate finds new versions of the open-source components this cluster runs and opens a pull request with the upstream change notes. It never merges: an Agent reads the notes, runs scripts/k3s/pluto-report.sh, takes the change through STG and then PROD.",
-    "First round is deliberately narrow: only a version that carries a `# renovate:` line above it is proposed (scripts/k3s/versions.env, the Helm chart pins in the install scripts, Gitea and kube-vip). The CloudNativePG operator is left out on purpose: its version appears twice in one URL and it runs the only database. Widen once the round trip has been walked."
+    "First round is deliberately narrow: only a version that carries a `# renovate:` line above it is proposed (scripts/k3s/versions.env, the Helm chart pins in the install scripts, Gitea and kube-vip). The CloudNativePG operator is left out on purpose: its version appears twice in one URL and it runs the only database. Widen once the round trip has been walked.",
+    "separateMinorPatch: a patch release on the line the cluster already runs gets its own pull request, apart from the jump to a newer minor. Without it the first run proposed Argo CD v3.4.3 -> v3.6.1 only, and v3.4.10 (four critical advisories, images only) was never shown. The patch pull request is the one to take first."
   ],
   "enabledManagers": [
     "custom.regex"
   ],
+  "separateMinorPatch": true,
   "automerge": false,
   "platformAutomerge": false,
   "prConcurrentLimit": 3,
