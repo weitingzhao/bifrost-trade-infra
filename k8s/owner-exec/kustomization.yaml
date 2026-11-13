@@ -8,4 +8,5 @@ resources:
   - rbac.yaml
   - admission.yaml
   - network-policy.yaml
+  - deployment
   - runner.yaml

@@ -11,6 +11,7 @@ resources:
   - sa-kubeconfig.yaml
   - redis-agents.yaml
   - owner-exec.yaml
+  - ../../owner-exec/deployment
 
 # The config files both environments share come from the component; this
 # overlay generates the ConfigMap with the ones that differ per environment.
@@ -27,6 +28,7 @@ configMapGenerator:
       disableNameSuffixHash: true
 
 patches:
+  - path: owner-exec.patch.yaml
   - path: platform-serviceaccount.patch.yaml
   - path: images-pull-always.patch.yaml
   - path: platform-workers-env.patch.yaml
