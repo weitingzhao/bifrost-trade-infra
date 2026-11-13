@@ -77,6 +77,16 @@ spec:
     - name: api-scope-request
       type: string
       default: ""
+    - name: land
+      type: string
+      default: "no"
+      description: >-
+        "yes" only from the ready/ webhook trigger (trigger-trade-ci.yaml platform-ci-land).
+        A run the platform starts cannot set it (ci_run.go accepts revision alone).
+    - name: branch
+      type: string
+      default: ""
+      description: The pushed ref (refs/heads/ready/<name>) of a landing run.
   workspaces:
     - name: source
   tasks:
@@ -346,3 +356,130 @@ spec:
       workspaces:
         - name: source
           workspace: source
+    # Owner 2026-11-12: main takes a change only through a pull request, and the only identity
+    # on main's merge whitelist besides the Owner is bifrost-merger, whose token is mounted in
+    # this one task. It merges the commit this run tested. It runs after every other task, so
+    # Tekton starts it only when all of them passed; a commit status, which anyone with write
+    # access can post, decides nothing. It is a task and not `finally`, and has no `when`: a
+    # skipped task would change the run's reason (test_ci_platform_scope.py); a run that is
+    # not a landing starts it and it exits at once. Inline, so that no TaskRun can call it
+    # with a commit of the caller's choosing. The Secret is optional so that CI runs before
+    # the Owner has installed it.
+    - name: land
+      timeout: 5m0s
+      runAfter: [clone, clone-ui, clone-infra, reuse, clone-legacy, changes, test-api, test-api-store, test-console, check-spine, code-health]
+      params:
+        - name: commit
+          value: $(tasks.clone.results.commit)
+        - name: branch
+          value: $(params.branch)
+        - name: land
+          value: $(params.land)
+      taskSpec:
+        params:
+          - name: commit
+          - name: branch
+          - name: land
+        volumes:
+          - name: gitea-merger
+            secret:
+              secretName: gitea-merger
+              optional: true
+        steps:
+          - name: merge
+            image: python:3.11-slim-bookworm
+            volumeMounts:
+              - name: gitea-merger
+                mountPath: /etc/gitea-merger
+                readOnly: true
+            env:
+              - name: COMMIT
+                value: $(params.commit)
+              - name: BRANCH
+                value: $(params.branch)
+              - name: LAND
+                value: $(params.land)
+            script: |
+              #!/usr/bin/env python3
+              """Open the pull request for a green ready/ branch and merge it (rebase, same commit)."""
+              import json
+              import os
+              import re
+              import sys
+              import time
+              import urllib.error
+              import urllib.request
+
+              # Fixed: the token is never sent to an address a caller chose.
+              API = 'http://gitea.cicd.svc.cluster.local:3000/api/v1/repos/bifrost/bifrost-platform'
+              TOKEN_FILE = '/etc/gitea-merger/password'  # kubernetes.io/basic-auth, put-reader-token.sh merger
+
+              def call(token, method, path, body=None):
+                  data = None if body is None else json.dumps(body).encode()
+                  req = urllib.request.Request(API + path, method=method, data=data, headers={
+                      'Authorization': 'token ' + token, 'Content-Type': 'application/json'})
+                  try:
+                      with urllib.request.urlopen(req, timeout=30) as response:
+                          raw = response.read()
+                          return response.status, (json.loads(raw) if raw.strip() else None)
+                  except urllib.error.HTTPError as err:
+                      try:
+                          message = str(json.loads(err.read()).get('message', ''))[:300]
+                      except Exception:
+                          message = ''
+                      return err.code, {'message': message}
+
+              def land(token, ref, commit, tries=24, pause=5):
+                  found = re.fullmatch(r'refs/heads/(ready/[A-Za-z0-9._/-]{1,100})', ref)
+                  if not found or not re.fullmatch(r'[0-9a-f]{40}', commit):
+                      return 'refused: not a ready/ branch with a full commit id'
+                  branch = found.group(1)
+                  code, pull = call(token, 'POST', '/pulls', {
+                      'head': branch, 'base': 'main', 'title': 'Land ' + branch,
+                      'body': 'Opened by bifrost-ci-platform for commit ' + commit + '.'})
+                  if code == 409:
+                      code, pulls = call(token, 'GET', '/pulls?state=open&limit=50')
+                      pull = next((p for p in pulls or [] if isinstance(p, dict)
+                                   and p.get('head', {}).get('ref') == branch
+                                   and p.get('base', {}).get('ref') == 'main'), None) if code == 200 else None
+                      if pull is None:
+                          return 'refused: a pull request for this branch exists but could not be read'
+                  elif code != 201:
+                      return 'refused: could not open the pull request (%s %s)' % (code, (pull or {}).get('message', ''))
+                  if pull.get('head', {}).get('sha') != commit:
+                      return 'refused: the branch moved after this run started; its new push has its own run'
+                  code, main = call(token, 'GET', '/branches/main')
+                  if code != 200:
+                      return 'refused: could not read main (%s)' % code
+                  if pull.get('merge_base') != main.get('commit', {}).get('id'):
+                      return ('refused: the branch is behind main. Rebase it onto main and push ready/ again; '
+                              'the new commit gets its own run')
+                  last = ''
+                  for _ in range(tries):
+                      code, out = call(token, 'POST', '/pulls/%d/merge' % pull['number'], {
+                          'Do': 'rebase', 'head_commit_id': commit, 'delete_branch_after_merge': True})
+                      if code == 200:
+                          break
+                      last = '%s %s' % (code, (out or {}).get('message', ''))
+                      if code not in (405, 409):
+                          return 'refused: merge failed (%s)' % last
+                      time.sleep(pause)  # Gitea is still checking the new pull request
+                  else:
+                      return 'refused: Gitea did not accept the merge (%s)' % last
+                  code, main = call(token, 'GET', '/branches/main')
+                  landed = main.get('commit', {}).get('id') if code == 200 else None
+                  if landed != commit:
+                      print('WARNING: merged pull request #%d but main reads %s, not %s' % (pull['number'], landed, commit))
+                  print('landed %s on main through pull request #%d' % (commit, pull['number']))
+                  return ''
+
+              if __name__ == '__main__':
+                  if os.environ.get('LAND') != 'yes':
+                      print('not a landing run (land is not "yes"): nothing to merge')
+                      sys.exit(0)
+                  if not os.path.exists(TOKEN_FILE):
+                      sys.exit('refused: Secret cicd/gitea-merger is not installed')
+                  with open(TOKEN_FILE) as handle:
+                      problem = land(handle.read().strip(), os.environ['BRANCH'], os.environ['COMMIT'])
+                  if problem:
+                      sys.exit(problem)

@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
-# put-reader-token.sh stg|prod|ci|drill|lander [--check|replace] — TD-432 / S6-7
+# put-reader-token.sh stg|prod|ci|drill|lander|merger [--check|replace] — TD-432 / S6-7
 # drill is deliberately NOT a reader: agentrt-landing-stg may write code only
 # in platform and infra, but may not push main or administer any repository.
 # lander (S6) writes platform and infra, pushes both main branches, administers
 # neither, and cannot write any third repository. Existing reader identities
 # already cover infra through gitea-primary.txt; no new identity is needed.
+# merger (Owner 2026-11-12) writes platform only, administers nothing and cannot
+# push main; it is on main's merge whitelist, and its token is mounted in the one
+# finally task of bifrost-ci-platform that merges a green ready/ branch.
 # --check performs GET-only permission checks and never calls kubectl. Use it
 # for S6: reuse the existing tokens and leave all Secrets unchanged.
 # Branch/tag/PR protection still needs the Owner's actual refusal probes.
@@ -17,6 +20,7 @@
 #   ci    account bifrost-ci-reader             → Secret cicd/gitea-ci-reader
 #   drill account agentrt-landing-stg           → Secret bifrost-platform-stg/agentrt-landing-drill
 #   lander account agentrt-lander               → Secret bifrost-platform-prod/agentrt-lander
+#   merger account bifrost-merger               → Secret cicd/gitea-merger
 #
 # Each Secret is kubernetes.io/basic-auth (username, password). The platform
 # mounts its own (k8s/overlays/platform-*/platform-gitea-reader.patch.yaml);
@@ -54,8 +58,9 @@ case "${1:-}" in
   ci) LOGIN=bifrost-ci-reader NS=cicd NAME=gitea-ci-reader ;;
   drill) LOGIN=agentrt-landing-stg NS=bifrost-platform-stg NAME=agentrt-landing-drill ;;
   lander) LOGIN=agentrt-lander NS=bifrost-platform-prod NAME=agentrt-lander ;;
+  merger) LOGIN=bifrost-merger NS=cicd NAME=gitea-merger ;;
   *)
-    echo "usage: ${0##*/} stg|prod|ci|drill|lander [--check|replace]" >&2
+    echo "usage: ${0##*/} stg|prod|ci|drill|lander|merger [--check|replace]" >&2
     exit 2
     ;;
 esac
@@ -64,7 +69,7 @@ case "${2:-}" in
   replace) MODE=replace ;;
   --check) MODE=check ;;
   *)
-    echo "usage: ${0##*/} stg|prod|ci|drill|lander [--check|replace]" >&2
+    echo "usage: ${0##*/} stg|prod|ci|drill|lander|merger [--check|replace]" >&2
     exit 2
     ;;
 esac
@@ -93,6 +98,8 @@ fi
 # An override/test primary list must not silently omit the S6 target.
 [[ -n "${primaries}" ]] || die "${PRIMARIES} names no repository"
 primaries="$(printf '%s\nbifrost-trade-infra\n' "$primaries" | sort -u)"
+# The merger works on platform alone and need not see any other repository.
+[[ "$1" != merger ]] || primaries=bifrost-platform
 for repo in $primaries; do
   [[ "$repo" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || die "invalid repository in primary list"
 done
@@ -155,9 +162,16 @@ for repo in ${primaries}; do
   expected_push=false
   [[ "$1" != drill ]] || expected_push=true
   [[ "$1" != lander ]] || expected_push=true
+  [[ "$1" != merger ]] || expected_push=true
   [[ "$(field permissions.admin)" == false && "$(field permissions.push)" == "${expected_push}" && "$(field permissions.pull)" == true ]] \
-    || die "on ${org}/${repo}: a reader must only read; drill/lander must only write platform and infra, without admin"
-  if [[ "$1" == drill || "$1" == lander || "$MODE" == check ]]; then
+    || die "on ${org}/${repo}: a reader must only read; drill/lander must only write platform and infra, merger platform, without admin"
+  if [[ "$1" == merger ]]; then
+    # Whether it may merge is the Owner's branch rule, set in its own step; here only: it cannot push main.
+    code="$(ask token "${root}/api/v1/repos/${org}/${repo}/branches/main")"
+    [[ "${code}" == 200 && "$(field protected)" == true && "$(field user_can_push)" == false ]] \
+      || die "${repo}: main is unprotected, or the merger can push it, or it is unreadable (HTTP ${code})"
+    echo "ok    ${repo} main: protected, merger cannot push; user_can_merge=$(field user_can_merge)"
+  elif [[ "$1" == drill || "$1" == lander || "$MODE" == check ]]; then
     main_push=false
     [[ "$1" != lander ]] || main_push=true
     code="$(ask token "${root}/api/v1/repos/${org}/${repo}/branches/main")"
@@ -167,7 +181,7 @@ for repo in ${primaries}; do
   code="$(ask basic "${BASE}/${repo}.git/info/refs?service=git-upload-pack")"
   [[ "${code}" == 200 ]] || die "fetch handshake on ${repo} → HTTP ${code}"
   code="$(ask basic "${BASE}/${repo}.git/info/refs?service=git-receive-pack")"
-  if [[ "$1" == drill || "$1" == lander ]]; then
+  if [[ "$1" == drill || "$1" == lander || "$1" == merger ]]; then
     [[ "${code}" == 200 ]] || die "$1 push handshake on ${repo} → HTTP ${code}"
     continue
   fi
@@ -178,6 +192,8 @@ if [[ "$1" == drill ]]; then
   echo "ok    drill: two code writers, main user_can_push=false; actual tag/PR/push probes still required"
 elif [[ "$1" == lander ]]; then
   echo "ok    lander: writes platform and infra only, pushes both main branches; actual tag/push probes still required"
+elif [[ "$1" == merger ]]; then
+  echo "ok    merger: writes platform only, cannot push main"
 else
   echo "ok    $(echo "${primaries}" | wc -l | tr -d ' ') primaries: read only (fetch 200, push refused)"
 fi
@@ -216,6 +232,9 @@ if [[ "$1" == drill ]]; then
 elif [[ "$1" == lander ]]; then
   [[ ! -s "${work}/administrable" ]] || die "lander can administer a repository"
   [[ "${writable}" == "${org}/bifrost-platform ${org}/bifrost-trade-infra " ]] || die "lander has unexpected writable repositories"
+elif [[ "$1" == merger ]]; then
+  [[ ! -s "${work}/administrable" ]] || die "merger can administer a repository"
+  [[ "${writable}" == "${org}/bifrost-platform " ]] || die "merger has unexpected writable repositories"
 else
   [[ -z "${writable// /}" ]] || die "${LOGIN} is administrator or writer of an unexpected repository"
 fi
@@ -228,6 +247,8 @@ if [[ "$1" == drill ]]; then
   echo "ok    search complete: only platform and infra writable"
 elif [[ "$1" == lander ]]; then
   echo "ok    search complete: only platform and infra writable"
+elif [[ "$1" == merger ]]; then
+  echo "ok    search complete: only platform writable"
 else
   echo "ok    it sees $(sort -u "${work}/seen" | wc -l | tr -d ' ') repositories and can write none"
 fi
@@ -243,6 +264,7 @@ verb=create
 component=gitea-reader
 [[ "$1" != drill ]] || component=gitea-landing-drill
 [[ "$1" != lander ]] || component=gitea-lander
+[[ "$1" != merger ]] || component=gitea-merger
 emit_secret() {
   printf 'apiVersion: v1\nkind: Secret\nmetadata:\n  name: %s\n  namespace: %s\n  labels:\n    bifrost.io/component: %s\ntype: kubernetes.io/basic-auth\nstringData:\n  username: %s\n  password: "%s"\n' \
     "${NAME}" "${NS}" "${component}" "${LOGIN}" "${t}"

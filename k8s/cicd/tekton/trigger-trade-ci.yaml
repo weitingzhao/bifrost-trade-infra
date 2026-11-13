@@ -53,6 +53,28 @@ spec:
       value: $(body.before)
 
 ---
+# --- TriggerBinding: a push to refs/heads/ready/<name> of bifrost-platform asks for a landing ---
+# Owner 2026-11-12: main takes a change only through a pull request, merged by the pipeline's
+# own identity when this run is green (pipeline-ci-platform.yaml, task `land`). No `base`:
+# a landing run always tests against the whole suite (or the console scope, which is measured
+# from main), never the increment since the last push to the branch.
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerBinding
+metadata:
+  name: bifrost-gitea-push-platform-land
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: ci-trigger
+spec:
+  params:
+    - name: revision
+      value: $(body.after)
+    - name: land
+      value: "yes"
+    - name: branch
+      value: $(body.ref)
+
+---
 # --- TriggerBinding: a bifrost-ui push runs the frontend and platform gates against that ui commit ---
 # The pushed SHA is bifrost-ui's: it goes to uiRevision, and the frontend under test stays on
 # main. Bound as `revision` (the frontend's) it named a commit the frontend repo does not have,
@@ -191,6 +213,11 @@ spec:
     # The commit a push moved from; empty for a ui push (the whole suite).
     - name: base
       default: ""
+    # Only the ready/ trigger sets these two; any other run lands nothing.
+    - name: land
+      default: "no"
+    - name: branch
+      default: ""
   resourcetemplates:
     - apiVersion: tekton.dev/v1
       kind: PipelineRun
@@ -212,6 +239,10 @@ spec:
             value: $(tt.params.uiRevision)
           - name: base
             value: $(tt.params.base)
+          - name: land
+            value: $(tt.params.land)
+          - name: branch
+            value: $(tt.params.branch)
           # W-31 B5: explicit, not a template param a payload could set.
           - name: repo-url
             value: http://gitea.cicd.svc.cluster.local:3000/bifrost/bifrost-platform.git
@@ -355,12 +386,35 @@ spec:
                 body.after != '0000000000000000000000000000000000000000' &&
                 !body.ref.startsWith('refs/heads/agent/') &&
                 !body.ref.startsWith('refs/heads/land/') &&
+                !body.ref.startsWith('refs/heads/ready/') &&
                 (!has(body.pusher) ||
                   ((!has(body.pusher.login) || body.pusher.login != 'agentrt-lander') &&
                    (!has(body.pusher.username) || body.pusher.username != 'agentrt-lander'))) &&
                 body.repository.name == 'bifrost-platform'
       bindings:
         - ref: bifrost-gitea-push-platform
+      template:
+        ref: bifrost-ci-platform-template
+    # Owner 2026-11-12: a push to ready/<name> is the request to land that commit. The same
+    # gate runs with land=yes; its last task opens the pull request and merges it when
+    # every task passed. The ref is pinned to a plain name: it is passed on as data.
+    - name: platform-ci-land
+      interceptors:
+        - ref:
+            name: "cel"
+          params:
+            - name: filter
+              value: >-
+                body.ref.startsWith('refs/heads/') &&
+                body.after.matches('^[0-9a-f]{40}$') &&
+                body.after != '0000000000000000000000000000000000000000' &&
+                body.ref.matches('^refs/heads/ready/[A-Za-z0-9._/-]{1,100}$') &&
+                (!has(body.pusher) ||
+                  ((!has(body.pusher.login) || body.pusher.login != 'agentrt-lander') &&
+                   (!has(body.pusher.username) || body.pusher.username != 'agentrt-lander'))) &&
+                body.repository.name == 'bifrost-platform'
+      bindings:
+        - ref: bifrost-gitea-push-platform-land
       template:
         ref: bifrost-ci-platform-template
     # L1: bifrost-ui — the Console builds against it too, so a ui push runs the platform
