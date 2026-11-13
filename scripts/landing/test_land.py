@@ -318,7 +318,7 @@ class Gitea:
 
     def __init__(self, **kw):
         self.kw, self.calls, self.main, self.head = kw, [], MAIN, "c" * 40 if kw.get("moved") else SHA
-        self.lag, self.merged = 0, None
+        self.lag, self.merged, self.shown = 0, None, self.head
         mine = {"message": kw.get("message", "fix: a thing" + TRAILERS), "files": kw.get("files", ["docs/RELEASE.md"])}
         # Another version of the branch, clean in every way: what a moved branch would show.
         self.commits = {self.head: mine, OTHER: {"message": "fix: clean" + TRAILERS, "files": ["docs/x.md"]}}
@@ -331,12 +331,14 @@ class Gitea:
             if path.endswith("/branches/main"):
                 return 200, {"commit": {"id": self.main}}
             if "/pulls/7/commits" in path:
-                return 200, [{"sha": kw.get("listed", self.head)}]
+                # After a rebase the list still shows the commits from before it, as Gitea's does.
+                return 200, [{"sha": kw.get("listed", self.shown)}]
             if "/git/commits/" in path:
                 sha = path.rsplit("/", 1)[1]
                 if sha not in self.commits:
                     return 404, {"message": "not found"}
                 return 200, {"sha": sha, "commit": {"message": self.commits[sha]["message"]},
+                             "parents": [{"sha": self.commits[sha].get("parent", "d" * 40)}],
                              "files": [{"filename": n, "status": "modified"} for n in self.commits[sha]["files"]]}
             return (200, self.pull()) if path.endswith("/pulls/7") else (200, [self.pull()])
         if path.endswith("/pulls"):
@@ -348,7 +350,7 @@ class Gitea:
                 return 500, {"message": ""}  # as Gitea answers for a branch that is already on main
             kw["behind"] = False  # Gitea put the branch on main: a new commit, the same change
             old, self.head = self.head, "%040x" % (int(self.head, 16) + 1)
-            self.commits[self.head] = self.commits[old]
+            self.commits[self.head] = dict(self.commits[old], parent=self.main)
             self.lag = kw.get("lag", 0)  # reads for which the pull request still shows the old merge_base
             return 200, None
         if kw.get("busy", 0) > 0:
@@ -390,7 +392,7 @@ def run_land(gitea, ref=REF, commit=SHA, repo=PLATFORM, wait=None, budget=3000):
         waits.append((ci["pipeline"], base, commit))
         if len(waits) <= gitea.kw.get("moves", 0):
             gitea.kw["behind"] = True  # another branch landed while CI ran
-            gitea.main = "%040x" % (int("f" * 39 + "0", 16) + len(waits))
+            gitea.main = "%040x" % (int("e" * 40, 16) + len(waits))
         return "green"
 
     scope = module()
@@ -568,18 +570,32 @@ def test_the_checks_read_the_commit_the_run_is_for_and_not_whatever_the_branch_s
     assert gitea.paths("/pulls/7/files") == []  # nothing is read from the list that carries no commit id
 
 
+def test_after_a_rebase_the_commits_are_followed_from_the_new_head_and_not_read_from_the_stale_list():
+    """2026-11-13, land-wbnxq: right after the rebase the pull request's list did not hold the
+    new head yet; the run took that for a moved branch and refused a good change."""
+    gitea = Gitea(behind=True)
+    assert run_land(gitea) == ("landed", "")
+    assert gitea.shown == SHA and gitea.landed["commit"] == NEXT  # the list never caught up, and it did not matter
+    assert len(gitea.paths("/pulls/7/commits")) == 1
+    scope = module()
+    scope["call"] = gitea.call
+    assert scope["walked"]("tok", gitea.HOST + "/api/v1/repos/bifrost/x", NEXT, MAIN) == ([NEXT], "")
+    assert "could not follow" in scope["walked"]("tok", gitea.HOST + "/api/v1/repos/bifrost/x", NEXT, "e" * 40)[1]
+
+
 def test_a_rebased_branch_is_checked_again_and_must_be_the_same_change():
     gitea = Gitea(behind=True)
     assert run_land(gitea) == ("landed", "")
-    assert [c[1].rsplit("/", 1)[1] for c in gitea.paths("/git/commits/")] == [SHA, NEXT]
+    # the pushed commit, then the rebased one: once to follow it down to main, once to check it
+    assert [c[1].rsplit("/", 1)[1] for c in gitea.paths("/git/commits/")] == [SHA, NEXT, NEXT]
     gitea = Gitea(behind=True)
-    gitea.commits[NEXT] = {"message": "fix: another change\n\nChange-Id: Iother", "files": ["docs/y.md"]}
     real = gitea.call
 
     def swapped(token, method, url, body=None):
         answer = real(token, method, url, body)
         if "/update" in url:  # someone pushes another change to the branch as Gitea rebases it
-            gitea.commits[NEXT] = {"message": "fix: another change\n\nChange-Id: Iother", "files": ["docs/y.md"]}
+            gitea.commits[NEXT] = {"message": "fix: another change\n\nChange-Id: Iother", "files": ["docs/y.md"],
+                                   "parent": MAIN}
         return answer
 
     gitea.call = swapped

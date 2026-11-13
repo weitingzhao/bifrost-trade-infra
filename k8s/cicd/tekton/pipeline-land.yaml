@@ -254,14 +254,9 @@ spec:
                   found = [line.split(': ', 1)[1].strip() for line in last if line.startswith('Change-Id: ')]
                   return found[-1] if found and re.fullmatch(r'\S+', found[-1]) else None
 
-              def checked(token, api, number, commit, policy, repo):
-                  """(Change-Ids, '') when the commits this run is for may land. Everything is read by
-                  commit id, so what is checked is what is merged: the pull request's list must hold
-                  the commit this run is for, and each commit's message and files are read by its id,
-                  not from the pull request, whose branch can move between two reads. Every commit
-                  carries a Change-Id trailer (the agents share one Gitea account; the trailers are the
-                  record of which change a commit is, Owner 2026-10-06), and none touches a path of
-                  the signed release policy's no_d10_paths group for the repository."""
+              def listed(token, api, number, commit):
+                  """(the pull request's commit ids, '') for a pull request this run has just opened or
+                  found, whose list is fresh; it must hold the commit this run is for."""
                   commits = []
                   for page in range(1, 11):
                       code, rows = call(token, 'GET', api + '/pulls/%d/commits?limit=50&page=%d' % (number, page))
@@ -274,6 +269,33 @@ spec:
                       return [], 'refused: more than 500 commits in one pull request'
                   if commit not in commits or not all(re.fullmatch(r'[0-9a-f]{40}', sha) for sha in commits):
                       return [], 'refused: the branch moved while this run read it; its new push has its own run'
+                  return commits, ''
+
+              def walked(token, api, commit, base):
+                  """(the commit ids from `base` up to `commit`, oldest first, '') for a branch Gitea has
+                  just rebased onto `base`. Read by commit id from the new head down its parents: right
+                  after a rebase the pull request's own list still shows the old commits for a while
+                  (2026-11-13, land-wbnxq: read at once, it did not hold the new head and a good change
+                  was refused as a moved branch). A rebase leaves one parent each."""
+                  commits, sha = [], commit
+                  while sha != base:
+                      if len(commits) >= 500:
+                          return [], 'refused: more than 500 commits between main and the rebased branch'
+                      code, row = call(token, 'GET', api + '/git/commits/' + sha)
+                      parents = row.get('parents') if code == 200 and isinstance(row, dict) else None
+                      if not isinstance(parents, list) or len(parents) != 1 or not re.fullmatch(
+                              r'[0-9a-f]{40}', str(parents[0].get('sha'))):
+                          return [], 'refused: could not follow the rebased branch from %s down to main' % sha[:12]
+                      commits.append(sha)
+                      sha = parents[0]['sha']
+                  return commits[::-1], ''
+
+              def checked(token, api, commits, policy, repo):
+                  """(Change-Ids, '') when these commits may land. Each is read by its id, so what is
+                  checked is what is merged: every commit carries a Change-Id trailer (the agents share
+                  one Gitea account; the trailers are the record of which change a commit is, Owner
+                  2026-10-06), and none touches a path of the signed release policy's no_d10_paths
+                  group for the repository."""
                   ids, names = [], set()
                   for sha in commits:
                       code, row = call(token, 'GET', api + '/git/commits/' + sha)
@@ -383,9 +405,11 @@ spec:
                       return {}, 'refused: this repository is not in LANDING_REPOS (pipeline-land.yaml)'
                   branch, api = found.group(1), gitea + '/api/v1/repos/bifrost/' + repo
                   pull, problem = pull_request(token, api, branch, commit, repo)
-                  ids = []
+                  ids, commits = [], []
                   if not problem:
-                      ids, problem = checked(token, api, pull['number'], commit, policy, repo)
+                      commits, problem = listed(token, api, pull['number'], commit)
+                  if not problem:
+                      ids, problem = checked(token, api, commits, policy, repo)
                   if problem:
                       return {}, problem
                   # `known` is the commit a rebase just put the branch on. Right after a rebase the pull
@@ -405,7 +429,10 @@ spec:
                               if not problem:
                                   # The new head is taken from Gitea, so it is checked like the pushed one,
                                   # and it must be the same changes: a rebase keeps every Change-Id.
-                                  again, problem = checked(token, api, pull['number'], commit, policy, repo)
+                                  commits, problem = walked(token, api, commit, base)
+                                  again = []
+                                  if not problem:
+                                      again, problem = checked(token, api, commits, policy, repo)
                                   if not problem and again != ids:
                                       problem = 'refused: the branch changed during its rebase; its new push has its own run'
                               known = base
