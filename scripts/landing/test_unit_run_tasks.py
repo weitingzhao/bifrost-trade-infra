@@ -162,6 +162,38 @@ def test_run_reports_the_command_exit_code(tmp_path, command, code):
     assert (tmp_path / 'results/duration-seconds').read_text().isdigit()
 
 
+def test_run_passes_the_unit_on_and_reports_what_the_command_wrote(tmp_path):
+    """The command writes failed-tests, tests and fail-class under UNIT_RESULT_DIR; the step copies them
+    into results, cut to size, when the command fails as well, and leaves a result empty without its file."""
+    (tmp_path / 'unit/src/repo').mkdir(parents=True)
+    result = tmp_path / 'unit/result'
+    result.mkdir()
+    command = ('printf "%s %s %s" "$UNIT_NAME" "$UNIT_TASK" "$UNIT_PLAN_ARG" > "$UNIT_RESULT_DIR/tests"; '
+               'head -c 4000 /dev/zero | tr "\\0" x > "$UNIT_RESULT_DIR/failed-tests"; exit 5')
+    done = subprocess.run(['sh', str(step_script('run', tmp_path))], env={
+        **os.environ, 'UNIT_SRC': f'{tmp_path}/unit/src', 'UNIT_WORKDIR': 'repo', 'UNIT_COMMAND': command,
+        'UNIT_SHARD_INDEX': '0', 'UNIT_SHARD_TOTAL': '1', 'UNIT_NAME': 'a/b', 'UNIT_TASK': 'test', 'UNIT_PLAN_ARG': 'k',
+        'UNIT_RESULT_DIR': str(result)})
+    assert done.returncode == 5
+    assert (tmp_path / 'results/exit-code').read_text() == '5'
+    assert (tmp_path / 'results/tests').read_text() == 'a/b test k'
+    assert (tmp_path / 'results/failed-tests').read_text() == 'x' * 1500
+    assert (tmp_path / 'results/fail-class').read_text() == ''
+
+
+@pytest.mark.parametrize('path', [PLAIN, WITH_DB])
+def test_the_run_step_gets_the_unit_and_a_result_directory(path):
+    spec = task(path)['spec']
+    run = next(s for s in spec['steps'] if s['name'] == 'run')
+    env = {e['name']: e['value'] for e in run['env']}
+    assert (env['UNIT_NAME'], env['UNIT_TASK'], env['UNIT_PLAN_ARG'], env['UNIT_RESULT_DIR']) == (
+        '$(params.unit)', '$(params.task)', '$(params.plan-arg)', '/unit/result')
+    assert {'name': 'result', 'mountPath': '/unit/result'} in run['volumeMounts']
+    assert {'name': 'result', 'emptyDir': {}} in spec['volumes']
+    assert {r['name'] for r in spec['results']} >= {'failed-tests', 'tests', 'fail-class'}
+    assert all(p.get('default') == '' for p in spec['params'] if p['name'] in ('unit', 'task', 'plan-arg'))
+
+
 @pytest.mark.parametrize('workdir', ['/etc', '..', 'repo/../..'])
 def test_run_refuses_a_workdir_outside_the_checkout(tmp_path, workdir):
     done = subprocess.run(['sh', str(step_script('run', tmp_path))], env={

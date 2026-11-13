@@ -59,6 +59,18 @@ spec:
     - name: shard-total
       type: string
       default: "1"
+    - name: unit
+      type: string
+      default: ""
+      description: The unit the command is run for (UNIT_NAME); what a unit is, is the caller's
+    - name: task
+      type: string
+      default: ""
+      description: The task of that unit (UNIT_TASK)
+    - name: plan-arg
+      type: string
+      default: ""
+      description: One more word from the caller to the command (UNIT_PLAN_ARG)
   results:
     - name: commit
       description: Full SHA checked out for repo-url
@@ -70,8 +82,18 @@ spec:
       description: Exit code of the command
     - name: duration-seconds
       description: Wall seconds the command took
+    # What the command says of its own outcome, by writing files of these
+    # names under UNIT_RESULT_DIR; a file it does not write is an empty result.
+    - name: failed-tests
+      description: What failed, comma separated; the first 1500 bytes of the command's file
+    - name: tests
+      description: The command's count of what it ran, one line (the first 200 bytes)
+    - name: fail-class
+      description: The command's word for why it failed (the first 32 bytes)
   volumes:
     - name: src
+      emptyDir: {}
+    - name: result
       emptyDir: {}
     # The shared build cache (pvc-ci-build-cache.yaml, NFS ReadWriteMany). A
     # Task volume, not a workspace, so the run's creator passes nothing.
@@ -172,11 +194,21 @@ spec:
           value: /unit/src
         - name: UNIT_CACHE
           value: /ci-cache
+        - name: UNIT_NAME
+          value: $(params.unit)
+        - name: UNIT_TASK
+          value: $(params.task)
+        - name: UNIT_PLAN_ARG
+          value: $(params.plan-arg)
+        - name: UNIT_RESULT_DIR
+          value: /unit/result
       volumeMounts:
         - name: src
           mountPath: /unit/src
         - name: build-cache
           mountPath: /ci-cache
+        - name: result
+          mountPath: /unit/result
       computeResources:
         requests:
           cpu: "1"
@@ -193,5 +225,11 @@ spec:
         code=$?
         printf '%s' "$code" > "$(results.exit-code.path)"
         printf '%s' "$(( $(date +%s) - started ))" > "$(results.duration-seconds.path)"
+        # The command's own results, cut so that all the results of the task
+        # stay inside what a termination message holds (about 4 KB).
+        take() { if [ -f "${UNIT_RESULT_DIR:-/unit/result}/$1" ]; then head -c "$2" "${UNIT_RESULT_DIR:-/unit/result}/$1" > "$3"; else : > "$3"; fi; }
+        take failed-tests 1500 "$(results.failed-tests.path)"
+        take tests 200 "$(results.tests.path)"
+        take fail-class 32 "$(results.fail-class.path)"
         echo "=== exit ${code} after $(( $(date +%s) - started ))s ==="
         exit "$code"
