@@ -1,0 +1,261 @@
+# Generic CI task (CI root design, wave 1 block A): fetch one commit of one
+# repository, plus the sibling checkouts it builds against, and run one command
+# in a toolchain image. Nothing here names a repository, a path or a product:
+# all of that arrives as parameters, so one template serves every unit.
+#
+# Who may pass what. A TaskRun created by the platform identity passes plain
+# tokens only (the TaskRun admission policy in k8s/platform-rbac/40-admission.yaml:
+# letters, digits and ._/:@+=- , at most 256, no spaces, no underscores). So
+# for those runs `command` is one word: an executable inside the checkout.
+# The shard, cache and source locations reach it as UNIT_* variables.
+#
+# Resources: requests and a memory limit, no CPU limit (a limit throttles a
+# test that could use an idle core; design-v4 2.5). Tekton does not substitute
+# parameters into computeResources, so a run that needs other sizes sets them
+# in its own TaskRun spec (stepSpecs), not through a parameter.
+#
+# Placement is the TaskRun's (podTemplate nodeSelector/tolerations); a Task
+# cannot set it. The ci-tier label below is the default for a run that does
+# not set its own: branch | merge | build | nightly.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: bifrost-unit-run-db
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: ci-unit
+    bifrost.io/workload: ci
+    bifrost.io/ci-tier: nightly
+    bifrost.io/needs-db: "true"
+spec:
+  description: >-
+    bifrost-unit-run with a throwaway PostgreSQL and Redis beside the command (UNIT_PG_DSN, UNIT_REDIS_URL).
+  params:
+    - name: repo-url
+      type: string
+      description: Clone URL in the in-cluster Gitea (http://gitea.cicd.svc.cluster.local:3000/<org>/<repo>.git)
+    - name: revision
+      type: string
+      description: 40-hex commit of that repository
+    - name: extra-clones
+      type: string
+      default: ""
+      description: >-
+        Sibling repositories of the same org, checked out next to the first:
+        <repo>@<40-hex commit or branch>, joined by + (for example a@<sha>+b@main).
+    - name: image
+      type: string
+      description: Toolchain image the command runs in
+    - name: workdir
+      type: string
+      default: ""
+      description: Directory under the checkout root the command starts in (<repo>/<path>); empty is the root
+    - name: command
+      type: string
+      description: Run by sh -c in workdir. Its exit code is the task's.
+    - name: shard-index
+      type: string
+      default: "0"
+    - name: shard-total
+      type: string
+      default: "1"
+    - name: db-roles
+      type: string
+      default: ""
+      description: Login roles the Postgres sidecar creates before it reports ready, joined by +
+  results:
+    - name: commit
+      description: Full SHA checked out for repo-url
+    - name: tree
+      description: Its tree (git rev-parse HEAD^{tree})
+    - name: clones
+      description: Every checkout, one per line - <repo> <commit> <tree>
+    - name: exit-code
+      description: Exit code of the command
+    - name: duration-seconds
+      description: Wall seconds the command took
+  volumes:
+    - name: src
+      emptyDir: {}
+    # The shared build cache (pvc-ci-build-cache.yaml, NFS ReadWriteMany). A
+    # Task volume, not a workspace, so the run's creator passes nothing.
+    - name: build-cache
+      persistentVolumeClaim:
+        claimName: ci-build-cache
+    - name: pgdata
+      emptyDir: {}
+  # A throwaway PostgreSQL and Redis on 127.0.0.1, one pair per run. Tekton
+  # starts the steps only after both are ready. Images are the ones the data
+  # namespace already runs, pinned by digest. No CPU limit, as for the steps.
+  sidecars:
+    - name: postgres
+      image: ghcr.io/cloudnative-pg/postgresql:17.9@sha256:ae81813008a9ef66ee9b348114c96d11c204981ac0d74b38f07fae4174c2973e
+      env:
+        - name: DB_ROLES
+          value: $(params.db-roles)
+      volumeMounts:
+        - name: pgdata
+          mountPath: /pgdata
+      computeResources:
+        requests:
+          cpu: 500m
+          memory: 512Mi
+        limits:
+          memory: 2Gi
+      readinessProbe:
+        exec:
+          command: [test, -f, /pgdata/roles-ready]
+        periodSeconds: 2
+      script: |
+        #!/bin/sh
+        set -eu
+        # Whatever stops this sidecar, show the server log first.
+        trap 'cat /pgdata/log 2>/dev/null || true' EXIT
+        export PATH="/usr/lib/postgresql/17/bin:$PATH" LC_ALL=C
+        initdb -D /pgdata/data -U postgres --auth=trust -E UTF8 --locale=C >/dev/null
+        # Nothing outlives the run, so the server never waits for the disk.
+        pg_ctl -D /pgdata/data -l /pgdata/log -o "-c listen_addresses=127.0.0.1 -p 5432 -k /pgdata -c fsync=off -c full_page_writes=off -c synchronous_commit=off -c max_connections=300" -w start >/dev/null
+        rest="$DB_ROLES"
+        while [ -n "$rest" ]; do
+          role="${rest%%+*}"
+          case "$rest" in *+*) rest="${rest#*+}" ;; *) rest="" ;; esac
+          case "$role" in ''|[!A-Za-z]*|*[!A-Za-z0-9_]*) echo "invalid role name" >&2; exit 2 ;; esac
+          psql -h 127.0.0.1 -p 5432 -U postgres -d postgres -X -v ON_ERROR_STOP=1 -q -c "CREATE ROLE \"$role\" LOGIN"
+        done
+        touch /pgdata/roles-ready
+        while kill -0 "$(head -1 /pgdata/data/postmaster.pid)" 2>/dev/null; do sleep 2; done
+        exit 1
+    - name: redis
+      image: docker.io/library/redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
+      args: [redis-server, --bind, 127.0.0.1, --port, "6379", --save, "", --appendonly, "no"]
+      computeResources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          memory: 256Mi
+      readinessProbe:
+        exec:
+          command: [redis-cli, -h, 127.0.0.1, ping]
+        periodSeconds: 2
+  steps:
+    - name: fetch
+      image: alpine/git:2.45.2
+      env:
+        - name: GIT_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: gitea-ci-reader
+              key: username
+        - name: GIT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: gitea-ci-reader
+              key: password
+        - name: REPO_URL
+          value: $(params.repo-url)
+        - name: REVISION
+          value: $(params.revision)
+        - name: EXTRA_CLONES
+          value: $(params.extra-clones)
+      volumeMounts:
+        - name: src
+          mountPath: /unit/src
+      computeResources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+        limits:
+          memory: 1Gi
+      script: |
+        #!/usr/bin/env sh
+        set -eu
+        # The credential lives in this step's environment only: sent as an
+        # HTTP header, never in argv, a URL or the checkout's config.
+        auth="$(printf '%s:%s' "${GIT_USERNAME:?}" "${GIT_PASSWORD:?}" | base64 | tr -d '\n')"
+        unset GIT_USERNAME GIT_PASSWORD
+        git_read() {
+          GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0 \
+          GIT_CONFIG_COUNT=3 \
+          GIT_CONFIG_KEY_0=http.http://gitea.cicd.svc.cluster.local:3000/.extraHeader \
+          GIT_CONFIG_VALUE_0="Authorization: Basic $auth" \
+          GIT_CONFIG_KEY_1=http.followRedirects GIT_CONFIG_VALUE_1=false \
+          GIT_CONFIG_KEY_2=credential.helper GIT_CONFIG_VALUE_2= git "$@"
+        }
+        printf '%s' "$REPO_URL" | grep -Eq '^http://gitea\.cicd\.svc\.cluster\.local:3000/[A-Za-z0-9_-]+/[A-Za-z0-9_-][A-Za-z0-9._-]*\.git$' \
+          || { echo "invalid repo-url" >&2; exit 2; }
+        printf '%s' "$REVISION" | grep -Eq '^[0-9a-f]{40}$' || { echo "revision must be a 40-hex commit" >&2; exit 2; }
+        base="${REPO_URL%/*}"
+        first="${REPO_URL##*/}"; first="${first%.git}"
+        : > /unit/clones
+        fetch_one() {
+          name="$1"; rev="$2"; target="/unit/src/$name"
+          case "$name" in ''|.*|-*|*[!A-Za-z0-9._-]*) echo "invalid repository name" >&2; exit 2 ;; esac
+          case "$rev" in ''|[!A-Za-z0-9]*|*[!A-Za-z0-9._/-]*) echo "invalid revision" >&2; exit 2 ;; esac
+          [ ! -e "$target" ] || { echo "repository listed twice: $name" >&2; exit 2; }
+          git init -q "$target"
+          git -C "$target" remote add origin "$base/$name.git"
+          # A commit is fetched by its id; a branch name by name. Depth 1 either way.
+          git_read -C "$target" fetch -q --depth=1 origin "$rev" || { echo "fetch failed: $name" >&2; exit 1; }
+          git -C "$target" checkout -q --detach FETCH_HEAD
+          commit="$(git -C "$target" rev-parse HEAD)"
+          if printf '%s' "$rev" | grep -Eq '^[0-9a-f]{40}$'; then
+            [ "$commit" = "$rev" ] || { echo "checked out $commit, asked for $rev" >&2; exit 1; }
+          fi
+          tree="$(git -C "$target" rev-parse 'HEAD^{tree}')"
+          echo "$name $commit $tree" | tee -a /unit/clones
+        }
+        fetch_one "$first" "$REVISION"
+        printf '%s' "$commit" > "$(results.commit.path)"
+        printf '%s' "$tree" > "$(results.tree.path)"
+        rest="$EXTRA_CLONES"
+        while [ -n "$rest" ]; do
+          item="${rest%%+*}"
+          case "$rest" in *+*) rest="${rest#*+}" ;; *) rest="" ;; esac
+          case "$item" in *@*) ;; *) echo "extra-clones item needs <repo>@<revision>" >&2; exit 2 ;; esac
+          fetch_one "${item%%@*}" "${item#*@}"
+        done
+        unset auth
+        cp /unit/clones "$(results.clones.path)"
+    - name: run
+      image: $(params.image)
+      env:
+        - name: UNIT_WORKDIR
+          value: $(params.workdir)
+        - name: UNIT_COMMAND
+          value: $(params.command)
+        - name: UNIT_SHARD_INDEX
+          value: $(params.shard-index)
+        - name: UNIT_SHARD_TOTAL
+          value: $(params.shard-total)
+        - name: UNIT_SRC
+          value: /unit/src
+        - name: UNIT_CACHE
+          value: /ci-cache
+        - name: UNIT_PG_DSN
+          value: host=127.0.0.1 port=5432 user=postgres sslmode=disable application_name=ci-pg17.9
+        - name: UNIT_REDIS_URL
+          value: redis://127.0.0.1:6379/0
+      volumeMounts:
+        - name: src
+          mountPath: /unit/src
+        - name: build-cache
+          mountPath: /ci-cache
+      computeResources:
+        requests:
+          cpu: "1"
+          memory: 1Gi
+        limits:
+          memory: 4Gi
+      script: |
+        #!/bin/sh
+        set -u
+        case "$UNIT_WORKDIR" in /*|..|../*|*/..|*/../*) echo "workdir must stay under the checkout root" >&2; exit 2 ;; esac
+        cd "$UNIT_SRC/$UNIT_WORKDIR" || exit 2
+        started="$(date +%s)"
+        sh -c "$UNIT_COMMAND"
+        code=$?
+        printf '%s' "$code" > "$(results.exit-code.path)"
+        printf '%s' "$(( $(date +%s) - started ))" > "$(results.duration-seconds.path)"
+        echo "=== exit ${code} after $(( $(date +%s) - started ))s ==="
+        exit "$code"
