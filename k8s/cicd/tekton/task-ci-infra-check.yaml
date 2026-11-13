@@ -226,3 +226,39 @@ spec:
       bash "$entry" --stage parity-static --cand "$ws/cand" --base "$ws/base" \
         --revision "$REVISION" --base-sha "$BASE" --platform-revision "$PLATFORM_REVISION" \
         --purpose "$PURPOSE" --generation "$GENERATION" --results-dir /tekton/results
+  # The release and Gitea script suites (coverage_infra.py `release`): about 1400 tests the
+  # quick list leaves out. TRIAL (2026-11-13): onError continue, so a failure here is
+  # reported and does not fail the run, until every test passes in this image; then the
+  # line goes and the stage gates like the others.
+  - name: release
+    onError: continue
+    image: 192.168.10.73:30500/bifrost-ci-infra-tools@sha256:4ff505208b6cd977e36b7fb29c0f9faa4824a4ed9f4beb6e2f1ffc94b591a23e
+    env:
+    - name: REVISION
+      value: $(params.revision)
+    - name: BASE
+      value: $(params.base)
+    - name: PLATFORM_REVISION
+      value: $(params.platformRevision)
+    - name: PURPOSE
+      value: $(params.purpose)
+    - name: GENERATION
+      value: $(params.generation)
+    - name: CI_INFRA_RELEASE_WORKERS
+      value: '6'
+    computeResources:
+      requests:
+        cpu: '1'
+        memory: 1Gi
+      limits:
+        cpu: '6'
+        memory: 4Gi
+    script: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      ws="$(workspaces.source.path)"
+      entry="$ws/base/bifrost-trade-infra/scripts/landing/ci-infra.sh"
+      if [[ "$PURPOSE" == push && -z "$BASE" ]]; then entry="$ws/cand/bifrost-trade-infra/scripts/landing/ci-infra.sh"; fi
+      bash "$entry" --stage release --cand "$ws/cand" --base "$ws/base" \
+        --revision "$REVISION" --base-sha "$BASE" --platform-revision "$PLATFORM_REVISION" \
+        --purpose "$PURPOSE" --generation "$GENERATION" --results-dir /tekton/results

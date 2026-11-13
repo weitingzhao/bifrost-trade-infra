@@ -12,7 +12,7 @@ from pathlib import Path
 P = runpy.run_path(str(Path(__file__).with_name("doc_policy.py")))
 Error = P["PolicyError"]
 STAGES = ("tools", "consumers", "doc-policy", "quick", "statics",
-          "kustomize", "parity-static")
+          "kustomize", "parity-static", "release")
 # code-health (the infra-only "metrics never rise" ratchet) was removed in
 # cleanup wave 1, 2026-11-11; scope (the landing allow set and path tables,
 # which the platform judges before it pushes) in cleanup wave 2, 2026-11-12.
@@ -84,6 +84,54 @@ def quick(args, infra, platform):
     # contract; logs are the timing record, not an undeclared Tekton result.
 
 
+# The suites the quick list leaves out for time (platform infracheck): the
+# release gates, the freeze chain, the PROD source checks and the Gitea scripts.
+# Until 2026-11-13 nothing ran them but push-main.sh on its author's machine, and
+# main no longer goes through that. Each file is its own pytest process and the
+# processes run side by side, the largest file first, so no table of run times
+# has to be kept: a free worker takes the next file.
+RELEASE_TREES = ("scripts/release", "scripts/gitea")
+
+
+def release_files(infra):
+    found = []
+    for tree in RELEASE_TREES:
+        for name in sorted(os.listdir(infra / tree)):
+            if name.startswith("test_") and name.endswith(".py"):
+                found.append(f"{tree}/{name}")
+    if not found:
+        raise Error("release_tests_missing")
+    return sorted(found, key=lambda name: (-(infra / name).stat().st_size, name))
+
+
+def release_one(infra, name, env):
+    start = time.monotonic()
+    done = subprocess.run(["python3", "-I", "-m", "pytest", "-c", "/dev/null", f"--rootdir={infra}", "--noconftest",
+                           "-q", "-p", "no:cacheprovider", "--tb=line", "-rfE", name],
+                          cwd=infra, env=env, text=True, check=False, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    return name, done.returncode, time.monotonic() - start, done.stdout.splitlines()
+
+
+def release(infra, workers=None):
+    from concurrent.futures import ThreadPoolExecutor
+    workers = workers or int(os.environ.get("CI_INFRA_RELEASE_WORKERS", "4"))
+    files = release_files(infra)
+    env = dict(os.environ, PATH=f"{infra}/.git/venv/bin:" + os.environ.get("PATH", ""),
+               PYTEST_DISABLE_PLUGIN_AUTOLOAD="1")
+    start, failed = time.monotonic(), []
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for name, code, seconds, lines in pool.map(lambda n: release_one(infra, n, env), files):
+            print(f"{seconds:7.1f}s {name}: " + (lines[-1] if lines else "no output"), flush=True)
+            if code:
+                failed.append(name)
+                # --tb=line: one line a failure, with what was raised.
+                print("\n".join(line for line in lines[:-1] if line.strip() and not set(line) <= set(".FEsx[]% 0123456789")),
+                      flush=True)
+    print(f"release_seconds={time.monotonic() - start:.3f} files={len(files)} workers={workers}")
+    if failed:
+        raise Error("release_tests_failed " + " ".join(failed))
+
+
 def statics(infra, platform):
     for name in ("check_admission_guards.py", "check_agent_access.py", "check_platform_maintenance.py",
                  "check_alert_routing.py"):
@@ -143,6 +191,8 @@ def stage(args, name, infra, platform):
         statics(infra, platform)
     elif name == "kustomize":
         kustomize(infra)
+    elif name == "release":
+        release(infra)
     elif name in RETIRED:
         print(f"{name}: retired")
     elif name == "parity-static":

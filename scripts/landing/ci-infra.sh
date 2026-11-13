@@ -12,7 +12,7 @@ Usage: ci-infra.sh --stage NAME --cand DIR --base DIR --revision SHA
                    --base-sha SHA --platform-revision SHA [--purpose landing|push]
                    [--generation ID] [--results-dir DIR]
 Stages: tools, consumers, doc-policy, quick, statics, kustomize,
-        parity-static, all. The tools stage needs no workspace. scope and
+        parity-static, release, all. The tools stage needs no workspace. scope and
         code-health are retired and succeed as no-ops.
 
 landing (default): revision must have exactly one parent, base-sha.

@@ -9,7 +9,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 TEKTON = ROOT / 'k8s/cicd/tekton'
-STAGES = ['tools', 'consumers', 'doc-policy', 'quick', 'statics', 'kustomize', 'parity-static']
+STAGES = ['tools', 'consumers', 'doc-policy', 'quick', 'statics', 'kustomize', 'parity-static', 'release']
 
 
 def read_yaml(name):
@@ -143,3 +143,16 @@ def test_manifest_shell_syntax_and_credential_transport(tmp_path):
 
 if __name__ == '__main__':
     validate_images(ready='--ready' in sys.argv)
+
+
+def test_the_release_step_is_last_has_its_own_cores_and_does_not_gate_yet():
+    """The suites the quick list leaves out run as the last step, in as many processes as the
+    step has cores. TRIAL: onError continue until every test passes in the CI image; when
+    that line goes, this test asserts its absence instead."""
+    steps = read_yaml('task-ci-infra-check.yaml')['spec']['steps']
+    release = steps[-1]
+    assert release['name'] == 'release' and release.get('onError') == 'continue'
+    assert [s.get('onError') for s in steps[:-1]] == [None] * (len(steps) - 1)
+    env = {e['name']: e.get('value') for e in release['env']}
+    assert env['CI_INFRA_RELEASE_WORKERS'] == release['computeResources']['limits']['cpu'] == '6'
+

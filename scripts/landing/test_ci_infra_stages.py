@@ -206,6 +206,28 @@ def test_kustomize_only_local_render(tmp_path, monkeypatch):
         C.kustomize(tmp_path)
 
 
+def test_release_runs_every_test_file_of_the_two_trees_side_by_side(tmp_path, monkeypatch, capsys):
+    for tree in C.RELEASE_TREES:
+        (tmp_path / tree).mkdir(parents=True)
+    with pytest.raises(C.Error, match='release_tests_missing'):
+        C.release(tmp_path)
+    (tmp_path / 'scripts/release/test_big.py').write_text('def test_a():\n    assert True\n' + '# pad\n' * 50)
+    (tmp_path / 'scripts/release/test_small.py').write_text('def test_b():\n    assert True\n')
+    (tmp_path / 'scripts/release/helper.py').write_text('raise SystemExit(9)\n')
+    (tmp_path / 'scripts/gitea/test_other.py').write_text('def test_c():\n    assert True\n')
+    assert C.release_files(tmp_path) == ['scripts/release/test_big.py', 'scripts/gitea/test_other.py',
+                                         'scripts/release/test_small.py']
+    monkeypatch.setenv('CI_INFRA_RELEASE_WORKERS', '3')
+    C.release(tmp_path)
+    out = capsys.readouterr().out
+    assert out.count('1 passed') == 3 and 'files=3 workers=3' in out
+    (tmp_path / 'scripts/gitea/test_other.py').write_text('def test_c():\n    assert 1 == 2, "the reason"\n')
+    with pytest.raises(C.Error, match='release_tests_failed scripts/gitea/test_other.py$'):
+        C.release(tmp_path)
+    out = capsys.readouterr().out
+    assert 'the reason' in out and out.count('1 passed') == 2
+
+
 def test_parity_static_pass_reject_and_no_host(tmp_path):
     # Real entry point, no .git, refs, hooks or installed Codex in this fixture.
     (tmp_path / '.claude/skills').mkdir(parents=True)
