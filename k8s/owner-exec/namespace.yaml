@@ -1,0 +1,6 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: bifrost-owner-exec
+  labels:
+    app.kubernetes.io/part-of: bifrost-owner-exec

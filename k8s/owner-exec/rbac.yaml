@@ -1,0 +1,35 @@
+# The identity approved commands run as.
+#
+# Every resource, every ordinary verb. Left out on purpose:
+#   impersonate      - the admission policy in admission.yaml knows the runner
+#                      by its username; impersonating another user would walk past it.
+#   bind, escalate   - without them the API server refuses to let this identity
+#                      hand out permissions it does not hold itself.
+# What this does not stop is in README.md ("What the carve-out does not stop").
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: owner-exec
+  namespace: bifrost-owner-exec
+  labels: {app.kubernetes.io/part-of: bifrost-owner-exec}
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: bifrost-owner-exec
+  labels: {app.kubernetes.io/part-of: bifrost-owner-exec}
+rules:
+  - apiGroups: ["*"]
+    resources: ["*"]
+    verbs: [get, list, watch, create, update, patch, delete, deletecollection]
+  - nonResourceURLs: ["*"]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: bifrost-owner-exec
+  labels: {app.kubernetes.io/part-of: bifrost-owner-exec}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: bifrost-owner-exec}
+subjects: [{kind: ServiceAccount, name: owner-exec, namespace: bifrost-owner-exec}]

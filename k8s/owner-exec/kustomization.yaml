@@ -1,0 +1,11 @@
+# owner-exec, PROD. Applied once by the Owner (scripts/owner-exec/enroll.sh),
+# NOT under Argo and not in any Application's destinations: whoever can change
+# what runs in this namespace holds the runner's identity.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - rbac.yaml
+  - admission.yaml
+  - network-policy.yaml
+  - runner.yaml

@@ -1,0 +1,86 @@
+# ValidatingAdmissionPolicy, built into Kubernetes (same mechanism as
+# k8s/platform-rbac/40-admission.yaml). Manual apply, not under Argo.
+#
+# NOT server-dry-run by an agent: only an admin identity can create these.
+# scripts/owner-exec/enroll.sh dry-runs them on the server before creating
+# anything and afterwards impersonates the runner to prove each refusal.
+#
+# 1. bifrost-owner-exec-no-trade: what the runner's identity may never write,
+#    however the command is worded (Owner 2026-11-13: nothing trade- or
+#    money-related through this door; D10). It is static, like the two daemon
+#    patches: unlocking D10 does not lift it, the Owner removing it does.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: bifrost-owner-exec-no-trade
+  labels: {app.kubernetes.io/part-of: bifrost-owner-exec}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["*"]
+        apiVersions: ["*"]
+        operations: ["CREATE", "UPDATE", "DELETE", "CONNECT"]
+        resources: ["*", "*/*"]
+  matchConditions:
+    - name: is-owner-exec
+      expression: request.userInfo.username == 'system:serviceaccount:bifrost-owner-exec:owner-exec'
+  validations:
+    - expression: "!(request.namespace in ['bifrost-prod', 'bifrost-stg', 'bifrost-dev'])"
+      message: owner-exec may not write, delete or exec in the Trade namespaces (D10; Owner 2026-11-13)
+    - expression: "!(request.resource.group == 'apps' && request.resource.resource == 'deployments' && request.name == 'daemon')"
+      message: owner-exec may not touch a Deployment named daemon, its scale included (D10)
+    - expression: "!(request.namespace == 'data' && (request.name.startsWith('redis-ib') || request.name.startsWith('ib-gateway')))"
+      message: owner-exec may not write, delete, exec into or port-forward redis-ib or the IB gateway (D10)
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: bifrost-owner-exec-no-trade
+  labels: {app.kubernetes.io/part-of: bifrost-owner-exec}
+spec:
+  policyName: bifrost-owner-exec-no-trade
+  validationActions: [Deny]
+---
+# 2. bifrost-owner-exec-namespace: who may change what runs beside the runner.
+#    Anyone able to create a Pod in this namespace could mount the runner's
+#    identity; anyone able to exec into its Pod could read the seed. Argo CD,
+#    CloudNativePG and Tekton triggers hold cluster-wide Pod-create or exec
+#    (measured 2026-11-13). Only these may write here:
+#      - the Owner's admin identity (group system:masters);
+#      - the runner itself (it upgrades itself through an approved card);
+#      - the cluster's own machinery: kube-system ServiceAccounts (the
+#        controllers that create the Pod from the Deployment), the scheduler,
+#        the controller manager, the API server, and nodes (kubelet status).
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: bifrost-owner-exec-namespace
+  labels: {app.kubernetes.io/part-of: bifrost-owner-exec}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["*"]
+        apiVersions: ["*"]
+        operations: ["CREATE", "UPDATE", "DELETE", "CONNECT"]
+        resources: ["*", "*/*"]
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: bifrost-owner-exec
+  validations:
+    - expression: >-
+        request.userInfo.username == 'system:serviceaccount:bifrost-owner-exec:owner-exec'
+        || request.userInfo.username.startsWith('system:serviceaccount:kube-system:')
+        || request.userInfo.username in ['system:kube-controller-manager', 'system:kube-scheduler', 'system:apiserver']
+        || (has(request.userInfo.groups) && ('system:masters' in request.userInfo.groups || 'system:nodes' in request.userInfo.groups))
+      message: only the Owner, owner-exec itself and the cluster's own controllers may change namespace bifrost-owner-exec
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: bifrost-owner-exec-namespace
+  labels: {app.kubernetes.io/part-of: bifrost-owner-exec}
+spec:
+  policyName: bifrost-owner-exec-namespace
+  validationActions: [Deny]
