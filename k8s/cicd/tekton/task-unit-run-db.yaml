@@ -5,7 +5,7 @@
 #
 # Who may pass what. A TaskRun created by the platform identity passes plain
 # tokens only (the TaskRun admission policy in k8s/platform-rbac/40-admission.yaml:
-# letters, digits and ._/:@+=- , at most 256, no spaces, no underscores). So
+# letters, digits and ._/:@+=- , at most 256, no spaces or quotes). So
 # for those runs `command` is one word: an executable inside the checkout.
 # The shard, cache and source locations reach it as UNIT_* variables.
 #
