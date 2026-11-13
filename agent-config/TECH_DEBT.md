@@ -3729,6 +3729,17 @@
 - **防线**：修完后那条逐字比的测试就是要删的东西；留下的契约测试只比平台传的参数。
 - **验收**：只改 infra 的 `pipeline-ci-infra.yaml`（加一个带默认值的参数），platform 的 CI 不红。
 
+### TD-562
+
+**P2 · cicd · 落地时「合进去的就是测过的那个提交」做不到原子，剩一次请求的间隔**
+
+- **状态**：已知的限制，没有修法（2026-11-13 记，独立复核第一档第 1 条）。
+- **证据**：Gitea 1.21.11 的合并接口只有 `head_commit_id`，没有「期望的基线」；没有只快进的合并方式；它自己的「落后不许合」读的是异步更新的 `CommitsBehind`（`services/pull/merge.go` 的 `MergeBlockedByOutdatedBranch`）。`k8s/cicd/tekton/pipeline-land.yaml` 的 `merge` 在每次尝试前重读 main、合完从合并请求读实际落地的提交号。
+- **影响**：两条分支几乎同一瞬间合时，后一条会被 Gitea 在合并里再变基一次，进 main 的不是测过的提交。这次运行报 `landed-not-as-tested`，那个提交由 main 自己的 CI 来测。
+- **修法**：升级到有只快进合并方式的 Gitea 版本后，把 `Do: rebase` 换成只快进；或者让合入账号能对 main 做只快进的推送（要改 main 的推送白名单，是另一个决定）。
+- **防线**：`scripts/landing/test_land.py::test_what_landed_is_read_from_the_pull_request_and_a_rewritten_commit_is_not_called_landed`（保证不会把它报成 landed）。
+- **验收**：换成只快进之后，那条测试改成「Gitea 拒绝而不是改写」。
+
 ### TD-560
 
 **P3 · cicd · 旧派活通道在 infra 上的落地那一套还在，新落地通道（`bifrost-land`）不用它**
