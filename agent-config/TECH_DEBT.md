@@ -160,7 +160,7 @@
 
 目标：会动手的维护只由 PROD 的 platform-workers 做，本机与 STG 只观测。已做：本机停手（TD-130 第一步）、STG 不修 IB 也不写发布记录（TD-223）、页面不再触发维护、状态持久化（TD-196）。接着：PROD 自己探测、带时间戳的检查信号，只给 PROD 挂技能并先只报告，再逐项放开；备份只归 CNPG 与 backup-retry；不再清掉失败现场。
 
-项：TD-130, TD-276, TD-283, TD-284, TD-286, TD-287, TD-288, TD-289, TD-296, TD-297, TD-299 · 已还：TD-256, TD-257, TD-270, TD-271, TD-273, TD-275, TD-277, TD-278, TD-279, TD-280, TD-281, TD-282, TD-196, TD-223, TD-204, TD-253, TD-254, TD-255 · 11-05 清理移出：TD-272, TD-285（见 `CUT-r5-ledger-cleanup-2026-11-05.md`）
+项：TD-130, TD-283, TD-284, TD-286, TD-287, TD-288, TD-289, TD-296, TD-297, TD-299 · 已还：TD-276, TD-256, TD-257, TD-270, TD-271, TD-273, TD-275, TD-277, TD-278, TD-279, TD-280, TD-281, TD-282, TD-196, TD-223, TD-204, TD-253, TD-254, TD-255 · 11-05 清理移出：TD-272, TD-285（见 `CUT-r5-ledger-cleanup-2026-11-05.md`）
 
 ## 数据边界（接受并留座）
 
@@ -302,14 +302,11 @@
 | [TD-246](#td-246) | P3 | trade-data | Snapshot enrich stores a vendor 'day close' that can sit below the option's intrinsic value (a stale last trade), and P&L attribution then books it as unexplained | 已批（Owner 10-07「做」） |
 | [TD-250](#td-250) | P3 | trade-data | A stale vendor close above intrinsic is still stored as vendor_eod: the plugin's snapshot read does not return last_trade_ts, so enrich cannot tell a morning trade from a session close | 不用批 |
 | [TD-260](#td-260) | P3 | trade-core | Four LEFT JOINs still read raw_broker.contract_quote_live, which has had no writer since March and none at all after TD-240: the quote columns they feed can only ever come back NULL | 不用批 |
-| [TD-261](#td-261) | P2 | ops-platform | The Console approval list never renders: it reads `{items}` and the API answers `{approvals: [...]}`, and the page test mocks the wrong shape so it never caught it | 不用批 |
-| [TD-262](#td-262) | P3 | ops-platform | MCP `start_pipeline_run` sends no `who`, so a release started through MCP can never satisfy the policy's "requester holds the window" | 不用批 |
 | [TD-265](#td-265) | P3 | research-data | Non-farm payrolls rows get no theme: the pipeline's theme regex does not recognise `NFP`, so they never join the rate-path group | 不用批 |
 | [TD-266](#td-266) | P3 | flex-ib | The flex worker's system messages never leave the pod: it publishes to 127.0.0.1:6379, which is refused in-cluster, so the UI toast for a cash-ingest run is dropped with only a WARNING | 不用批 |
 | [TD-267](#td-267) | P2 | ops-platform | An approval is consumed by a transient refusal: approve executes immediately, and a release-window clash marks the request `failed`, so the Owner's click is spent and a new request must be filed | 不用批 |
 | [TD-268](#td-268) | P3 | ops-platform | `ExecSQLOnPrimary` is dead code: TD-256 and TD-259 took its last caller, and the ratchet that counted call sites now guards a function nobody calls | 不用批 |
 | [TD-269](#td-269) | P3 | ops-platform | `release.sh hold` cannot be stopped cleanly: SIGTERM waits behind its `sleep 3600`, and SIGKILL leaves a stale lock only the Owner may clear | 不用批 |
-| [TD-276](#td-276) | P3 | ops-platform | An apply_manifest run is named apply-<plan id>, so a failed apply of a plan cannot be retried; a new plan is needed | 不用批 |
 | [TD-283](#td-283) | P3 | ops-platform | release.sh dev still restarts DEV with kubectl rollout restart, which the read-only Agent identity cannot do | 不用批 |
 | [TD-284](#td-284) | P3 | ops-platform | Plugin and pine image builds cannot be started through start_pipeline_run: no image tag, no workspaces, pine missing from the window map | 不用批 |
 | [TD-286](#td-286) | P2 | ops-platform | Approval notifications carry no short id or parameters and their delivery is not recorded; session, Console and phone are not one approval experience | 安全/凭据（要你批） |
@@ -339,7 +336,6 @@
 | [TD-527](#td-527) | P2 | ops-platform | 出卡和批卡的速度时快时慢，原因没量过：CI 绿到出卡大多约 3 分钟，有一次约 9 分钟 | 不用批 |
 | [TD-528](#td-528) | P1 | ops-platform | PROD 批次落地推不上 main：推送闸门持锁逐个成员做外部读，领头只分到约 27.7 秒，7 成员批每次被截断 | 不用批 |
 | [TD-529](#td-529) | P2 | ops-platform | 落地流越长全平台越慢：对账不去重地追加 observed 证据，B5 每 15 秒在锁内重读整条流 | 不用批 |
-| [TD-530](#td-530) | P3 | ops-platform | 11 个 root 的返工记录每轮写不进去（old_a 不是完整提交号），日志刷屏、每轮白做 | 不用批 |
 | [TD-531](#td-531) | P1 | ops-platform | 收紧落地记录校验没用 PROD 历史回放：去掉 size 后 PROD 整条落地流折叠失败 | 不用批 |
 | [TD-532](#td-532) | P2 | ops-platform | 同一批手推上 main 后每个成员各出一张「Already in main」卡 | 不用批 |
 | [TD-533](#td-533) | P2 | cicd | 平台 CI 的 tested-by 只在复用时写、pipeline 结果却无条件引用：不复用的 run 全判失败 | 不用批 |
@@ -1341,21 +1337,6 @@
 - **Ratchet**: A shell test that sends SIGTERM to a `hold` and asserts the window file is gone within a couple of seconds.
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-infra
 
-### TD-276
-
-**P3 · ops-platform · An apply_manifest run is named apply-<plan id>, so a failed apply of a plan cannot be retried; a new plan is needed**
-
-- **状态**：在做（修复在 platform 分支 `w31/w48-s0-0a`，分支头 `65c0054`（修复本身在 `249618e`），S0-0a / W-48：apply 的 run 改名 `apply-<plan>-<unix>` 并带 `bifrost.io/plan` 标签，同一 plan 重试会新建 run。测试 `api/internal/workactions/apply_retry_test.go`。合 main + 发版后转待你签收）
-- **Claim**: `workactions.Apply` names the run `trimName("apply-" + planID)`. After an apply of a plan fails, a second approved apply of the same plan fails at create with `pipelineruns.tekton.dev "apply-<plan>" already exists`, and the approval ends `failed`.
-- **Measured**: MEASURED 2026-10-09: `appr_49781a21b0d86b9d` (plan `plan-1dfc9375-1791567153`, whose first apply failed closed) → `failed`, `already exists`. A fresh plan applied fine.
-- **Evidence**:
-  - `bifrost-platform/api/internal/workactions/service.go` — `name := trimName("apply-" + planID)`
-- **Impact**: Small. The caller must plan again; the error looks like a platform fault. Approval audit shows a failed C-tier action that changed nothing.
-- **Fix**: Name the run `apply-<plan>-<unix>` (keep the plan id in a label) or refuse the request up front when an apply of that plan already succeeded.
-- **Ratchet**: workactions test: two Apply calls for one ready plan create two distinct runs (or the second is refused with a clear message when the first succeeded).
-- 验收: `cd bifrost-platform/api && go test ./internal/workactions -run Apply -count=1`
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
-
 ### TD-283
 
 **P3 · ops-platform · `release.sh dev` still restarts DEV with `kubectl rollout restart`, which the read-only Agent identity cannot do since W-33 step 3**
@@ -1533,37 +1514,6 @@
 - **Ratchet**: `check-agent-config-parity.sh` §5 runs `install-hooks.py --check` on a machine that has `~/.cursor` (skipped when `CI` is set) and warns when `~/.cursor/hooks.json` is missing or differs from the rendered template.
 - 验收: `python3 bifrost-trade-infra/agent-config/cursor/install-hooks.py --check` exits 0; the newest `cursor.hooks.workspaceId-*.log` shows `Loaded … user hook(s)` and no `No user hooks configuration found`; in a scratch git repo a Cursor agent's `git add -A` is refused.
 - 审批 不用批 · 代价 S · 风险 low · repos: bifrost-trade-infra
-
-### TD-261
-
-**P2 · ops-platform · The Console approval list never renders: it reads `{items}` and the API answers `{approvals: [...]}`, and the page test mocks the wrong shape so it never caught it**
-
-- **状态**：在做（LANE-A 已就绪、**未合**：`cursor/a-platform` 3bd067f。`parseApprovalList` 读 `approvals` 信封，遇到 `{items}` 抛错；`ApprovalsPage` 待决单不再显示 Go 零值时间。防线是真的——`console/src/api/__tests__/approvals.test.ts` 在**运行时读** `api/internal/approvals/types.go` 与 `handler.go`，解析 `Approval` 的 json tag 逐个比对夹具，并断言 handler 发 `"approvals": list` 而非 `"items": list`。门禁 tsc / lint / vitest（809 passed）/ build 全 0。**platform main 现冻在 a7ecb08 等 `appr_cb8b3f52329cbe8c`，所以没合**）
-- **下一步**：合并前补一处——`approvalJsonTagsFromGo` 的正则匹配不到 `type Approval struct {` 时返回空列表，循环体不执行，这条契约测试会**空过**。加一句 `expect(tags.length).toBeGreaterThan(8)` 之类的下界即可。合并顺序见「要你执行」
-- **Claim**: The Console's approval list parses `{items}`, while the list route answers `{"approvals": [...]}`. The list therefore renders empty whatever is waiting. The page's own test mocks `{items}`, so it passes against a shape the API never sends. Found by LANE-RP while wiring the release policy; not introduced by it.
-- **Measured**: MEASURED 2026-10-08 (LANE-RP, code read). The live shape is confirmed by this session's own MCP listing, which returned an `approvals` array.
-- **Evidence**:
-  - `bifrost-platform/console/src/…` approval list — parses `items`
-  - `bifrost-platform/api/internal/approvals/handler.go` — list route answers `approvals`
-- **Impact**: The Console is one of the three ways the Owner is meant to decide a tier C release (chat, phone, Console). That third way shows an empty list, so the Owner cannot decide from the Console at all — and the test suite says it works.
-- **Fix**: Parse `approvals`, and build the page test's fixture from the Go handler's response type instead of a hand-written literal.
-- **Ratchet**: A console test whose fixture is generated from the handler's response type, so the two cannot drift again.
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
-
-### TD-262
-
-**P3 · ops-platform · MCP `start_pipeline_run` sends no `who`, so a release started through MCP can never satisfy the policy's "requester holds the window"**
-
-- **状态**：在做（LANE-B 已就绪、**未合**：`cursor/b-platform` 5b0e511。MCP `start_pipeline_run` 增可选 `who` 写进请求体，不在 MCP 侧推断身份；`decideReleaseWindow` 在窗口与 pipeline 已匹配但 `callerWho` 为空时返回 `REFUSED: missing who; …`，不再误读成 "someone else"、也不静默退回人工。防线 `TestMissingWhoIsRefusedWhenWindowMatches` + MCP `startPipelineRun.test.ts`。门禁 go build / vet / test 全 0、MCP tsc + 20 passed。**同 TD-261，等 platform main 解冻**）
-- **Claim**: The signed release policy requires `window_held_by_requester`. The MCP tool `start_pipeline_run` takes `name` / `revision` / `tag` and sends no `who`, so the engine cannot match the caller against the window holder. Every MCP-initiated release falls through to a manual decision — the one path the policy exists to remove.
-- **Measured**: CODE-READ 2026-10-08 (LANE-RP). Consistent with this session's own MCP call, which produced a pending request rather than an automatic one.
-- **Evidence**:
-  - `bifrost-platform/mcp/…` `start_pipeline_run` input schema — `name`, `revision`, `tag` only
-  - `bifrost-platform/api/internal/releasepolicy/engine.go` — `window_held_by_requester`
-- **Impact**: Once a policy is signed, releases started from a Claude session through MCP still queue for a human; only the `release.sh` paths benefit.
-- **Fix**: Add `who` to the MCP tool and pass it through; the server keeps requiring it to equal the window holder.
-- **Ratchet**: A test that `start_pipeline_run` without `who` is refused rather than silently falling back to the manual path.
-- 审批 不用批 · 代价 S · 风险 low · repos: bifrost-platform
 
 ### TD-265
 
@@ -3508,25 +3458,6 @@
   - B5 测试：流上没有新事件时，一个 tick 不开事务。
   - 读数：每条流每小时新增的事件数、每个循环的耗时，进交付度量页，超过阈值标红。
 - **验收**：PROD 上一个小时没有落地时，`landing:bifrost-platform` 新增少于 20 个事件；B5 tick 中位数少于 2 秒。
-
-### TD-530
-
-**P3 · ops-platform · 落地 drill 每轮都试图写一批写不进去的返工记录：11 个 root 的 `landing_rework_seen` 因为 old_a 不是完整提交号被拒，日志刷屏，每轮白做一遍**
-
-- **状态**：未开始（2026-11-11 记，第 0 组阻塞表 #39）。
-- **证据**：
-  - 08:52 be881ed 上 PROD 起，每轮 drill 都报 `landing_rework_seen <root> in bifrost-platform: store: invalid request: note field "landing_rework_seen" landing_rework_seen old_a is a commit`。
-  - 09:33 那一轮列了 11 个 root，包括 `t_01M6QGJDXJKP9KTNEGFZM3AHZT`、`t_01M6S2EWMF3QM0GC7YECV4KWY6`、`t_01M71ECKTT0XQM6RMK0S9BS6JF`。
-  - 写方是 `controller/landing_delivered_by.go:125–170`（reworkSeenPass）。校验在 `store/landing_rework.go:109–110`，要求 old_a 是完整提交号（4fbeff14，R5:5.5-18 引入）。这些 root 的旧尝试给出的 old_a 不满足这个要求。
-- **影响**：这 11 个 root 的返工记录一直写不进去，rework_landed 卡出不来；每轮白读一遍、白开一次失败的事务，日志里每轮一大段。
-- **修法**：
-  1. 先查这 11 个 root 的 old_a 实际是什么：空、短号，还是别的。
-  2. 写方遇到 old_a 不是完整提交号时，跳过并记一次说明（每个 root 只记一次），或者从流上把它补全。
-  3. 不再每轮重试。
-- **防线**：
-  - controller 测试：old_a 不合格的 root 只记一次说明，下一轮不再尝试写。
-  - 收紧事件字段校验时，对 PROD 流的导出跑一遍回放测试。
-- **验收**：PROD workers 日志一小时内没有 `landing_rework_seen … old_a is a commit`。
 
 ### TD-531
 
