@@ -20,6 +20,14 @@
 # assessment of a card or an approval reads its items from, as
 # <repository>/<path> at main through the Gitea mirror; only the workers run
 # the assessments.
+# UNIT_DISPATCH (CI root design, landing stage 2 block 2-C; Owner 2026-11-13):
+# shadow has the platform create unit TaskRuns in cicd when asked (POST
+# /api/v1/units/evidence) and record their results in the evidence ledger; no
+# gate reads those rows yet. UNIT_NODE_SELECTOR keeps the unit pods on one
+# node, the one the CI design measured. To go back: remove the two variables
+# (or set UNIT_DISPATCH to off) and sync; runs already started finish and are
+# still recorded. platform-api serves the route; the workers start the one
+# retry of a run the cluster lost.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -30,6 +38,10 @@ spec:
       containers:
         - name: platform-api
           env:
+            - name: UNIT_DISPATCH
+              value: shadow
+            - name: UNIT_NODE_SELECTOR
+              value: bifrost.io/host-id=ubt-k3s-05
             - name: AGENTRT_ENV
               value: prod
             - name: AGENTRT_GIT_ORG
@@ -60,6 +72,10 @@ spec:
       containers:
         - name: platform-api
           env:
+            - name: UNIT_DISPATCH
+              value: shadow
+            - name: UNIT_NODE_SELECTOR
+              value: bifrost.io/host-id=ubt-k3s-05
             - name: AGENTRT_LEDGER
               value: bifrost-trade-infra/agent-config/TECH_DEBT.md
             - name: AGENTRT_ENV
