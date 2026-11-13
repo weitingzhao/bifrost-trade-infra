@@ -261,6 +261,8 @@ STG 的 `rollout` 引用 `bifrost-rollout-verify-platform`，先重启并等待�
 
 改坏了：revert 那个提交，同样推 `ready/`。
 
+同时推的几条分支会互相顶：先进的让后面的落后，后面的被变基、多等一轮 CI（infra 约 3.5 分钟，platform 约 8 分钟）。不用管它，那次运行会一直跟到进 main 或到 50 分钟上限。
+
 ## 发布窗口：推 main 或起 deliver 之前先看
 
 ```bash
