@@ -24,13 +24,24 @@ Reuse runs carry a tested-by naming their original; every other run writes it
 empty (TD-533), and an empty one claims nothing, as the platform reads it. Only a listed, earlier, green original with no reuse
 edge and identical platform-tree, ui-commit and infra-commit supplies their scope.
 Legacy runs without reuse evidence retain their existing interpretation.
+
+CI root design, landing wave 1 block G: with CI_GATE_LEDGER set to a platform
+base URL, classify asks that platform's evidence ledger instead of reading the
+runs (GET /api/v1/evidence/ci, no token): a full pass recorded for the commit
+or for its git tree is succeeded, a failed row is failed, and a pass of part
+of the repository reads as a console run does here (succeeded for a push,
+console with --require-full). Unset, or a ledger that cannot be read, the runs
+decide as before, and a ledger that cannot be read says so on stderr.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
+import urllib.parse
+import urllib.request
 from datetime import datetime
 from typing import Iterable, Optional
 
@@ -143,6 +154,42 @@ def _effective_scope(run: dict, runs: list[dict]) -> str:
     return _scope(original) if original is not None else "malformed"
 
 
+LEDGER_ENV = "CI_GATE_LEDGER"
+# What the ledger answered in this process, by (repo, sha): the run it rests on.
+LEDGER_RUNS: dict = {}
+
+
+def _ledger(repo: str, sha: str, require_full: bool) -> Optional[str]:
+    """classify's answer from the evidence ledger, or None to read the runs:
+    the switch is off, or the ledger could not be read."""
+    base = os.environ.get(LEDGER_ENV, "").strip().rstrip("/")
+    if not base:
+        return None
+
+    def ask(scope: str):
+        query = urllib.parse.urlencode({"repo": repo, "commit": sha, "scope": scope})
+        with urllib.request.urlopen(base + "/api/v1/evidence/ci?" + query, timeout=20) as resp:
+            doc = json.load(resp)
+        status, run = doc.get("status"), doc.get("run")
+        if doc.get("repo") != repo or doc.get("commit") != sha or status not in ("Succeeded", "Failed", "") \
+                or not isinstance(run, str):
+            raise ValueError("not an answer for this commit")
+        return status, run
+
+    try:
+        status, run = ask("full")
+        state = {"Succeeded": "succeeded", "Failed": "failed"}.get(status)
+        if state is None:
+            status, run = ask("any")
+            state = {"Succeeded": "console" if require_full else "succeeded", "Failed": "failed"}.get(status, "missing")
+    except Exception as exc:  # the gate must answer: the runs still can
+        print(f"ci_gate: the evidence ledger at {base} could not be read ({exc}); reading the CI runs instead",
+              file=sys.stderr)
+        return None
+    LEDGER_RUNS[(repo, sha)] = run
+    return state
+
+
 def classify(runs: Iterable[dict], repo: str, sha: str, require_full: bool = False) -> str:
     """Return succeeded, failed, missing, malformed, or (require_full) console for repo@sha.
 
@@ -150,6 +197,10 @@ def classify(runs: Iterable[dict], repo: str, sha: str, require_full: bool = Fal
     and with require_full not as a success (console: a full run is still owed).
     A run with a malformed api-scope counts for nothing; when nothing else
     finished, the answer is malformed."""
+    from_ledger = _ledger(repo, sha, require_full)
+    if from_ledger is not None:
+        return from_ledger
+    LEDGER_RUNS.pop((repo, sha), None)
     runs = list(runs)
     seen = {(scope, state): False for scope in ("full", "console", "malformed") for state in ("True", "False")}
     for run in runs:
@@ -185,6 +236,8 @@ def gate(runs: Iterable[dict], pairs: list[tuple[str, str]], allow_red: str,
     for repo, sha in pairs:
         state = classify(runs, repo, sha, require_full)
         lines.append(f"{repo} {sha} ci={state}")
+        if (repo, sha) in LEDGER_RUNS:
+            lines.append("  from the evidence ledger" + (f": run {LEDGER_RUNS[(repo, sha)]}" if LEDGER_RUNS[(repo, sha)] else ""))
         if state == "succeeded":
             for run in runs:
                 params = _params(run)

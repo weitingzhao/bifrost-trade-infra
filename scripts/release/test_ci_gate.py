@@ -198,3 +198,90 @@ def test_an_original_with_an_empty_tested_by_supplies_its_scope():
     original, reuse = _reuse_pair()
     original["status"]["results"].append({"name": "tested-by", "value": ""})
     assert classify([original, reuse], "bifrost-platform", SHA, True) == "succeeded"
+
+
+# ── CI_GATE_LEDGER: the evidence ledger answers instead of the runs (block G) ──
+
+import contextlib  # noqa: E402
+import http.server  # noqa: E402
+import json  # noqa: E402
+import threading  # noqa: E402
+import urllib.parse  # noqa: E402
+
+import ci_gate  # noqa: E402
+
+
+@contextlib.contextmanager
+def _ledger(answers, monkeypatch):
+    """A platform that answers /api/v1/evidence/ci from answers[(sha, scope)] = (status, run)."""
+    asked = []
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802
+            url = urllib.parse.urlparse(self.path)
+            q = dict(urllib.parse.parse_qsl(url.query))
+            asked.append((q.get("commit"), q.get("scope")))
+            answer = answers.get((q.get("commit"), q.get("scope")))
+            if url.path != "/api/v1/evidence/ci" or answer is None:
+                self.send_response(502)
+                self.end_headers()
+                return
+            body = json.dumps({"repo": q["repo"], "commit": q["commit"], "scope": q["scope"],
+                               "status": answer[0], "run": answer[1]}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    monkeypatch.setenv(ci_gate.LEDGER_ENV, "http://127.0.0.1:%d/" % server.server_port)
+    try:
+        yield asked
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+RED = [_run("bifrost-ci-platform", {"revision": SHA}, {"bifrost.io/repo": "bifrost-platform"}, ok="False")]
+
+
+def test_ledger_off_reads_the_runs(monkeypatch) -> None:
+    monkeypatch.delenv(ci_gate.LEDGER_ENV, raising=False)
+    assert classify(RED, "bifrost-platform", SHA) == "failed"
+
+
+def test_ledger_full_pass_decides_whatever_the_runs_say(monkeypatch) -> None:
+    with _ledger({(SHA, "full"): ("Succeeded", "ci-platform-1")}, monkeypatch) as asked:
+        assert classify(RED, "bifrost-platform", SHA, require_full=True) == "succeeded"
+        code, text = ci_gate.gate(RED, [("bifrost-platform", SHA)], "", require_full=True)
+    assert code == 0 and "from the evidence ledger: run ci-platform-1" in text
+    assert asked == [(SHA, "full"), (SHA, "full")]
+
+
+def test_ledger_failure_and_no_verdict(monkeypatch) -> None:
+    with _ledger({(SHA, "full"): ("Failed", "ci-platform-2")}, monkeypatch):
+        assert classify([], "bifrost-platform", SHA) == "failed"
+    with _ledger({(SHA, "full"): ("", ""), (SHA, "any"): ("", "")}, monkeypatch):
+        assert classify([], "bifrost-platform", SHA) == "missing"
+        assert ci_gate.gate([], [("bifrost-platform", SHA)], "")[0] == 2
+
+
+def test_ledger_pass_of_part_reads_as_a_console_run(monkeypatch) -> None:
+    with _ledger({(SHA, "full"): ("", ""), (SHA, "any"): ("Succeeded", "ci-platform-3")}, monkeypatch):
+        assert classify([], "bifrost-platform", SHA) == "succeeded"  # a push to main
+        assert classify([], "bifrost-platform", SHA, require_full=True) == "console"  # a release
+
+
+def test_ledger_that_cannot_be_read_leaves_the_runs_to_decide(monkeypatch, capsys) -> None:
+    with _ledger({}, monkeypatch):  # every request answers 502
+        assert classify(RED, "bifrost-platform", SHA) == "failed"
+        code, text = ci_gate.gate(RED, [("bifrost-platform", SHA)], "")
+    assert code == 1 and "from the evidence ledger" not in text
+    assert "could not be read" in capsys.readouterr().err
+    monkeypatch.setenv(ci_gate.LEDGER_ENV, "http://127.0.0.1:1")  # nothing listens
+    assert classify(RED, "bifrost-platform", SHA) == "failed"
