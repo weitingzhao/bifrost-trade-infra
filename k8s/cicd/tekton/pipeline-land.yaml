@@ -3,10 +3,12 @@
 # starts that repository's CI gate and this pipeline beside it (trigger-trade-ci.yaml `land`).
 # It opens the pull request, brings a branch that is behind main up to date (a rebase by
 # Gitea, which this same run then follows: one push, one run, Succeeded means on main), waits
-# for the commit's CI to be green, read from the cluster's own PipelineRuns, then
-# rebase-merges that commit as bifrost-merger: the
-# only identity besides the Owner on main's merge whitelist. A commit status decides nothing
-# here: on Gitea 1.21 any account with write access can post one.
+# for the commit's CI to be green, read from the cluster's own PipelineRuns, then pushes that
+# commit to main as it is: a push Gitea takes only as a fast-forward, so main becomes the
+# tested commit or does not move. Where bifrost-merger is not on main's push whitelist it asks
+# Gitea to rebase-merge instead, which cannot promise that. bifrost-merger is the only identity
+# besides the Owner that reaches main. A commit status decides nothing here: on Gitea 1.21 any
+# account with write access can post one.
 # There is one landing pipeline. What differs between repositories is a row in the
 # LANDING_REPOS value below, the one place those facts are written (the scripts and tests of
 # this repository read it from this file); a second pipeline that mounts the merger token
@@ -79,7 +81,8 @@ spec:
               name: bifrost-release-policy
         steps:
           - name: land
-            image: python:3.11-slim-bookworm
+            # The CI tools image: this step needs git beside python, to push the tested commit.
+            image: 192.168.10.73:30500/bifrost-ci-infra-tools@sha256:4ff505208b6cd977e36b7fb29c0f9faa4824a4ed9f4beb6e2f1ffc94b591a23e
             volumeMounts:
               - name: gitea-merger
                 mountPath: /etc/gitea-merger
@@ -128,18 +131,23 @@ spec:
             script: |
               #!/usr/bin/env python3
               """Land a green ready/ branch: pull request, up to date with main, CI green, merge."""
+              import base64
               import json
               import os
               import re
               import ssl
+              import subprocess
               import sys
+              import tempfile
               import time
+              import urllib.parse
               import urllib.error
               import urllib.request
 
               # Fixed: the token is never sent to an address a caller chose.
               GITEA = 'http://gitea.cicd.svc.cluster.local:3000'
               TOKEN_FILE = '/etc/gitea-merger/password'  # kubernetes.io/basic-auth, put-reader-token.sh merger
+              USER_FILE = '/etc/gitea-merger/username'
               POLICY = '/etc/release-policy/policy.yaml'  # canonical JSON
               TRAILER = re.compile(r'^[A-Za-z0-9-]+: \S')
               RUNS = 'https://kubernetes.default.svc/apis/tekton.dev/v1/namespaces/cicd/pipelineruns'
@@ -387,6 +395,55 @@ spec:
                   return '', ('refused: Gitea accepted the merge of pull request #%d but what landed could not be read; '
                               'look at the pull request before pushing again' % pull['number'])
 
+              def fast_forward(user, token, remote, commit, depth, host=GITEA):
+                  """Push the tested commit to main as it is: 'landed', 'moved', 'closed' or 'failed: why'.
+                  This is the one step the server makes atomic. A push to a protected branch is taken
+                  only when the branch's old head is an ancestor of the new commit (Gitea 1.21
+                  hook_pre_receive, "protected from force push"; git writes the ref only if its old
+                  value still holds). So main becomes exactly the commit CI ran on, or does not move:
+                  'moved'. The commit is fetched `depth` deep, the change's commits and the one under
+                  them: git refuses a push ("fetch first") when it does not hold the branch's present
+                  head and so cannot see that the push is a fast-forward. Gitea's merge cannot promise that: its rebase style rebases once more when
+                  main has moved, and 1.21 has no fast-forward-only style (independent review 2,
+                  finding 1). 'closed': this account is not on main's push whitelist for the repository."""
+                  auth = base64.b64encode(('%s:%s' % (user, token)).encode()).decode()
+                  env = dict(os.environ, GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL='/dev/null', GIT_TERMINAL_PROMPT='0',
+                             GIT_CONFIG_COUNT='2', GIT_CONFIG_KEY_0='http.' + host + '/.extraHeader',
+                             GIT_CONFIG_VALUE_0='Authorization: Basic ' + auth,
+                             GIT_CONFIG_KEY_1='credential.helper', GIT_CONFIG_VALUE_1='')
+                  with tempfile.TemporaryDirectory() as tmp:
+                      for step in (['init', '-q', tmp], ['-C', tmp, 'fetch', '-q', '--depth=%d' % depth, remote, commit],
+                                   ['-C', tmp, 'push', remote, commit + ':refs/heads/main']):
+                          try:
+                              done = subprocess.run(['git'] + step, env=env, capture_output=True, text=True, timeout=180)
+                          except (OSError, subprocess.TimeoutExpired) as err:
+                              return 'failed: git %s: %s' % (step[-3] if len(step) > 3 else step[0], type(err).__name__)
+                          if done.returncode:
+                              break
+                  if not done.returncode:
+                      return 'landed'
+                  said = (done.stdout + done.stderr).replace(auth, '***')
+                  low = said.lower()
+                  if 'not allowed to push' in low:
+                      return 'closed'
+                  if 'force push' in low or 'non-fast-forward' in low or 'fetch first' in low:
+                      return 'moved'
+                  lines = [line.strip() for line in said.splitlines() if line.strip()]
+                  return 'failed: ' + (lines[-1][:200] if lines else 'git exited %d' % done.returncode)
+
+              def settled(token, api, pull, branch, commit):
+                  """After the push: the pull request is marked merged (or closed) and the branch removed.
+                  main already holds the commit; nothing here can undo or fail the landing."""
+                  code, out = call(token, 'POST', api + '/pulls/%d/merge' % pull['number'],
+                                   {'Do': 'manually-merged', 'MergeCommitID': commit})
+                  if code != 200:
+                      code, out = call(token, 'PATCH', api + '/pulls/%d' % pull['number'], {'state': 'closed'})
+                  if code not in (200, 201):
+                      print('NOTICE: pull request #%d is still open (%s); main holds the commit' % (pull['number'], code))
+                  code, out = call(token, 'DELETE', api + '/branches/' + urllib.parse.quote(branch, safe=''))
+                  if code not in (200, 204, 404):
+                      print('NOTICE: branch %s was not removed (%s)' % (branch, code))
+
               def rebased_head(token, api, pull, tries=12, pause=5):
                   """(the branch's new head, '') once Gitea shows the rebase; (None, refusal) otherwise."""
                   for _ in range(tries):
@@ -411,7 +468,7 @@ spec:
                   return ''
 
               def land(token, table, policy, repo, ref, commit, wait=ci_wait, gitea=GITEA, tries=24, pause=5,
-                       budget=50 * 60):
+                       budget=50 * 60, push=None):
                   """(what landed, refusal): ({'outcome': 'landed', 'commit': ..., 'change-ids': ...}, '') or
                   ({}, why not). One push is one run: a branch behind main is rebased by Gitea and this
                   run goes on with the new commit, as often as main moves, until it is merged or the
@@ -469,6 +526,20 @@ spec:
                       code, main = call(token, 'GET', api + '/branches/main')
                       still = code == 200 and main.get('commit', {}).get('id') == base
                       if got == 'green' and still:
+                          pushed_as = push(repo, commit, len(ids) + 1) if push else 'closed'
+                          if pushed_as == 'landed':
+                              settled(token, api, pull, branch, commit)
+                              print('landed %s on main: pushed as tested (pull request #%d)' % (commit, pull['number']))
+                              return {'outcome': 'landed', 'commit': commit, 'change-ids': ','.join(ids[:40])}, ''
+                          if pushed_as == 'moved':
+                              code, main = call(token, 'GET', api + '/branches/main')
+                              if code != 200 or main.get('commit', {}).get('id') != base:
+                                  print('main moved before the push; nothing was merged', flush=True)
+                                  continue
+                              pushed_as = 'failed: the push was refused though main had not moved'
+                          # Not on the push whitelist here, or git could not do it: Gitea's merge, as before.
+                          print('NOTICE: the tested commit was not pushed (%s); asking Gitea to merge instead' % pushed_as,
+                                flush=True)
                           landed, problem = merge(token, api, pull, commit, base, tries, pause)
                           if problem == 'moved':
                               continue
@@ -492,9 +563,12 @@ spec:
               if __name__ == '__main__':
                   if not os.path.exists(TOKEN_FILE):
                       sys.exit('refused: Secret cicd/gitea-merger is not installed')
-                  with open(TOKEN_FILE) as handle, open(POLICY) as signed:
-                      landed, problem = land(handle.read().strip(), json.loads(os.environ['LANDING_REPOS']), json.load(signed),
-                                             os.environ['REPO'], os.environ['BRANCH'], os.environ['COMMIT'])
+                  with open(TOKEN_FILE) as handle, open(USER_FILE) as name, open(POLICY) as signed:
+                      secret, user = handle.read().strip(), name.read().strip()
+                      landed, problem = land(secret, json.loads(os.environ['LANDING_REPOS']), json.load(signed),
+                                             os.environ['REPO'], os.environ['BRANCH'], os.environ['COMMIT'],
+                                             push=lambda repo, commit, depth: fast_forward(
+                                                 user, secret, GITEA + '/bifrost/' + repo + '.git', commit, depth))
                   if problem:
                       sys.exit(problem)
                   for name, value in landed.items():

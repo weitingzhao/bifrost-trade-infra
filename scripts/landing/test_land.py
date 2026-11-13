@@ -9,6 +9,7 @@ the token is, which CI runs count, and what `land` refuses."""
 
 import json
 import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -354,6 +355,8 @@ class Gitea:
                 return 200, self.pull()
             # The list of open pull requests; with `list_lags` it still shows the head from before a rebase.
             return 200, [dict(self.pull(), head={"ref": "ready/x", "sha": self.shown}) if kw.get("list_lags") else self.pull()]
+        if method == "DELETE" or method == "PATCH":
+            return 200, None
         if path.endswith("/pulls"):
             return (409, {"message": "exists"}) if kw.get("exists") else (201, self.pull())
         if "/update" in path:
@@ -381,6 +384,8 @@ class Gitea:
             return 405, {"message": "Please try again later"}
         if kw.get("deny"):
             return 403, {"message": "not on the whitelist"}
+        if body.get("Do") == "manually-merged":  # after a push: main already holds the commit
+            return (200, None) if self.main == body["MergeCommitID"] else (422, {"message": "not on main"})
         # Gitea merges; `rewrites`: it rebased once more, so what lands is another commit.
         self.merged = "7" * 40 if kw.get("rewrites") else body["head_commit_id"]
         self.main = "8" * 40 if kw.get("rewrites") else self.merged  # with rewrites, a later landing is already on top
@@ -405,7 +410,7 @@ NEXT = "%040x" % (int(SHA, 16) + 1)  # the stub's head after one rebase
 IDS = "I" + "1" * 40
 
 
-def run_land(gitea, ref=REF, commit=SHA, repo=PLATFORM, wait=None, budget=3000):
+def run_land(gitea, ref=REF, commit=SHA, repo=PLATFORM, wait=None, budget=3000, push=None):
     """(outcome, refusal); the whole answer is left in gitea.landed."""
     waits = []
 
@@ -419,7 +424,7 @@ def run_land(gitea, ref=REF, commit=SHA, repo=PLATFORM, wait=None, budget=3000):
     scope = module()
     scope["call"] = gitea.call
     gitea.landed, problem = scope["land"]("tok", table(), policy(), repo, ref, commit, wait=wait or waited,
-                                          gitea=gitea.HOST, tries=3, pause=0, budget=budget)
+                                          gitea=gitea.HOST, tries=3, pause=0, budget=budget, push=push)
     gitea.waits = waits
     return gitea.landed.get("outcome", ""), problem
 
@@ -688,6 +693,122 @@ def test_main_moving_while_gitea_makes_the_merge_wait_is_seen_before_the_next_at
     assert [m[2]["head_commit_id"] for m in gitea.merges()] == [SHA, NEXT]  # the refused attempt, then the rebased commit
     assert [w[2] for w in gitea.waits] == [SHA, NEXT] and gitea.waits[1][1] == "e" * 40
     assert gitea.landed["commit"] == NEXT
+
+
+# --- the tested commit is pushed, not merged (independent review 2, finding 1) ---------
+
+
+def test_the_tested_commit_is_pushed_to_main_and_nothing_is_asked_of_gitea_s_merge():
+    """Why: independent review 2, 2026-11-13, finding 1. Gitea's merge rebases once more when main
+    has moved since the run last read it, so what landed could be a commit CI never ran on; the
+    run could only say so afterwards (landed-not-as-tested). A push of the tested commit is taken
+    by Gitea only as a fast-forward: main becomes that commit or does not move."""
+    gitea, pushes = Gitea(), []
+
+    def push(repo, commit, depth):
+        pushes.append((repo, commit, depth))
+        gitea.main = commit
+        return "landed"
+
+    assert run_land(gitea, push=push) == ("landed", "")
+    assert pushes == [(PLATFORM, SHA, 2)] and gitea.landed["commit"] == SHA  # one commit, and the one under it
+    merges = [c[2] for c in gitea.merges()]
+    assert merges == [{"Do": "manually-merged", "MergeCommitID": SHA}]  # the record only; main was already there
+    assert [c[1] for c in gitea.calls if c[0] == "DELETE"] == ["/api/v1/repos/bifrost/bifrost-platform/branches/ready%2Fx"]
+
+
+def test_a_push_refused_because_main_moved_merges_nothing_and_the_run_rebases():
+    gitea, pushes = Gitea(), []
+
+    def push(repo, commit, depth):
+        pushes.append(commit)
+        if len(pushes) == 1:  # another landing got there first: Gitea refuses the push
+            gitea.kw["behind"], gitea.main = True, "e" * 40
+            return "moved"
+        gitea.main = commit
+        return "landed"
+
+    assert run_land(gitea, push=push) == ("landed", "")
+    assert pushes == [SHA, NEXT] and gitea.landed["commit"] == NEXT
+    assert [w[2] for w in gitea.waits] == [SHA, NEXT]  # the rebased commit was tested before it was pushed
+    assert not [c for c in gitea.merges() if c[2].get("Do") == "rebase"]
+
+
+@pytest.mark.parametrize("answer", ["closed", "failed: something else"])
+def test_where_the_push_is_not_open_gitea_is_asked_to_merge_as_before(answer):
+    """A repository whose main does not have bifrost-merger on its push whitelist yet (the Owner
+    opens that, one repository at a time) lands as it did before this change."""
+    gitea = Gitea()
+    assert run_land(gitea, push=lambda repo, commit, depth: answer) == ("landed", "")
+    assert [c[2]["Do"] for c in gitea.merges()] == ["rebase"]
+    # a push refused as not a fast-forward while main has not moved is not tried again and again
+    gitea = Gitea()
+    assert run_land(gitea, push=lambda repo, commit, depth: "moved") == ("landed", "")
+    assert [c[2]["Do"] for c in gitea.merges()] == ["rebase"] and len(gitea.waits) == 1
+
+
+def bare(tmp_path, name):
+    path = tmp_path / name
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(path)], check=True)
+    subprocess.run(["git", "-C", str(path), "config", "uploadpack.allowAnySHA1InWant", "true"], check=True)
+    return path
+
+
+def commit_on(tmp_path, server, name, parent=None):
+    """A commit in `server`, made in a clone of its own, on `parent` (or as a root); not on main."""
+    work = tmp_path / ("w-" + name)
+    subprocess.run(["git", "init", "-q", "-b", "side", str(work)], check=True)
+    git = ["git", "-C", str(work), "-c", "user.name=t", "-c", "user.email=t@example.invalid"]
+    if parent:
+        subprocess.run(git + ["fetch", "-q", str(server), parent], check=True)
+        subprocess.run(git + ["reset", "-q", "--hard", parent], check=True)
+    (work / name).write_text(name)
+    subprocess.run(git + ["add", name], check=True)
+    subprocess.run(git + ["commit", "-q", "-m", name], check=True)
+    sha = subprocess.run(git + ["rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
+    subprocess.run(git + ["push", "-q", str(server), sha + ":refs/heads/keep-" + name], check=True)
+    return sha
+
+
+def main_of(server):
+    return subprocess.run(["git", "-C", str(server), "rev-parse", "refs/heads/main"], capture_output=True, text=True).stdout.strip()
+
+
+def test_real_git_takes_the_push_only_as_a_fast_forward(tmp_path):
+    """The same step against a real git repository, no stub: the commit is fetched by its id and
+    pushed. A commit on top of main moves main to exactly that commit; once main has moved to
+    something else, the push of a commit that is not on top of it is refused and main stays where
+    it was. Written first with a fetch one commit deep, which this test showed git refuses
+    ("fetch first": it cannot see the fast-forward without the commit main is on)."""
+    forward = module()["fast_forward"]
+    server = bare(tmp_path, "server.git")
+    first = commit_on(tmp_path, server, "first")
+    assert forward("u", "t", str(server), first, 2, host="http://unused.invalid") == "landed" and main_of(server) == first
+    tested = commit_on(tmp_path, server, "tested", parent=first)
+    other = commit_on(tmp_path, server, "other", parent=first)
+    assert forward("u", "t", str(server), other, 2, host="http://unused.invalid") == "landed" and main_of(server) == other
+    assert forward("u", "t", str(server), tested, 2, host="http://unused.invalid") == "moved"  # main is `other` now
+    assert main_of(server) == other
+    assert forward("u", "t", str(server), "0" * 40, 2, host="http://unused.invalid").startswith("failed: ")
+    # one commit deep, git cannot see that the push is a fast-forward
+    deeper = commit_on(tmp_path, server, "deeper", parent=other)
+    assert forward("u", "t", str(server), deeper, 1, host="http://unused.invalid") == "moved" and main_of(server) == other
+    assert forward("u", "t", str(server), deeper, 2, host="http://unused.invalid") == "landed" and main_of(server) == deeper
+
+
+def test_gitea_s_answers_to_a_push_are_told_apart(tmp_path, monkeypatch):
+    forward = module()["fast_forward"]
+    fake = tmp_path / "bin"
+    fake.mkdir()
+    (fake / "git").write_text('#!/bin/sh\ncase "$*" in *push*) echo "$SAYS" >&2; exit 1;; esac\nexit 0\n')
+    (fake / "git").chmod(0o755)
+    monkeypatch.setenv("PATH", str(fake) + os.pathsep + os.environ["PATH"])
+    for says, answer in (("remote: Not allowed to push to protected branch main", "closed"),
+                         ("remote: branch main is protected from force push", "moved"),
+                         (" ! [rejected] x -> main (fetch first)", "moved"),
+                         ("fatal: unable to access: Basic dTp0 leaked?", "failed: fatal: unable to access: Basic *** leaked?")):
+        monkeypatch.setenv("SAYS", says)
+        assert forward("u", "t", "http://gitea.test/bifrost/x.git", SHA, 2, host="http://gitea.test") == answer, says
 
 
 def test_what_landed_is_read_from_the_pull_request_and_a_rewritten_commit_is_not_called_landed():
