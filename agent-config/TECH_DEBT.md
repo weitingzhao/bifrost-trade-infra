@@ -343,8 +343,16 @@
 | [TD-531](#td-531) | P1 | ops-platform | 收紧落地记录校验没用 PROD 历史回放：去掉 size 后 PROD 整条落地流折叠失败 | 不用批 |
 | [TD-532](#td-532) | P2 | ops-platform | 同一批手推上 main 后每个成员各出一张「Already in main」卡 | 不用批 |
 | [TD-533](#td-533) | P2 | cicd | 平台 CI 的 tested-by 只在复用时写、pipeline 结果却无条件引用：不复用的 run 全判失败 | 不用批 |
-| [TD-534](#td-534) | P3 | cicd | infra 新分支首推没有基线，code-health 直接判失败 | 不用批 |
+| [TD-534](#td-534) | P2 | cicd | infra 新分支首推没有基线：code-health 直接判失败，consumers 和 doc-policy 被跳过，会弄红 main 的提交在分支上是绿的 | 不用批 |
 | [TD-535](#td-535) | P2 | cicd | push-main 跑测试前没清掉 GIT_CONFIG_*：pushurl 覆盖泄进夹具推送，16 个测试红 | 不用批 |
+| [TD-551](#td-551) | P2 | security | owner-exec 的目录和页面的码输入组件不在签名的信任锚名单里 | 安全/凭据（要你批） |
+| [TD-552](#td-552) | P2 | security | 交易的文字规则只在 Agent 闸门里，平台给执行卡分级时只认文件路径 | 安全/凭据（要你批） |
+| [TD-553](#td-553) | P2 | security | 批过的命令能把读到的秘密和自己的集群令牌印到卡上，卡的结果 Agent 读得到 | 安全/凭据（要你批） |
+| [TD-554](#td-554) | P2 | security | Agent 闸门没有拦直接请求 owner-exec 的执行接口 | 安全/凭据（要你批） |
+| [TD-555](#td-555) | P2 | cicd | 集群级清单（准入策略等）没有管理员身份做不了服务端试跑，写错要等 Owner 坐到电脑前才发现 | 不用批 |
+| [TD-556](#td-556) | P3 | platform | 已由 owner-exec 跑完的卡和手机通知仍写「去终端跑一条命令」 | 不用批 |
+| [TD-557](#td-557) | P3 | cicd | STG 的 owner-exec 不随平台发布重启；镜像里的版本号是 dev | 不用批 |
+| [TD-558](#td-558) | P3 | dev | 没有受认可的办法在本机起一套一次性的平台做页面走查 | 不用批 |
 
 ## 条目
 
@@ -3576,13 +3584,15 @@
 
 ### TD-534
 
-**P3 · cicd · infra 新分支第一次推送时 CI 没有基线，code-health 直接判失败（`code_health_no_base`），后面的 parity-static 被跳过**
+**P2 · cicd · infra 新分支第一次推送时 CI 没有基线：code-health 直接判失败（`code_health_no_base`），consumers 和 doc-policy 被跳过，会弄红 main 的提交在分支上是绿的**
 
 - **状态**：未开始（2026-11-11 记，第 0 组卡点 #47）。
 - **证据**：
   - ci-infra-vww87（aw/i2-c7b8f0b1，10:34）：before 是全 0，scope、consumers、doc-policy 都 `skipped(no_base)`，code-health 报 `FAIL code_health_no_base`，parity-static 被跳过。
   - quick、statics、kustomize 都跑了。
-- **影响**：给 Owner 推 main 之前想用分支跑一次整套 infra CI 时，结果没有意义。得先推一个基线提交、再推目标提交，才能拿到完整结果。
+  - 2026-11-13 第二条线撞上，并且真的弄红了 main（owner-exec 线；CI 线第 0 组 11-11 记过同一处）：分支 `owner-exec/stg` 的 ci-infra-pnhll 是绿的，因为 `scripts/landing/coverage_infra.py:126` 在没有 base 时打印 `skipped(no_base)` 就返回；合进 main（`e981f937`）后 ci-infra-f87z2 红在 consumers 段，原话 `unregistered_consumer scripts/check_owner_exec.py:33`。main 红了约 20 分钟，期间任何会话往 infra main 推都会红在同一处；修复 `b3b27d9f`。
+  - 这一次没有报 `code_health_no_base`（分支是从已有提交牵出的），所以整条 run 显示 Succeeded：跳过的两段没有任何显眼的痕迹。
+- **影响**：给 Owner 推 main 之前想用分支跑一次整套 infra CI 时，结果没有意义。得先推一个基线提交、再推目标提交，才能拿到完整结果。11-13 起级别提到 P2：Owner 现在按「分支 CI 绿」在 Gitea 上合 infra 分支，这个绿不包含登记表和文档策略两段。在修好之前，推分支前自己重放：`python3 scripts/landing/doc_consumers.py --repo . --base <main 头> --revision HEAD --platform <platform 检出> --platform-revision <platform main 头> --purpose push`，`doc_policy.py doc-policy` 同样的参数。
 - **修法**：分支首推（before 全 0）时，以 main 和该提交的 merge-base 作为基线，code-health、consumers 和 doc-policy 照常跑。
 - **防线**：ci-infra 的触发测试加一条：新分支首推得到的基线是 merge-base，不是空。
 - **验收**：新分支首推的 ci-infra 跑完全部阶段。
@@ -3603,6 +3613,110 @@
 - **修法**：push-main 在建测试工作树、跑测试（以及 code-health 扫描）之前，`unset` 所有 `GIT_CONFIG_COUNT` 和 `GIT_CONFIG_KEY_*`、`GIT_CONFIG_VALUE_*`，只在最后 `git push` 那一步保留。另外，`push_main_tests.py` 起子进程时用干净的 git 环境。
 - **防线**：`scripts/release/test_push_main.py`：`test_git_config_in_the_environment_reaches_only_the_push`（git 包装器记下每次调用：只有读推送地址和最后的推送看得到覆盖，扫描看不到，推送落在覆盖指向的裸仓库）、`test_the_tests_run_without_the_environments_git_config`（推前测试里种一个测试，它推自己的夹具裸仓库并断言环境里没有 `GIT_CONFIG_*`）；模块本身也清掉这些变量，直接带覆盖跑这个文件也全过。登记在 `RATCHETS.md`「push-main 的推前测试与扫描看不到环境里的 git 配置（TD-535）」。
 - **验收**：在 infra 根带覆盖跑 `env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=remote.origin.pushurl GIT_CONFIG_VALUE_0=http://invalid.example/x.git python3 -m pytest scripts/release/test_push_main.py -q`，全过（只跑测试，不推任何东西）；实推确认：Owner 带覆盖推一次 platform，不加 `--skip-tests`，测试全过。
+
+### TD-551
+
+**P2 · security · owner-exec 的目录和页面的码输入组件不在签名的信任锚名单里**
+
+- **状态**：未开始（2026-11-13 记，owner-exec 线）。
+- **证据**：
+  - `agent-config/release-policy/paths.json:120` 的 `no_trust_anchor_change` 里没有 platform 的 `api/internal/ownerexec/**`、`api/cmd/owner-exec/**`、`console/src/pages/OwnerExecRun.tsx`、`console/src/api/ownerExec.ts`，也没有 infra 的 `k8s/owner-exec/**`、`scripts/owner-exec/**`。
+  - platform 自己的落地名单已经有这四个路径（`bifrost-platform` `api/internal/agentrt/rules/landing_hard.go:28`、`:288`），所以改它们落地要你批；签名的那份是另一张表，管的是发 PROD。
+- **影响**：只改这几个文件的 platform 提交，发 PROD 时规则会放行，不出卡。页面那两个文件尤其要紧：一次性码是打在网页里的，页面被改坏就能把码送到别处。
+- **修法**：下次你本来就要签策略时，把这六个路径加进 `paths.json` 一起签。不为它单独让你回电脑。
+- **防线**：`scripts/check_owner_exec.py` 加一条：这六个路径都在 `paths.json` 的 `no_trust_anchor_change` 里。等路径加进去的同一个提交再开，否则现在就红。
+- **验收**：只改 `OwnerExecRun.tsx` 的一个试验提交，`check_release_policy` 对 `bifrost-deliver-platform-prod` 回 `covered: false`，原因里有 `no_trust_anchor_change`。
+
+### TD-552
+
+**P2 · security · 交易的文字规则只在 Agent 闸门里，平台给执行卡分级时只认文件路径**
+
+- **状态**：未开始（2026-11-13 记；统筹当天定第一步不搬，靠集群入口那层挡）。
+- **证据**：
+  - `bifrost-platform` `api/internal/actions/ownerrun_d10.go:47` 的 `classifyOwnerRun` 只拿命令文字去对签名策略的 `no_d10_paths`（文件路径表）。
+  - 扩 daemon、写 `ib:operator:cmd`、打 Monitor `/control/*` 这几条规则只在 `agent-config/scripts/agent-guard/preflight.js:86-163`，管的是 Agent 的工具调用，不管卡上的命令。
+  - 现在挡住这类命令的是 `k8s/owner-exec/admission.yaml`（按执行身份拒绝 Trade 命名空间、`daemon`、`redis-ib`、IB 网关的写入和 exec）和 `k8s/owner-exec/network-policy.yaml`。2026-11-13 你跑 `scripts/owner-exec/enroll.sh` 时七条拒绝全部验证过。
+- **影响**：一条不点任何 D10 文件、却想动交易的命令能建成卡，要到执行时才被集群拒。你在卡上会看到这条命令；挡是挡得住的，只是挡得晚，卡上没有提前的红字。
+- **修法**：下次签策略时把这几条文字规则搬进 `paths.json`（或它旁边一张新表），`preflight.js` 和 `classifyOwnerRun` 读同一份。不另抄一份进平台代码。
+- **防线**：`api/internal/actions/ownerrun_d10_test.go` 加用例：`kubectl scale deploy daemon`、`XADD ib:operator:cmd`、`curl …/control/arm` 都判 X。
+- **验收**：这三条命令在 PROD 上建卡回 403 `tier: X`。
+
+### TD-553
+
+**P2 · security · 批过的命令能把读到的秘密和自己的集群令牌印到卡上，卡的结果 Agent 读得到**
+
+- **状态**：未开始（2026-11-13 记；现在的控制是你看卡上的命令原文）。
+- **证据**：
+  - 执行身份能读所有资源，含 Secret：`k8s/owner-exec/rbac.yaml:23`。准入策略只管写，不管读。
+  - 命令的输出最后 2048 字节写回卡：`bifrost-platform` `api/internal/ownerexec/run.go:83`、`api/internal/approvals/result.go:135`。存之前会盖掉令牌形状的字符串（`Redact`），编码过的（base64、倒序）盖不掉。
+  - 卡存在 ConfigMap `bifrost-platform-prod/platform-state-approvals` 里，Agent 的只读身份读得到（2026-11-13 我就是这么核对 #495、#496 的）。
+  - 命令还能读到它自己的集群令牌（`shell` 容器里，10 分钟有效）。
+- **影响**：一条看着无害、实际把 Secret 或令牌编码后打印出来的命令，批了之后内容就到了 Agent 读得到的地方。门槛是「你批了这条命令」。
+- **修法**（按代价从小到大，没定）：(1) 执行身份去掉 Secret 的读权限：要把 `resources: ["*"]` 拆成清单，以后新装的 CRD 不会自动带上；(2) 卡上只存输出的摘要和退出码，完整输出放到只有你读得到的地方；(3) 维持现状，写进 `agent-config/OWNER_EXEC.md` 的规矩（已写：不要让命令打印秘密）。用一段时间看真实命令需要读什么再定。
+- **防线**：定了修法再写。选 (1) 的话：`enroll.sh` 的验证里加一条「以执行身份读 Secret 必须被拒」。
+- **验收**：随修法定。
+
+### TD-554
+
+**P2 · security · Agent 闸门没有拦直接请求 owner-exec 的执行接口**
+
+- **状态**：未开始（2026-11-13 记）。
+- **证据**：`agent-config/scripts/agent-guard/preflight.js:775` 拦的是 `/api/v1/approvals/<id>/(approve|reject|resolve)`；新路由 `/api/owner-exec/run`（`bifrost-platform` `api/internal/ownerexec/server.go` 的 `RunPath`）不在里面。2026-11-13 我为了核对「没带令牌回 401」对 STG 和 PROD 各打过这条路由，闸门没有拦。
+- **影响**：现在靠的是 Agent 没有一次性码：没有码，这条路由什么都不会批、不会跑。但管理员令牌在这台 Mac 上 Agent 读得到，闸门是「不许 Agent 替你批」的那一层，这条新路由没被它盖住；Agent 还能用错码把它锁 15 分钟（要先有管理员令牌）。
+- **修法**：`preflight.js` 加一条：命令文字里出现 `/api/owner-exec/run` 且不是 GET 就拦，提示「执行卡只由 Owner 在 Console 上输码」。`/api/owner-exec/health` 放行。
+- **防线**：`agent-config/scripts/agent-guard/test.js` 补 DENY 用例（curl、wget、python requests 各一条）和一条 health 的 ALLOW。
+- **验收**：`node agent-config/scripts/agent-guard/test.js` 全过；在会话里对 STG 打一次该路由被闸门拦下。
+
+### TD-555
+
+**P2 · cicd · 集群级清单（准入策略等）没有管理员身份做不了服务端试跑，写错要等 Owner 坐到电脑前才发现**
+
+- **状态**：未开始（2026-11-13 记；owner-exec 线和 CI 线都撞过）。
+- **证据**：
+  - 2026-11-13 你第一次跑 `scripts/owner-exec/enroll.sh`，停在第 1 步（`scripts/owner-exec/enroll.sh:77` 的服务端试跑）：两条准入策略写了 `resources: ["*", "*/*"]`，API 回 `if '*/*' is present, must not specify other resources`。`kubectl kustomize` 和客户端校验都过。修复 `7a81a723`（现在的写法在 `k8s/owner-exec/admission.yaml:26`、`:71`），你多等了一轮合并和 CI。
+  - Agent 的只读身份和平台的 applier 身份都没有集群级对象的 create 权限；试跑也要先过授权，RBAC 里没有「只许试跑」。本台账 TD-434 的状态里也写着同一件事：准入策略的验收「只有 Owner 身份能跑」。
+  - CI 线同日撞过同类问题（统筹 2026-11-13 记）。
+- **影响**：每一份新的集群级清单，第一次被 API 服务器检查的时刻就是你在电脑前的时刻。这和「没有一件事必须回电脑」直接相悖。
+- **修法**：ci-infra 加一段：起一个只有 API 服务器加 etcd 的一次性控制面（envtest 的官方二进制，和集群同一个小版本，装进 ci-infra 的工具镜像），对仓库里手工 apply 的集群级清单（`k8s/platform-rbac`、`k8s/owner-exec` 等）做 `kubectl apply --dry-run=server`。CRD 的对象先不管，只管内置类型。
+- **防线**：这一段本身就是防线；`scripts/landing/test_ci_infra_stages.py` 加一条它在阶段表里。阳性对照：一份故意写成 `["*", "*/*"]` 的策略必须让它红。
+- **验收**：把 `k8s/owner-exec/admission.yaml` 改回错的写法推一个分支，ci-infra 在这一段红，报错原话和上面那句一样。
+
+### TD-556
+
+**P3 · platform · 已由 owner-exec 跑完的卡和手机通知仍写「去终端跑一条命令」**
+
+- **状态**：未开始（2026-11-13 记）。
+- **证据**：
+  - #495、#496（2026-11-13，都由 `owner-exec:owner-exec-54fcb558dc-sct26` 执行，`status: executed`）的 `result.message` 仍是 `Run: bash scripts/owner/owner-run.sh <id>`。来源：`bifrost-platform` `api/internal/actions/actuation.go:146-159` 的 `OwnerRunResult`，批准那一刻写下，执行后没人改。
+  - 手机通知第一句对所有 D 级卡都是 `After approving, run one command in a terminal.`：`api/internal/approvalnotify/notify.go:259`。
+- **影响**：读卡的人（你和各家 Agent）会以为还要去终端。`agent-config/OWNER_EXEC.md` 已写明以 `status` 和 `execution` 为准。
+- **修法**：`OwnerRunResult` 的文字改成两条路都说（卡上输码执行；或终端脚本）；通知按动作和执行方区分，执行卡写「在卡上输码即执行」。两处都在信任锚里，发 PROD 会出卡。
+- **防线**：`api/internal/actions` 的测试断言 `OwnerRunResult` 的文字同时提到两条路；`approvalnotify/notify_test.go` 的快照按动作分两份。
+- **验收**：新建一张执行卡，通知和卡上的文字都不再只说终端。
+
+### TD-557
+
+**P3 · cicd · STG 的 owner-exec 不随平台发布重启；镜像里的版本号是 dev**
+
+- **状态**：未开始（2026-11-13 记）。
+- **证据**：
+  - `k8s/cicd/tekton/task-deliver-platform.yaml:28` 只重启 `platform-api platform-console platform-workers`。STG 的 `owner-exec`（`k8s/overlays/platform-stg/owner-exec.yaml`）用同一个镜像标签，2026-11-13 发 STG 后我用 `rollout_restart_deployment` 另外重启的。这个任务 PROD 也用，`bifrost-platform-prod` 里没有这个 Deployment，直接加进列表会让 PROD 发布失败。
+  - `k8s/cicd/docker/Dockerfile.platform-api-stg:22` 编 `owner-exec` 时没有注入提交号（构建上下文里没有 `.git`），`bifrost-platform` `api/cmd/owner-exec/main.go:41` 的 `version` 一直是 `dev`；PROD 和 STG 的启动日志都是 `owner-exec dev listening…`。
+- **影响**：STG 的执行程序会停在旧镜像上，直到有人想起来重启；看日志分不出跑的是哪个提交（只能看镜像 digest）。PROD 的执行程序按 digest 钉住、不归这条任务管，不受第一条影响。
+- **修法**：任务里对 `owner-exec` 做「这个命名空间里有才重启」；流水线把 revision 作为 build-arg 传给 Dockerfile，`-ldflags -X main.version=`。碰流水线，走 `apply_manifest` 的卡。
+- **防线**：`scripts/release` 里发布任务的静态测试加一条：STG overlay 里每个用 `bifrost-platform-api` 镜像的 Deployment 都在任务的重启名单里（或被「有才重启」覆盖）。
+- **验收**：发一次 STG 后 `owner-exec` 的 Pod 是新的，启动日志带提交号。
+
+### TD-558
+
+**P3 · dev · 没有受认可的办法在本机起一套一次性的平台做页面走查**
+
+- **状态**：未开始（2026-11-13 记）。
+- **证据**：owner-exec 线想在本机另起一套一次性的 platform-api + 执行程序 + Console（别的端口、现场生成的令牌、临时状态目录）走完整页面流程，被闸门拦下：`agent-config/scripts/agent-guard/preflight.js:221`「直接长跑 `start.sh` / `run-local-ui.sh` —— 用 `bdev restart <name>`」。规则的本意（不在 bdev 之外长跑平台服务）成立，没有绕。结果：新页面在合入前只有组件测试，第一个在真浏览器里看到它的人是你（PROD 验收卡 #495）。
+- **影响**：改审批页这类要登录、要真后端的页面时，Agent 没法在合入前自己走一遍。STG 也替代不了：STG 平台建不了 C / D 级卡（人批的单只在 PROD）。
+- **修法**：给 bdev 加一种一次性的会话组（独立端口、临时状态目录、现场生成的本机令牌、会话结束自动清掉），`sessions.yaml` 里声明，闸门认它。不放宽现有规则。
+- **防线**：`agent-guard/test.js` 加用例：bdev 的一次性会话放行，手工长跑照旧拦。
+- **验收**：一个会话用它起一套实例、用内置浏览器在 localhost 批一张测试卡，结束后端口和状态目录都没有残留。
 
 ### TD-488
 
