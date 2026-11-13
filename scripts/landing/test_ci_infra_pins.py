@@ -67,7 +67,8 @@ def test_pipeline_parameters_results_and_dependencies():
         assert read_yaml(name)['metadata']['annotations']['bifrost.io/run-arch'] == 'amd64'
     p = read_yaml('pipeline-ci-infra.yaml')['spec']
     assert {v['name'] for v in p['params']} == {'revision', 'base', 'platformRevision', 'generation', 'purpose'}
-    assert {v['name'] for v in p['results']} == {'infra-commit', 'base-commit', 'platform-commit', 'tools-from', 'doc-policy', 'purpose'}
+    assert {v['name'] for v in p['results']} == {
+        'infra-commit', 'base-commit', 'platform-commit', 'infra-tree', 'platform-tree', 'tools-from', 'doc-policy', 'purpose'}
     tasks = {t['name']: t for t in p['tasks']}
     assert tasks['clone']['runAfter'] == ['resolve']
     assert tasks['check']['runAfter'] == ['clone']

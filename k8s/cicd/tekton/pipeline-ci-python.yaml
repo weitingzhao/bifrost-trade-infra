@@ -35,6 +35,22 @@ spec:
     - name: giteaBase
       type: string
       default: http://gitea.cicd.svc.cluster.local:3000/bifrost
+  # What this run actually checked out, commit and tree per repository: the
+  # inputs a later run with the same trees does not need to test again
+  # (CI root design, wave 1). A skipped clone emits nothing.
+  results:
+    - name: repo-commit
+      value: $(tasks.clone.results.commit)
+    - name: repo-tree
+      value: $(tasks.clone.results.tree)
+    - name: core-commit
+      value: $(tasks.clone-core.results.commit)
+    - name: core-tree
+      value: $(tasks.clone-core.results.tree)
+    - name: infra-commit
+      value: $(tasks.clone-infra.results.commit)
+    - name: infra-tree
+      value: $(tasks.clone-infra.results.tree)
   workspaces:
     - name: source
   tasks:

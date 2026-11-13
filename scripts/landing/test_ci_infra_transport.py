@@ -131,6 +131,8 @@ os.execv(os.environ['REAL_GIT'], [os.environ['REAL_GIT'], *args])
     assert (tmp_path / 'results/commit').read_text() == revision
     assert (tmp_path / 'results/platform-commit').read_text() == platform_revision
     assert (tmp_path / 'results/base-commit').read_text() == ('' if base_kind == 'no_base' else base)
+    assert (tmp_path / 'results/tree').read_text() == git(tmp_path / 'ws/cand/bifrost-trade-infra', 'rev-parse', 'HEAD^{tree}')
+    assert (tmp_path / 'results/platform-tree').read_text() == git(tmp_path / 'ws/cand/bifrost-platform', 'rev-parse', 'HEAD^{tree}')
     assert git(tmp_path / 'ws/cand/bifrost-platform', 'rev-list', '--count', 'HEAD') == '1'
     assert git(tmp_path / 'ws/cand/bifrost-trade-infra', 'rev-list', '--count', 'HEAD') == ('3' if base_kind == 'push_merge' else '2')
     if base_kind == 'parent':
