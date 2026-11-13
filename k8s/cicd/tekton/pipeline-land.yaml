@@ -1,0 +1,327 @@
+# Owner 2026-11-12 / 2026-11-13: main takes a change only through a pull request, and nobody
+# clicks merge. A push to refs/heads/ready/<name> of a repository listed in landing-repos.yaml
+# starts that repository's CI gate and this pipeline beside it (trigger-trade-ci.yaml `land`).
+# It opens the pull request, brings a branch that is behind main up to date (a rebase by
+# Gitea, whose push starts the next run), waits for that commit's CI to be green, read from
+# the cluster's own PipelineRuns, then rebase-merges the same commit as bifrost-merger: the
+# only identity besides the Owner on main's merge whitelist. A commit status decides nothing
+# here: on Gitea 1.21 any account with write access can post one.
+# There is one landing pipeline. What differs between repositories is a row in
+# landing-repos.yaml; a second pipeline that mounts the merger token fails
+# scripts/release/test_land.py.
+# It is its own pipeline because a task that writes must come after the release freeze check
+# (scripts/release/freeze_chain.py), and CI itself must keep running during a freeze.
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: bifrost-land
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: landing
+    bifrost.io/layer: L1
+spec:
+  description: Merge a green ready/ branch into main through a pull request.
+  params:
+    - name: repo
+      type: string
+      description: The repository's name; a key of landing-repos.yaml, nothing else is taken from it.
+    - name: revision
+      type: string
+      description: The pushed commit (40 hex).
+    - name: branch
+      type: string
+      description: The pushed ref, refs/heads/ready/<name>.
+  results:
+    - name: outcome
+      description: landed, or rebased (the branch was behind main; its new commit has its own run).
+      value: $(tasks.land.results.outcome)
+  tasks:
+    - name: freeze-check
+      taskRef:
+        name: bifrost-release-freeze-check
+    # Inline, so that no TaskRun can call it with a commit of the caller's choosing.
+    - name: land
+      runAfter: [freeze-check]
+      timeout: 55m0s
+      params:
+        - name: repo
+          value: $(params.repo)
+        - name: commit
+          value: $(params.revision)
+        - name: branch
+          value: $(params.branch)
+      taskSpec:
+        params:
+          - name: repo
+          - name: commit
+          - name: branch
+        results:
+          - name: outcome
+        volumes:
+          - name: gitea-merger
+            secret:
+              secretName: gitea-merger
+          - name: landing-repos
+            configMap:
+              name: bifrost-landing-repos
+          # The policy the Owner signed (release.sh policy sign). Its no_d10_paths group is the
+          # one list of trade-execution guard paths; this lane does not take a change to them.
+          - name: release-policy
+            configMap:
+              name: bifrost-release-policy
+        steps:
+          - name: land
+            image: python:3.11-slim-bookworm
+            volumeMounts:
+              - name: gitea-merger
+                mountPath: /etc/gitea-merger
+                readOnly: true
+              - name: landing-repos
+                mountPath: /etc/landing
+                readOnly: true
+              - name: release-policy
+                mountPath: /etc/release-policy
+                readOnly: true
+            env:
+              - name: REPO
+                value: $(params.repo)
+              - name: COMMIT
+                value: $(params.commit)
+              - name: BRANCH
+                value: $(params.branch)
+            script: |
+              #!/usr/bin/env python3
+              """Land a green ready/ branch: pull request, up to date with main, CI green, merge."""
+              import json
+              import os
+              import re
+              import ssl
+              import sys
+              import time
+              import urllib.error
+              import urllib.request
+
+              # Fixed: the token is never sent to an address a caller chose.
+              GITEA = 'http://gitea.cicd.svc.cluster.local:3000'
+              TOKEN_FILE = '/etc/gitea-merger/password'  # kubernetes.io/basic-auth, put-reader-token.sh merger
+              TABLE = '/etc/landing/repos.json'
+              POLICY = '/etc/release-policy/policy.yaml'  # canonical JSON
+              RUNS = 'https://kubernetes.default.svc/apis/tekton.dev/v1/namespaces/cicd/pipelineruns'
+              SA = '/var/run/secrets/kubernetes.io/serviceaccount/'
+              OUTCOME = '/tekton/results/outcome'
+
+              def row(table, repo):
+                  """The repository's row, or None: only a listed repository lands."""
+                  found = table.get(repo) if isinstance(repo, str) and re.fullmatch(r'[a-z0-9-]{1,100}', repo) else None
+                  return found if isinstance(found, dict) and isinstance(found.get('ci'), dict) else None
+
+              def call(token, method, url, body=None):
+                  data = None if body is None else json.dumps(body).encode()
+                  req = urllib.request.Request(url, method=method, data=data, headers={
+                      'Authorization': 'token ' + token, 'Content-Type': 'application/json'})
+                  try:
+                      with urllib.request.urlopen(req, timeout=30) as response:
+                          raw = response.read()
+                          return response.status, (json.loads(raw) if raw.strip() else None)
+                  except urllib.error.HTTPError as err:
+                      try:
+                          message = str(json.loads(err.read()).get('message', ''))[:300]
+                      except Exception:
+                          message = ''
+                      return err.code, {'message': message}
+
+              def values(rows):
+                  return {r.get('name'): r.get('value') for r in rows or [] if isinstance(r, dict)}
+
+              def verdict(runs, commit, ci, base):
+                  """'green', 'red', 'stale' or 'wait'. A run counts when it is the row's CI pipeline for
+                  this commit with the row's params (an empty base, say: the whole suite and not the
+                  increment since an earlier push). Where the row names base_result, a finished
+                  run that was judged against another commit than main as it is now is 'stale'."""
+                  mine = []
+                  for run in runs:
+                      spec, status = run.get('spec', {}), run.get('status', {})
+                      params = values(spec.get('params'))
+                      if spec.get('pipelineRef', {}).get('name') != ci.get('pipeline') or params.get('revision') != commit:
+                          continue
+                      if any(params.get(k, '') != v for k, v in (ci.get('params') or {}).items()):
+                          continue
+                      state = [c.get('status') for c in status.get('conditions') or [] if c.get('type') == 'Succeeded']
+                      results = values(status.get('results'))
+                      if state not in (['True'], ['False']):
+                          mine.append('wait')
+                      elif ci.get('base_result') and results.get(ci['base_result']) != base:
+                          mine.append('stale')
+                      elif state == ['True'] and all(results.get(k) in allowed
+                                                     for k, allowed in (ci.get('results') or {}).items()):
+                          mine.append('green')
+                      else:
+                          mine.append('red')
+                  for answer in ('green', 'wait', 'red', 'stale'):
+                      if answer in mine:
+                          return answer
+                  return 'wait'
+
+              def cluster_runs(pipeline):
+                  with open(SA + 'token') as handle:
+                      token = handle.read().strip()
+                  ctx = ssl.create_default_context(cafile=SA + 'ca.crt')
+                  req = urllib.request.Request(RUNS + '?labelSelector=tekton.dev%2Fpipeline%3D' + pipeline,
+                                               headers={'Authorization': 'Bearer ' + token})
+                  with urllib.request.urlopen(req, context=ctx, timeout=30) as response:
+                      listing = json.load(response)
+                  if listing.get('metadata', {}).get('continue'):
+                      raise SystemExit('refused: the run list is paged; this check reads one page only')
+                  return listing.get('items') or []
+
+              def ci_wait(commit, ci, base, runs=cluster_runs, limit=45 * 60, grace=3 * 60, pause=15):
+                  """'green', 'stale', or a refusal."""
+                  deadline, patience = time.time() + limit, time.time() + grace
+                  while True:
+                      got = verdict(runs(ci['pipeline']), commit, ci, base)
+                      if got == 'green':
+                          print('a whole-suite %s run of %s succeeded' % (ci['pipeline'], commit))
+                          return got
+                      if got == 'stale' and time.time() > patience:
+                          return got
+                      if got == 'red' and time.time() > patience:
+                          return 'refused: no whole-suite CI run of %s succeeded' % commit
+                      if time.time() > deadline:
+                          return 'refused: CI for %s did not finish in %d minutes' % (commit, limit // 60)
+                      time.sleep(pause)
+
+              def pull_request(token, api, branch, commit, repo):
+                  """(pull, '') or (None, refusal)."""
+                  code, pull = call(token, 'POST', api + '/pulls', {
+                      'head': branch, 'base': 'main', 'title': 'Land ' + branch,
+                      'body': 'Opened by bifrost-land for commit ' + commit + ' of ' + repo + '.'})
+                  if code == 409:
+                      code, pulls = call(token, 'GET', api + '/pulls?state=open&limit=50')
+                      pull = next((p for p in pulls or [] if isinstance(p, dict)
+                                   and p.get('head', {}).get('ref') == branch
+                                   and p.get('base', {}).get('ref') == 'main'), None) if code == 200 else None
+                      if pull is None:
+                          return None, 'refused: a pull request for this branch exists but could not be read'
+                  elif code != 201:
+                      return None, 'refused: could not open the pull request (%s %s)' % (code, (pull or {}).get('message', ''))
+                  if pull.get('head', {}).get('sha') != commit:
+                      return None, 'refused: the branch moved after this run started; its new push has its own run'
+                  return pull, ''
+
+              def matches(pattern, name):
+                  """The release policy's globs: ** spans directories, * and ? stay inside one segment."""
+                  out, i = '', 0
+                  while i < len(pattern):
+                      if pattern[i:i + 3] == '**/':
+                          out, i = out + '(?:.*/)?', i + 3
+                      elif pattern[i:i + 2] == '**':
+                          out, i = out + '.*', i + 2
+                      elif pattern[i] in '*?':
+                          out, i = out + ('[^/]*' if pattern[i] == '*' else '[^/]'), i + 1
+                      else:
+                          out, i = out + re.escape(pattern[i]), i + 1
+                  return re.fullmatch(out, name) is not None
+
+              def guarded(policy, repo, names):
+                  """The first changed path in the signed policy's no_d10_paths group for this repository."""
+                  globs = [p for group in policy['paths']['no_d10_paths'] if group['repo'] in (repo, '*')
+                           for p in group['paths']]
+                  return next((n for n in sorted(names) if any(matches(p, n) for p in globs)), '')
+
+              def not_taken(token, api, number, policy, repo):
+                  """'' unless the pull request changes a path this lane does not take."""
+                  names = set()
+                  for page in range(1, 41):
+                      code, files = call(token, 'GET', api + '/pulls/%d/files?limit=50&page=%d' % (number, page))
+                      if code != 200 or not isinstance(files, list):
+                          return 'refused: could not read the files of the pull request (%s)' % code
+                      for item in files:
+                          names.update(n for n in (item.get('filename'), item.get('previous_filename')) if n)
+                      if len(files) < 50:
+                          break
+                  else:
+                      return 'refused: more than 2000 files in one pull request'
+                  hit = guarded(policy, repo, names)
+                  return ('refused: %s is a trade-execution guard path (release policy no_d10_paths); this lane '
+                          'does not take it' % hit) if hit else ''
+
+              def up_to_date(token, api, pull):
+                  """(main's head, '') when the branch sits on it; (None, 'rebased') after asking Gitea
+                  to rebase it; (None, refusal) when that is not possible."""
+                  code, main = call(token, 'GET', api + '/branches/main')
+                  head = main.get('commit', {}).get('id') if code == 200 else None
+                  if not head:
+                      return None, 'refused: could not read main (%s)' % code
+                  if pull.get('merge_base') == head:
+                      return head, ''
+                  code, out = call(token, 'POST', api + '/pulls/%d/update?style=rebase' % pull['number'])
+                  if code == 200:
+                      return None, 'rebased'
+                  return None, ('refused: the branch is behind main and Gitea could not rebase it (%s %s). Rebase it '
+                                'onto main and push ready/ again; the new commit gets its own run'
+                                % (code, (out or {}).get('message', '')))
+
+              def merge(token, api, pull, commit, tries=24, pause=5):
+                  last = ''
+                  for _ in range(tries):
+                      code, out = call(token, 'POST', api + '/pulls/%d/merge' % pull['number'], {
+                          'Do': 'rebase', 'head_commit_id': commit, 'delete_branch_after_merge': True})
+                      if code == 200:
+                          break
+                      last = '%s %s' % (code, (out or {}).get('message', ''))
+                      if code not in (405, 409):
+                          return 'refused: merge failed (%s)' % last
+                      time.sleep(pause)  # Gitea is still checking the new pull request
+                  else:
+                      return 'refused: Gitea did not accept the merge (%s)' % last
+                  code, main = call(token, 'GET', api + '/branches/main')
+                  landed = main.get('commit', {}).get('id') if code == 200 else None
+                  if landed != commit:
+                      print('WARNING: merged pull request #%d but main reads %s, not %s' % (pull['number'], landed, commit))
+                  print('landed %s on main through pull request #%d' % (commit, pull['number']))
+                  return ''
+
+              def land(token, table, policy, repo, ref, commit, wait=ci_wait, gitea=GITEA, tries=24, pause=5):
+                  """(outcome, refusal): ('landed', ''), ('rebased', '') or ('', why not)."""
+                  found = re.fullmatch(r'refs/heads/(ready/[A-Za-z0-9._/-]{1,100})', ref)
+                  if not found or not re.fullmatch(r'[0-9a-f]{40}', commit):
+                      return '', 'refused: not a ready/ branch with a full commit id'
+                  entry = row(table, repo)
+                  if entry is None:
+                      return '', 'refused: this repository is not in landing-repos.yaml'
+                  branch, api = found.group(1), gitea + '/api/v1/repos/bifrost/' + repo
+                  pull, problem = pull_request(token, api, branch, commit, repo)
+                  if not problem:
+                      problem = not_taken(token, api, pull['number'], policy, repo)
+                  if problem:
+                      return '', problem
+                  for _ in range(2):  # before the wait, and once more when main moved during it
+                      base, problem = up_to_date(token, api, pull)
+                      if problem == 'rebased':
+                          print('the branch was behind main; Gitea rebased it and the new commit has its own run')
+                          return 'rebased', ''
+                      if problem:
+                          return '', problem
+                      got = wait(commit, entry['ci'], base)
+                      if got not in ('green', 'stale'):
+                          return '', got
+                      pull, problem = pull_request(token, api, branch, commit, repo)
+                      if problem:
+                          return '', problem
+                      code, main = call(token, 'GET', api + '/branches/main')
+                      still = code == 200 and main.get('commit', {}).get('id') == base == pull.get('merge_base')
+                      if got == 'green' and still:
+                          problem = merge(token, api, pull, commit, tries, pause)
+                          return ('', problem) if problem else ('landed', '')
+                  return '', 'refused: main kept moving while this commit was checked; push ready/ again'
+
+              if __name__ == '__main__':
+                  if not os.path.exists(TOKEN_FILE):
+                      sys.exit('refused: Secret cicd/gitea-merger is not installed')
+                  with open(TOKEN_FILE) as handle, open(TABLE) as rows, open(POLICY) as signed:
+                      outcome, problem = land(handle.read().strip(), json.load(rows), json.load(signed),
+                                              os.environ['REPO'], os.environ['BRANCH'], os.environ['COMMIT'])
+                  if problem:
+                      sys.exit(problem)
+                  with open(OUTCOME, 'w') as handle:
+                      handle.write(outcome)

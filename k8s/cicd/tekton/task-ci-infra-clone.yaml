@@ -63,6 +63,29 @@ spec:
       valid_sha "$REVISION" && valid_sha "$PLATFORM_REVISION" || exit 2
       case "$PURPOSE" in landing|push) ;; *) exit 2 ;; esac
       if [[ "$PURPOSE" == push && "$BASE" == 0000000000000000000000000000000000000000 ]]; then BASE=''; fi
+      # A push to refs/heads/ready/<name> asks to land on main (pipeline-land.yaml), so its
+      # run is judged against main as it is now, not against the commit the branch moved
+      # from, or against nothing for a first push: the endpoints the push to main will
+      # have. Whether the commit heads a ready/ branch is read from Gitea, not from the
+      # webhook body, and the run's params stay what the platform also sends.
+      if [[ "$PURPOSE" == push ]]; then
+        remote=http://gitea.cicd.svc.cluster.local:3000/bifrost/bifrost-trade-infra.git
+        heads=failed
+        for attempt in 1 2 3; do
+          if heads="$(git_read ls-remote "$remote" 'refs/heads/ready/*' refs/heads/main 2>/dev/null)"; then break; fi
+          heads=failed
+        done
+        [[ "$heads" != failed ]] || { echo ready_heads_failed >&2; exit 1; }
+        if grep -q "^$REVISION"$'\t''refs/heads/ready/' <<< "$heads"; then
+          main=''
+          while IFS=$'\t' read -r head name; do
+            if [[ "$name" == refs/heads/main ]]; then main="$head"; fi
+          done <<< "$heads"
+          valid_sha "$main" || { echo base_resolve_failed >&2; exit 1; }
+          # Once merged, the commit is main itself: that push keeps the base it came with.
+          [[ "$main" == "$REVISION" ]] || BASE="$main"
+        fi
+      fi
       if [[ -n "$BASE" ]]; then valid_sha "$BASE" || exit 2; else [[ "$PURPOSE" == push ]] || exit 2; fi
       ws="$(workspaces.source.path)"
       mkdir -p "$ws/cand" "$ws/base"

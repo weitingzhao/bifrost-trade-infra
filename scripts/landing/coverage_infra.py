@@ -92,6 +92,8 @@ def statics(infra, platform):
     # uses it has no cluster identity. The self-test is the positive control.
     run([sys.executable, "-I", infra / "scripts/check_owner_exec.py", "--self-test"], cwd=infra)
     run([sys.executable, "-I", infra / "scripts/check_owner_exec.py"], cwd=infra)
+    # No Secret manifest enters this repository: it is public within the minute (TD-237).
+    run(["bash", infra / "scripts/check-no-k8s-secrets.sh"], cwd=infra)
     # Infra's copies of platform config/ (spine, trust overrides, running images,
     # actuation policy) follow the platform main resolved for this run (TD-109).
     # Only infra is judged: ci-platform no longer runs this comparison.

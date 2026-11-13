@@ -3718,6 +3718,39 @@
 - **防线**：`agent-guard/test.js` 加用例：bdev 的一次性会话放行，手工长跑照旧拦。
 - **验收**：一个会话用它起一套实例、用内置浏览器在 localhost 批一张测试卡，结束后端口和状态目录都没有残留。
 
+### TD-559
+
+**P2 · cicd · platform 仓库里有一份 infra CI 流水线定义的副本，改 infra 的 CI 流水线要两个仓库同时动**
+
+- **状态**：未开始（2026-11-13 记，land-all 线两次撞上、两次绕开）。
+- **证据**：platform `api/internal/delivery/infra_run_test.go:168`（`TestInfraPipelineDeclarationsStayCurrent`）拿 `api/internal/delivery/testdata/infra_pipelines.yaml` 和 infra 现在的 `k8s/cicd/tekton/pipeline-ci-infra.yaml` 逐字比；`run_contract_test.go:189`（`TestCIRunTriggerEquivalence`）要求 `trigger-trade-ci.yaml` 里给 `bifrost-ci-infra` 的运行参数和平台自己起运行时一模一样。platform 的 CI 取 infra 的 main 一起跑。11-13 给触发器模板加一个参数、改流水线里一个任务的接线，这两条分别红。
+- **影响**：infra 这边先进 main，platform 的 CI 就红，要等 platform 再落一次更新副本；而 platform 那次改动在 infra 进 main 之前又绿不了。两个仓库互相卡，中间 platform 的落地全停。11-13 的绕法是两处都不碰，把逻辑放进 `task-ci-infra-clone.yaml`（任务文件平台没有副本）。
+- **修法**：平台不存副本，测试时直接读并排检出的 infra 文件来生成期望值；或者把「平台起的运行等于触发器起的运行」改成只比平台自己会传的那几个参数。
+- **防线**：修完后那条逐字比的测试就是要删的东西；留下的契约测试只比平台传的参数。
+- **验收**：只改 infra 的 `pipeline-ci-infra.yaml`（加一个带默认值的参数），platform 的 CI 不红。
+
+### TD-560
+
+**P3 · cicd · 旧派活通道在 infra 上的落地那一套还在，新落地通道（`bifrost-land`）不用它**
+
+- **状态**：未开始（2026-11-13 记）。
+- **证据**：`scripts/gitea/protection_policy.py:193-215`（`LANDING_REPOS`、`land/prod/**` 规则、main 推送白名单里的 `agentrt-lander`）；`ci-infra` 的 `landing` 用途和它的单亲提交检查（`scripts/landing/doc_policy.py:86-101`、`ci-infra.sh`）；`trigger-trade-ci.yaml` 里跳过 `agentrt-lander` 推送的条件。
+- **影响**：两条进 main 的路并存，读 CI 和保护规则的人要同时懂两套。
+- **修法**：删掉上面这些。要等：平台代码不再调 infra 的落地（`api/internal/agentrt/landing`、`rules/landing_infra.go` 还在调），两边一起动。
+- **防线**：`scripts/release/test_land.py` 已经钉住「拿得到合入令牌的流水线只有一条」；删完后补一条「main 的推送白名单里没有落地账号」。
+- **验收**：`git grep agentrt-lander -- k8s scripts` 在 infra 里没有结果，`protect-repo.sh --check` 通过。
+
+### TD-561
+
+**P3 · cicd · platform 的 `ready/` 另有一个专门的 CI 触发器，可以并进普通触发器**
+
+- **状态**：未开始（2026-11-13 记）。
+- **证据**：`k8s/cicd/tekton/trigger-trade-ci.yaml` 的 `platform-ci-ready`：它存在只为了让 `ready/` 的运行不带 `base`（跑整套）。infra 11-13 的做法是 CI 自己认出「这个提交是某条 `ready/` 分支的头」（`task-ci-infra-clone.yaml`），不需要单独的触发器。
+- **影响**：每接一个有自己 CI 流水线的仓库，都可能再加一个这样的触发器。
+- **修法**：platform 的 CI 照 infra 的办法自己认 `ready/`，删掉 `platform-ci-ready`，`platform-ci` 不再排除 `ready/`。要等：动的是 `pipeline-ci-platform.yaml`，和 CI 根治那条线（ci-w1）排先后；平台里有它的运行参数契约测试（TD-559），先修那条更顺。
+- **防线**：`scripts/release/test_land.py` 加一条：触发器里没有名字带 `ready` 的 CI 触发器。
+- **验收**：platform 推一次 `ready/`，只起一个 CI 运行和一个落地运行，CI 是整套。
+
 ### TD-488
 
 **P3 · cicd · Tekton 清理 CronJob 间歇失败、不留日志；失败的 Job 让 KubeJobFailed 响到 TTL，平台又删不掉**

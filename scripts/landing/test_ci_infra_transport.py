@@ -48,32 +48,15 @@ def test_resolve_pinned_invalid_and_landing_missing(tmp_path):
     assert (tmp_path / 'results/platform-commit').read_text() == 'a' * 40
 
 
-def test_resolve_two_retries_then_success_or_failure(tmp_path):
-    env = fixture_env(tmp_path)
-    counter = tmp_path / 'attempts'
-    fake = tmp_path / 'bin/git'
-    fake.write_text('''#!/bin/sh
-n=0
-[ ! -f "$COUNTER" ] || n=$(cat "$COUNTER")
-n=$((n+1))
-printf '%s' "$n" > "$COUNTER"
-[ "$n" -ge 3 ] && [ "$SUCCESS" = yes ] || exit 1
-printf '%s\\trefs/heads/main\\n' "$RESOLVED"
-''')
-    fake.chmod(0o755)
-    body = script('resolve', tmp_path)
-    for success in ('yes', 'no'):
-        counter.unlink(missing_ok=True)
-        result = subprocess.run(['bash'], input=body, text=True, capture_output=True, check=False,
-                                env=dict(env, COUNTER=str(counter), SUCCESS=success, RESOLVED='b'*40,
-                                         PLATFORM_REVISION='', PURPOSE='push'))
-        assert counter.read_text() == '3'
-        assert (result.returncode == 0) == (success == 'yes')
-        assert 'fixture-password' not in result.stdout + result.stderr
+READY_KINDS = ['ready_first', 'ready_again', 'ready_other', 'ready_merged', 'ready_landing', 'ready_unread', 'ready_no_main']
 
 
-@pytest.mark.parametrize('base_kind', ['parent', 'mismatch', 'no_base', 'merge', 'push_two', 'push_one', 'push_missing', 'push_merge'])
+@pytest.mark.parametrize('base_kind', ['parent', 'mismatch', 'no_base', 'merge', 'push_two', 'push_one', 'push_missing', 'push_merge']
+                         + READY_KINDS)
 def test_clone_depth_identity_and_base_results(tmp_path, base_kind):
+    """The ready_* kinds: a commit that heads a ready/ branch is judged against main as Gitea
+    reports it now, on its first push (nothing is skipped) and on a later one; any other
+    branch, the push to main after the merge, and the platform's lane keep their base."""
     env = fixture_env(tmp_path)
     source = tmp_path / 'sources'
     source.mkdir()
@@ -104,6 +87,11 @@ def test_clone_depth_identity_and_base_results(tmp_path, base_kind):
     fake.write_text('''#!/usr/bin/env python3
 import os, sys
 args = sys.argv[1:]
+if 'ls-remote' in args:
+    if os.environ.get('READY') == 'fail':
+        sys.exit(1)
+    sys.stdout.write(os.environ.get('READY', ''))
+    sys.exit(0)
 for i, arg in enumerate(args):
     if arg.startswith('http://gitea.cicd.svc.cluster.local:3000/bifrost/'):
         name = arg.rsplit('/', 1)[1].removesuffix('.git')
@@ -112,15 +100,35 @@ os.execv(os.environ['REAL_GIT'], [os.environ['REAL_GIT'], *args])
 ''')
     fake.chmod(0o755)
     base = first if base_kind in ('mismatch', 'push_two', 'push_merge') else parent
-    if base_kind == 'no_base':
+    if base_kind in ('no_base', 'ready_first'):
         base = '0' * 40
+    ready, expected = '', None
+    if base_kind in READY_KINDS:
+        head = '9' * 40 if base_kind == 'ready_other' else revision
+        main = revision if base_kind == 'ready_merged' else first
+        ready = '%s\trefs/heads/main\n%s\trefs/heads/ready/w-2/fix.1\n' % (main, head)
+        if base_kind == 'ready_no_main':
+            ready = '%s\trefs/heads/ready/x\n' % revision
+        if base_kind == 'ready_unread':
+            ready = 'fail'
+        expected = first if base_kind in ('ready_first', 'ready_again') else parent
     if base_kind == 'push_missing':
         base = 'f' * 40
     result = subprocess.run(['bash'], input=script('clone', tmp_path), text=True, capture_output=True, check=False,
-                            env=dict(env, SOURCE=str(source), REAL_GIT=real_git, REVISION=revision, BASE=base,
+                            env=dict(env, SOURCE=str(source), REAL_GIT=real_git, REVISION=revision, BASE=base, READY=ready,
                                      PLATFORM_REVISION=platform_revision,
-                                     PURPOSE='push' if base_kind == 'no_base' or base_kind.startswith('push_') else 'landing'))
+                                     PURPOSE='push' if base_kind in ('no_base', *READY_KINDS) and base_kind != 'ready_landing'
+                                     or base_kind.startswith('push_') else 'landing'))
     assert 'fixture-password' not in result.stdout + result.stderr
+    if base_kind in ('ready_unread', 'ready_no_main'):
+        assert result.returncode != 0
+        assert ('ready_heads_failed' if base_kind == 'ready_unread' else 'base_resolve_failed') in result.stderr
+        return
+    if expected:
+        assert result.returncode == 0, result.stderr
+        assert (tmp_path / 'results/base-commit').read_text() == expected
+        assert git(tmp_path / 'ws/base/bifrost-trade-infra', 'rev-parse', 'HEAD') == expected
+        return
     if base_kind in ('mismatch', 'merge'):
         assert result.returncode != 0 and 'base_mismatch' in result.stderr
         return

@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 TRIGGER = ROOT / "k8s/cicd/tekton/trigger-trade-ci.yaml"
 ZERO = "0" * 40
 SHA = "a" * 40
-CI = ["python-ci", "frontend-ci", "frontend-ci-ui", "platform-ci", "platform-ci-ui", "platform-ci-ready", "platform-land"]
+CI = ["python-ci", "frontend-ci", "frontend-ci-ui", "platform-ci", "platform-ci-ui", "platform-ci-ready", "platform-land", "land"]
 
 
 class Obj(dict):

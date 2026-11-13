@@ -118,6 +118,78 @@ spec:
                 effect: NoSchedule
 
 ---
+# --- TriggerBinding and TriggerTemplate: a ready/ push → bifrost-land (pipeline-land.yaml) ---
+# The one landing pipeline for every repository listed in landing-repos.yaml. The
+# repository's name is passed on only to be looked up there.
+# MIGRATION (2026-11-13, hours): bifrost-platform still lands through bifrost-land-platform
+# above, untouched, until this pipeline has landed bifrost-trade-infra for real. The next
+# commit moves it here and removes bifrost-land-platform, its template, its binding and the
+# repository name in the `land` filter below.
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerBinding
+metadata:
+  name: bifrost-gitea-push-ready
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: ci-trigger
+spec:
+  params:
+    - name: repo
+      value: $(body.repository.name)
+    - name: revision
+      value: $(body.after)
+    - name: branch
+      value: $(body.ref)
+
+---
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerTemplate
+metadata:
+  name: bifrost-land-template
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: ci-trigger
+    bifrost.io/layer: L1
+spec:
+  params:
+    - name: repo
+    - name: revision
+    - name: branch
+  resourcetemplates:
+    - apiVersion: tekton.dev/v1
+      kind: PipelineRun
+      metadata:
+        generateName: land-
+        namespace: cicd
+        labels:
+          tekton.dev/pipeline: bifrost-land
+          bifrost.io/trigger: gitea-webhook
+          bifrost.io/repo: $(tt.params.repo)
+          bifrost.io/layer: L1
+      spec:
+        pipelineRef:
+          name: bifrost-land
+        params:
+          - name: repo
+            value: $(tt.params.repo)
+          - name: revision
+            value: $(tt.params.revision)
+          - name: branch
+            value: $(tt.params.branch)
+        # land reads the CI runs with the reader identity the reuse task already has.
+        taskRunSpecs:
+          - pipelineTaskName: land
+            serviceAccountName: tekton-platform-ci-reuse
+        taskRunTemplate:
+          podTemplate:
+            nodeSelector:
+              kubernetes.io/arch: amd64
+            tolerations:
+              - key: node-role.kubernetes.io/control-plane
+                operator: Exists
+                effect: NoSchedule
+
+---
 # --- TriggerBinding: a bifrost-ui push runs the frontend and platform gates against that ui commit ---
 # The pushed SHA is bifrost-ui's: it goes to uiRevision, and the frontend under test stays on
 # main. Bound as `revision` (the frontend's) it named a commit the frontend repo does not have,
@@ -470,6 +542,31 @@ spec:
         - ref: bifrost-gitea-push-platform-ready
       template:
         ref: bifrost-land-platform-template
+    # One landing trigger for every repository: which ones land is landing-repos.yaml, read
+    # by the pipeline; the name is pinned to a plain one and is data. A repository's CI gate
+    # starts beside it from its own trigger (bifrost-trade-infra: infra-ci above, whose clone
+    # task takes main as the base of a commit that heads a ready/ branch).
+    # MIGRATION: the last line keeps bifrost-platform on platform-land until the next commit.
+    - name: land
+      interceptors:
+        - ref:
+            name: "cel"
+          params:
+            - name: filter
+              value: >-
+                body.ref.startsWith('refs/heads/') &&
+                body.after.matches('^[0-9a-f]{40}$') &&
+                body.after != '0000000000000000000000000000000000000000' &&
+                body.ref.matches('^refs/heads/ready/[A-Za-z0-9._/-]{1,100}$') &&
+                (!has(body.pusher) ||
+                  ((!has(body.pusher.login) || body.pusher.login != 'agentrt-lander') &&
+                   (!has(body.pusher.username) || body.pusher.username != 'agentrt-lander'))) &&
+                body.repository.name.matches('^[a-z0-9-]{1,100}$') &&
+                body.repository.name != 'bifrost-platform'
+      bindings:
+        - ref: bifrost-gitea-push-ready
+      template:
+        ref: bifrost-land-template
     # L1: bifrost-ui — the Console builds against it too, so a ui push runs the platform
     # gate with platform on main and ui at the pushed SHA (TD-234)
     - name: platform-ci-ui

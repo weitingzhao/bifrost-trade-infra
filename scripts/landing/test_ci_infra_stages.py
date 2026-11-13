@@ -174,7 +174,13 @@ def test_statics_success_missing_and_failure(tmp_path):
     hp = infra / 'agent-config/scripts/check_hardcoded_paths.py'
     hp.parent.mkdir(parents=True)
     hp.write_text('import sys\nassert sys.argv[1:] == ["--ref", "HEAD", "--new-only"]\n')
+    secrets = scripts / 'check-no-k8s-secrets.sh'
+    secrets.write_text('exit 0\n')
     C.statics(infra, platform)
+    secrets.write_text('exit 1\n')  # a committed Secret manifest stops the stage
+    with pytest.raises(C.Error, match='command_failed bash'):
+        C.statics(infra, platform)
+    secrets.write_text('exit 0\n')
     for name in (names[0], 'check_ops_context_parity.py'):
         good = (scripts / name).read_text()
         (scripts / name).write_text('raise SystemExit(7)\n')
