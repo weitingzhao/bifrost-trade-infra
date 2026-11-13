@@ -285,3 +285,18 @@ def test_ledger_that_cannot_be_read_leaves_the_runs_to_decide(monkeypatch, capsy
     assert "could not be read" in capsys.readouterr().err
     monkeypatch.setenv(ci_gate.LEDGER_ENV, "http://127.0.0.1:1")  # nothing listens
     assert classify(RED, "bifrost-platform", SHA) == "failed"
+
+
+def test_the_gates_ask_the_ledger_by_default():
+    """Block G, on since 2026-11-13: the two scripts and PROD's source gate name a platform.
+
+    An empty CI_GATE_LEDGER still turns each back to the runs (the `-` expansion, not `:-`).
+    """
+    here = os.path.dirname(os.path.abspath(__file__))
+    release = open(os.path.join(here, "release.sh")).read()
+    push = open(os.path.join(here, "push-main.sh")).read()
+    assert 'export CI_GATE_LEDGER="${CI_GATE_LEDGER-${PLATFORM_API}}"' in release
+    assert 'export CI_GATE_LEDGER="${CI_GATE_LEDGER-${PLATFORM_API:-http://192.168.10.100:30876}}"' in push
+    pipeline = open(os.path.join(here, "..", "..", "k8s", "cicd", "tekton", "pipeline-deliver-platform-prod.yaml")).read()
+    at = pipeline.index("- name: CI_GATE_LEDGER")
+    assert 'value: "http://platform-api.bifrost-platform-prod.svc.cluster.local:8780"' in pipeline[at:at + 140]

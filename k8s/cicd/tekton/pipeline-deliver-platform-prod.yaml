@@ -120,9 +120,11 @@ spec:
                     key: password
               # Block G switch: a platform base URL here has the CI check ask
               # that platform's evidence ledger (ci_gate.py CI_GATE_LEDGER); empty
-              # reads the retained ci-* runs, as before.
+              # reads the retained ci-* runs, as before. On since 2026-11-13
+              # (Owner). To go back: value "" and apply this file again; a
+              # ledger that cannot be read falls back to the runs by itself.
               - name: CI_GATE_LEDGER
-                value: ""
+                value: "http://platform-api.bifrost-platform-prod.svc.cluster.local:8780"
               - name: REVISION
                 value: $(params.revision)
               - name: UI_REVISION

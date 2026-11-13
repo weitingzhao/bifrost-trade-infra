@@ -537,6 +537,10 @@ ci() {
       fi
     done
     code=0
+    # Block G: the gate asks the platform's evidence ledger (ci_gate.py); the
+    # runs read above are what it falls back to. CI_GATE_LEDGER= (empty) reads
+    # only the runs, as before 2026-11-13.
+    export CI_GATE_LEDGER="${CI_GATE_LEDGER-${PLATFORM_API:-http://192.168.10.100:30876}}"
     out="$(python3 "$HERE/ci_gate.py" --runs "$runs/bifrost-ci-python.json" --runs "$runs/bifrost-ci-frontend.json" \
       --runs "$runs/bifrost-ci-platform.json" "$repo=$commit" 2>&1)" || code=$?
     case "$code" in

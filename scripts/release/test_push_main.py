@@ -158,7 +158,7 @@ class _Fixture(unittest.TestCase):
         _commit(self.work, f"files {start}..{start + n - 1}")
 
     def _env(self, **more: str) -> dict[str, str]:
-        return {**os.environ, "PUSH_MAIN_WINDOW": str(self.window), "PUSH_MAIN_SHARED_ROOT": str(self.shared_root),
+        return {**os.environ, "CI_GATE_LEDGER": "", "PUSH_MAIN_WINDOW": str(self.window), "PUSH_MAIN_SHARED_ROOT": str(self.shared_root),
                 "PUSH_MAIN_TEST_TIMES": str(Path(self._tmp.name) / "test-times.json"),
                 "PUSH_MAIN_KUBECTL": str(self.kubectl), "FAKE_CI_DIR": self._tmp.name, "PUSH_MAIN_CI_POLL": "0",
                 "PUSH_MAIN_CI_WAIT": "5", **more}

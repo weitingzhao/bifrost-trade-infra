@@ -410,6 +410,10 @@ wait_for_ci() {
     # PROD pipeline's requireFullCI does.
     full=()
     [[ "${BIFROST_RELEASE_REQUIRE_FULL_CI:-off}" == on ]] && full=(--require-full)
+    # Block G: the gate asks the platform's evidence ledger (ci_gate.py); the
+    # runs read above are what it falls back to. CI_GATE_LEDGER= (empty) reads
+    # only the runs, as before 2026-11-13.
+    export CI_GATE_LEDGER="${CI_GATE_LEDGER-${PLATFORM_API}}"
     python3 "${RELEASE_DIR}/ci_gate.py" --runs "${runs_py}" --runs "${runs_fe}" --runs "${runs_py}.platform" \
       ${full[@]+"${full[@]}"} --allow-red "${ALLOW_RED:-}" "${pairs[@]}" || code=$?
     if [[ "${code}" -eq 0 ]]; then
