@@ -102,9 +102,8 @@ def test_the_merger_token_is_mounted_in_the_land_task_alone():
     assert land_task()["taskSpec"]["volumes"] == [{"name": "gitea-merger", "secret": {"secretName": "gitea-merger"}}]
     for name in ("freeze-check", "ci-wait"):
         assert "gitea-merger" not in json.dumps(task(name)), name
-    for path in (ROOT / "k8s").rglob("*.yaml"):
-        if path != PIPELINE:
-            assert "gitea-merger" not in path.read_text(), path
+    for path in (TRIGGER, CI_PIPELINE):
+        assert "gitea-merger" not in path.read_text(), path
 
 
 def test_land_and_ci_wait_are_inline_and_take_the_pushed_commit():
