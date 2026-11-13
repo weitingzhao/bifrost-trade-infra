@@ -21,3 +21,12 @@ there is no separate apply-manifest Task file to bootstrap. The ownership helper
 is embedded in the Pipeline, so no ConfigMap update is
 needed for this bootstrap. After bootstrap, every cicd definition change
 uses `plan_manifest` followed by `apply_manifest`.
+
+## What the lane takes in `cicd`
+
+In namespace `cicd` the applier writes only the policy's cicd_resources: Pipeline, Task,
+TriggerTemplate, TriggerBinding and EventListener. A ConfigMap there is refused at plan time
+("kind ConfigMap (group -) is not allowed in that namespace"), although ConfigMap is an
+allowed kind elsewhere. Data a pipeline needs therefore lives in the Pipeline itself (see
+`LANDING_REPOS` in `pipeline-land.yaml`). Run `plan_manifest` on a new object before the
+design that depends on it is settled: the plan is read-only and takes seconds.
