@@ -348,8 +348,12 @@ class Gitea:
                     return 404, {"message": "not found"}
                 return 200, {"sha": sha, "commit": {"message": self.commits[sha]["message"]},
                              "parents": [{"sha": self.commits[sha].get("parent", "d" * 40)}],
-                             "files": [{"filename": n, "status": "modified"} for n in self.commits[sha]["files"]]}
-            return (200, self.pull()) if path.endswith("/pulls/7") else (200, [self.pull()])
+                             "files": [n if isinstance(n, dict) else {"filename": n, "status": "modified"}
+                                       for n in self.commits[sha]["files"]]}
+            if path.endswith("/pulls/7"):
+                return 200, self.pull()
+            # The list of open pull requests; with `list_lags` it still shows the head from before a rebase.
+            return 200, [dict(self.pull(), head={"ref": "ready/x", "sha": self.shown}) if kw.get("list_lags") else self.pull()]
         if path.endswith("/pulls"):
             return (409, {"message": "exists"}) if kw.get("exists") else (201, self.pull())
         if "/update" in path:
@@ -357,6 +361,10 @@ class Gitea:
                 return 409, {"message": "rebase failed because of conflict"}
             if not kw.get("behind"):
                 return 500, {"message": ""}  # as Gitea answers for a branch that is already on main
+            if kw.get("raced"):  # another landing reaches main between this run's read of main and the rebase
+                was, self.main = self.main, "5" * 40
+                self.commits[self.main] = {"message": "fix: someone else\n\nChange-Id: Isomeone", "files": ["docs/z.md"],
+                                           "parent": was}
             kw["behind"] = False  # Gitea put the branch on main: a new commit, the same change
             old, self.head = self.head, "%040x" % (int(self.head, 16) + 1)
             self.commits[self.head] = dict(self.commits[old], parent=self.main)
@@ -382,7 +390,7 @@ class Gitea:
         lagging = self.lag > 0
         self.lag -= lagging
         seen = bool(self.merged) and not self.kw.get("unread")
-        return {"number": 7, "head": {"ref": "ready/x", "sha": self.head}, "merged": seen,
+        return {"number": 7, "head": {"ref": "ready/x", "sha": self.head}, "merged": seen, "state": "open",
                 "merge_commit_sha": self.merged if seen else None,
                 "base": {"ref": "main"}, "merge_base": "d" * 40 if self.kw.get("behind") or lagging else self.main}
 
@@ -493,7 +501,7 @@ def test_a_stale_ci_answer_on_an_unmoved_main_is_asked_again_and_then_refused():
 def test_a_rebase_gitea_cannot_do_is_a_refusal_that_says_what_to_do():
     gitea = Gitea(behind=True, conflict=True)
     outcome, problem = run_land(gitea)
-    assert outcome == "" and "behind main" in problem and "conflict" in problem and "push ready/ again" in problem
+    assert outcome == "" and "behind main" in problem and "conflict" in problem and "push it to a ready/ branch again" in problem
     assert gitea.merges() == []
 
 
@@ -594,8 +602,8 @@ def test_after_a_rebase_the_commits_are_followed_from_the_new_head_and_not_read_
     assert len(gitea.paths("/pulls/7/commits")) == 1
     scope = module()
     scope["call"] = gitea.call
-    assert scope["walked"]("tok", gitea.HOST + "/api/v1/repos/bifrost/x", NEXT, MAIN) == ([NEXT], "")
-    assert "could not follow" in scope["walked"]("tok", gitea.HOST + "/api/v1/repos/bifrost/x", NEXT, "e" * 40)[1]
+    assert scope["walked"]("tok", gitea.HOST + "/api/v1/repos/bifrost/x", NEXT, 1) == ([NEXT], MAIN, "")
+    assert "could not follow" in scope["walked"]("tok", gitea.HOST + "/api/v1/repos/bifrost/x", "0" * 40, 1)[2]
 
 
 def test_a_branch_of_two_commits_is_followed_through_its_rebase():
@@ -610,6 +618,42 @@ def test_a_branch_of_two_commits_is_followed_through_its_rebase():
     assert gitea.landed["change-ids"] == "Ifirst,I" + "1" * 40  # oldest first, before and after a rebase
     gitea = Gitea(two=True)
     assert run_land(gitea) == ("landed", "") and gitea.landed["change-ids"] == "Ifirst,I" + "1" * 40
+
+
+def test_the_rebase_landing_on_a_newer_main_than_this_run_read_is_not_a_changed_branch():
+    """Why: independent review 2, 2026-11-13, finding 6 (shown with a stub; the same refusal text as
+    land-9n5sh, whose own cause was the order of two commits). The run reads main as M, another
+    landing moves it to N, Gitea rebases the branch onto N. The run walked back to M, counted the
+    other landing's commit as part of this change and refused a good branch as changed, telling the
+    pusher a new run would follow when none does. The branch's base is where Gitea put it."""
+    gitea = Gitea(behind=True, raced=True)
+    assert run_land(gitea) == ("landed", "")
+    assert gitea.waits == [("bifrost-ci-platform", "5" * 40, NEXT)]  # judged against the main it really sits on
+    assert gitea.landed["change-ids"] == IDS  # the other landing's Change-Id is not this change's
+
+
+def test_after_a_rebase_the_list_of_open_pull_requests_is_not_read_for_the_head():
+    """Why: the same finding, second sequence, and the lesson of land-79dsl and land-wbnxq
+    (2026-11-13): what a pull request shows right after a rebase is old. The list of open pull
+    requests was still read for the head there; it is read by number now."""
+    gitea = Gitea(behind=True, list_lags=True)
+    assert run_land(gitea) == ("landed", "") and gitea.landed["commit"] == NEXT
+    assert len(gitea.paths("/pulls?state=open")) == 0 and len([c for c in gitea.calls if c[0] == "POST" and c[1].endswith("/pulls")]) == 1
+
+
+def test_a_guarded_file_renamed_away_is_seen_under_its_old_name():
+    """Why: independent review 2, 2026-11-13, finding 3. d98490f2 moved the path check from the pull
+    request's file list to each commit's, and no longer read previous_filename. Gitea 1.21 lists a
+    rename in a commit as the old name removed and the new one added (it reads the commit with
+    --no-renames), so the old name was still seen; both forms are pinned so that neither is lost."""
+    old = guard_paths(PLATFORM)[0]
+    for files in ([{"filename": old, "status": "removed"}, {"filename": "docs/moved.yaml", "status": "added"}],
+                  [{"filename": "docs/moved.yaml", "previous_filename": old, "status": "renamed"}]):
+        gitea = Gitea(files=files)
+        outcome, problem = run_land(gitea)
+        assert outcome == "" and old in problem and "no_d10_paths" in problem, files
+        assert gitea.merges() == []
+    assert run_land(Gitea(files=[{"filename": "docs/b.md", "previous_filename": "docs/a.md", "status": "renamed"}])) == ("landed", "")
 
 
 def test_a_rebased_branch_is_checked_again_and_must_be_the_same_change():
@@ -632,7 +676,7 @@ def test_a_rebased_branch_is_checked_again_and_must_be_the_same_change():
 
     gitea.call = swapped
     outcome, problem = run_land(gitea)
-    assert outcome == "" and "changed during its rebase" in problem and gitea.merges() == []
+    assert outcome == "" and "does not hold the same changes" in problem and gitea.merges() == []
 
 
 def test_main_moving_while_gitea_makes_the_merge_wait_is_seen_before_the_next_attempt():

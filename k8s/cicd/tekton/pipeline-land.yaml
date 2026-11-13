@@ -273,24 +273,24 @@ spec:
                       return [], 'refused: the branch moved while this run read it; its new push has its own run'
                   return commits[::-1], ''  # Gitea lists newest first; oldest first, like the walk
 
-              def walked(token, api, commit, base):
-                  """(the commit ids from `base` up to `commit`, oldest first, '') for a branch Gitea has
-                  just rebased onto `base`. Read by commit id from the new head down its parents: right
-                  after a rebase the pull request's own list still shows the old commits for a while
-                  (2026-11-13, land-wbnxq: read at once, it did not hold the new head and a good change
-                  was refused as a moved branch). A rebase leaves one parent each."""
+              def walked(token, api, commit, count):
+                  """(the `count` commits that end in `commit`, oldest first, and the commit they sit on, '')
+                  for a branch Gitea has just rebased. Read by commit id from the new head down its
+                  parents, as many commits as the change has: right after a rebase the pull request's
+                  own list still shows the old commits (2026-11-13, land-wbnxq), and the commit the
+                  branch was put on is whatever main was when Gitea did it, which is not always what
+                  this run read a moment before (independent review 2, finding 6). A rebase leaves
+                  one parent each."""
                   commits, sha = [], commit
-                  while sha != base:
-                      if len(commits) >= 500:
-                          return [], 'refused: more than 500 commits between main and the rebased branch'
+                  for _ in range(count):
                       code, row = call(token, 'GET', api + '/git/commits/' + sha)
                       parents = row.get('parents') if code == 200 and isinstance(row, dict) else None
                       if not isinstance(parents, list) or len(parents) != 1 or not re.fullmatch(
                               r'[0-9a-f]{40}', str(parents[0].get('sha'))):
-                          return [], 'refused: could not follow the rebased branch from %s down to main' % sha[:12]
+                          return [], None, 'refused: could not follow the rebased branch down from %s' % sha[:12]
                       commits.append(sha)
                       sha = parents[0]['sha']
-                  return commits[::-1], ''
+                  return commits[::-1], sha, ''
 
               def checked(token, api, commits, policy, repo):
                   """(Change-Ids, '') when these commits may land. Each is read by its id, so what is
@@ -310,7 +310,11 @@ spec:
                       ids.append(found)
                       if not isinstance(row.get('files'), list):
                           return [], 'refused: could not read the files of commit %s' % sha[:12]
-                      names.update(str(item.get('filename')) for item in row['files'] if isinstance(item, dict))
+                      # Gitea lists a rename as the old name removed and the new one added (it reads
+                      # the commit with --no-renames); a previous_filename, should a version send one,
+                      # is read as well, so a guarded file moved away is seen under its old name.
+                      names.update(str(item.get(key)) for item in row['files'] if isinstance(item, dict)
+                                   for key in ('filename', 'previous_filename') if item.get(key))
                   hit = guarded(policy, repo, names)
                   if hit:
                       return [], ('refused: %s is a trade-execution guard path (release policy no_d10_paths); this lane '
@@ -337,21 +341,21 @@ spec:
                            for p in group['paths']]
                   return next((n for n in sorted(names) if any(matches(p, n) for p in globs)), '')
 
-              def up_to_date(token, api, pull):
-                  """(main's head, '') when the branch sits on it; (main's head, 'rebased') after Gitea
-                  rebased the branch onto it; (None, refusal) when that is not possible."""
+              def up_to_date(token, api, number, on):
+                  """(main's head, '') when the branch sits on it (`on` is the commit the branch is known
+                  to sit on); (None, 'rebased') after Gitea rebased the branch; (None, refusal) when
+                  that is not possible."""
                   code, main = call(token, 'GET', api + '/branches/main')
                   head = main.get('commit', {}).get('id') if code == 200 else None
                   if not head:
                       return None, 'refused: could not read main (%s)' % code
-                  if pull.get('merge_base') == head:
+                  if on == head:
                       return head, ''
-                  code, out = call(token, 'POST', api + '/pulls/%d/update?style=rebase' % pull['number'])
+                  code, out = call(token, 'POST', api + '/pulls/%d/update?style=rebase' % number)
                   if code == 200:
-                      return head, 'rebased'
+                      return None, 'rebased'
                   return None, ('refused: the branch is behind main and Gitea could not rebase it (%s %s). Rebase it '
-                                'onto main and push ready/ again; the new commit gets its own run'
-                                % (code, (out or {}).get('message', '')))
+                                'onto main and push it to a ready/ branch again' % (code, (out or {}).get('message', '')))
 
               def merge(token, api, pull, commit, base, tries=24, pause=5):
                   """(the commit now on main for this pull request, '') after the merge; ('', 'moved') when
@@ -391,7 +395,20 @@ spec:
                       if head and head != pull.get('head', {}).get('sha') and re.fullmatch(r'[0-9a-f]{40}', head):
                           return head, ''
                       time.sleep(pause)
-                  return None, 'refused: Gitea rebased the branch but its new head could not be read; push ready/ again'
+                  return None, ('refused: Gitea rebased the branch but its new head could not be read. No run '
+                                'follows this one: push the branch as it is now to a new ready/ name')
+
+              def still_open(token, api, pull, commit):
+                  """'' when the pull request is open and its head is the commit this run goes on with.
+                  Read by number: the list of open pull requests can show an old head after a rebase."""
+                  code, now = call(token, 'GET', api + '/pulls/%d' % pull['number'])
+                  if code != 200 or not isinstance(now, dict):
+                      return 'refused: could not read pull request #%d (%s)' % (pull['number'], code)
+                  if now.get('merged') or now.get('state') == 'closed':
+                      return 'refused: pull request #%d was closed while this run worked on it' % pull['number']
+                  if now.get('head', {}).get('sha') != commit:
+                      return 'refused: the branch moved after this run started; its new push has its own run'
+                  return ''
 
               def land(token, table, policy, repo, ref, commit, wait=ci_wait, gitea=GITEA, tries=24, pause=5,
                        budget=50 * 60):
@@ -414,48 +431,46 @@ spec:
                       ids, problem = checked(token, api, commits, policy, repo)
                   if problem:
                       return {}, problem
-                  # `known` is the commit a rebase just put the branch on. Right after a rebase the pull
-                  # request still reports its old merge_base for a while (2026-11-13: read at once, it
-                  # sent this run to rebase a branch that was already on main, and Gitea answered 500),
-                  # so until main moves again the branch's base is what this run itself saw, not that field.
-                  deadline, pushed, stale, known = time.time() + budget, commit, 0, None
+                  # `on` is the commit the branch sits on. For a pull request just opened it is the
+                  # merge_base Gitea reports. After a rebase that field, the pull request's commit list
+                  # and the list of open pull requests all lag (2026-11-13: land-79dsl, land-wbnxq), so
+                  # from then on the run reads only by commit id and by the pull request's number.
+                  deadline, pushed, stale, on = time.time() + budget, commit, 0, pull.get('merge_base')
                   while time.time() < deadline:
-                      if known is None:
-                          base, problem = up_to_date(token, api, pull)
-                          if problem == 'rebased':
-                              commit, problem = rebased_head(token, api, pull, pause=pause)
-                              if not problem:
-                                  print('the branch was behind main; Gitea rebased %s to %s and this run goes on with it'
-                                        % (pushed[:12], commit[:12]), flush=True)
-                                  pull, problem = pull_request(token, api, branch, commit, repo)
-                              if not problem:
-                                  # The new head is taken from Gitea, so it is checked like the pushed one,
-                                  # and it must be the same changes: a rebase keeps every Change-Id.
-                                  commits, problem = walked(token, api, commit, base)
-                                  again = []
-                                  if not problem:
-                                      again, problem = checked(token, api, commits, policy, repo)
-                                  # The same changes, whatever the order: the pull request lists its
-                                  # commits newest first, the walk from the new head reads oldest first.
-                                  if not problem and sorted(again) != sorted(ids):
-                                      problem = 'refused: the branch changed during its rebase; its new push has its own run'
-                              known = base
+                      base, problem = up_to_date(token, api, pull['number'], on)
+                      if problem == 'rebased':
+                          commit, problem = rebased_head(token, api, pull, pause=pause)
                           if problem:
                               return {}, problem
-                      base = known or base
+                          print('the branch was behind main; Gitea rebased %s to %s and this run goes on with it'
+                                % (pushed[:12], commit[:12]), flush=True)
+                          pull = dict(pull, head=dict(pull.get('head') or {}, sha=commit))
+                          # The new head is taken from Gitea, so it is checked like the pushed one, and it
+                          # must be the same changes: a rebase keeps every Change-Id. `on` becomes the
+                          # commit Gitea really put the branch on, which the walk finds.
+                          commits, on, problem = walked(token, api, commit, len(ids))
+                          again = []
+                          if not problem:
+                              again, problem = checked(token, api, commits, policy, repo)
+                          if not problem and sorted(again) != sorted(ids):
+                              problem = ('refused: after its rebase the branch does not hold the same changes: someone '
+                                         'pushed to it meanwhile, and that push has its own run')
+                          if problem:
+                              return {}, problem
+                          continue
+                      if problem:
+                          return {}, problem
                       got = wait(commit, entry['ci'], base)
                       if got not in ('green', 'stale'):
                           return {}, got
-                      pull, problem = pull_request(token, api, branch, commit, repo)
+                      problem = still_open(token, api, pull, commit)
                       if problem:
                           return {}, problem
                       code, main = call(token, 'GET', api + '/branches/main')
-                      still = code == 200 and main.get('commit', {}).get('id') == base and (
-                          known == base or pull.get('merge_base') == base)
+                      still = code == 200 and main.get('commit', {}).get('id') == base
                       if got == 'green' and still:
                           landed, problem = merge(token, api, pull, commit, base, tries, pause)
                           if problem == 'moved':
-                              known = None
                               continue
                           if problem:
                               return {}, problem
@@ -472,8 +487,6 @@ spec:
                       stale += still
                       if stale > 1:
                           return {}, 'refused: CI did not judge %s against main as it is now; push ready/ again' % commit
-                      if not still:
-                          known = None  # main moved: the next round reads the pull request again
                   return {}, 'refused: main kept moving for %d minutes while this change was checked; push ready/ again' % (budget // 60)
 
               if __name__ == '__main__':
