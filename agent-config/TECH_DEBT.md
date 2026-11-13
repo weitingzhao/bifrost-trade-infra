@@ -227,6 +227,7 @@
 
 | 编号 | 级别 | 领域 | 标题 | 审批 |
 |---|---|---|---|---|
+| [TD-577](#td-577) | P2 | initiator identity | 放行和提交的发起 Agent、执行线程不能可靠区分，提交尾注会串到父会话 | 仅登记；修法未定 |
 | [TD-85](#td-85) | P1 | trade (round 1) | One database password reaches everything: any DEV pod can write PROD Trade and all of Golden Source | 安全/凭据（要你批） |
 | [TD-91](#td-91) | P1 | flex-ib | A failed cash-transactions write is recorded as a successful run: core returns 0 on any exception and the job counts it as 'ok, 0 rows' | 改公开接口 |
 | [TD-92](#td-92) | P2 | research-control | Engine assets never fail: per-symbol failures, zero-row writes and skips are only metadata, reasons are discarded, and research_trading_day is green regardless of output | 不用批 |
@@ -329,6 +330,19 @@
 | [TD-576](#td-576) | P2 | release policy | 重签发布规则仍要求 Owner 回到有签名钥匙的电脑，手机无法完成 | 方案未定 |
 
 ## 条目
+
+### TD-577
+
+**P2 · initiator identity · 放行和提交的「谁发起」不能可靠区分 Agent 与线程**
+
+- **状态**：未开始；统筹 2026-11-13 定只记债。
+- **Claim**：每次放行和每个提交的「谁发起」不能可靠分出是哪家 Agent、哪个执行线程。提交钩子按环境里的 Claude 会话变量写尾注，Codex 继承派活的 Claude 环境时会写成父会话的号；平台认证到的是共用 operator 身份，线程号与 who 是调用方自报，落地运行没有发起 Agent / 线程注解。
+- **证据（2026-11-13 main 复核）**：infra `agent-config/scripts/git-hooks/lineage.sh:39–46` 只取 `CLAUDE_CODE_HOST_SESSION_ID` / `CLAUDE_CODE_SESSION_ID`，不识别 `CODEX_THREAD_ID` / `RUN_KEY`；platform `mcp/platform/src/sessionId.ts:10–20` 优先 Claude、其次 Cursor、最后机器名。platform `api/internal/actuation/auth.go:445–459` 按令牌取 principal，`api/internal/actuation/audit.go:73–78` 将 principal.Name 记作 Actor；`api/internal/server/release_policy_wire.go:303–310` 优先用调用方的 `X-Bifrost-Session` 作 requester。`api/internal/delivery/types.go:132–135` 的 who 是请求字段，`handler.go:88,93–95,110–116` 传入 who、记录审计并把认证 principal 与自报 `X-Agent-Session-ID` 传给回调。`delivery/service.go:323–340` 只加运行标签和可选审批身份注解；`actions/identity.go:14–18,42–59` 的注解是审批号、尝试号和参数摘要，不是 Agent 厂商 / 发起线程。两份出处报告中的落地运行样本无发起线程注解，不能把审批注解等同于执行者身份。
+- **今日提交实例（git 实查）**：platform `1677a6af5055657c9377022ae37989057d8d29ae`、`43fa6a00498d6079535731903c7dda6a93b15967` 的 Claude-Session 是 `local_7dd39a39-1e0e-4878-b829-2e3f44d5589e`；`a87553747d461e9965d40d916866a9b98f1be4b6`、`2daf47fb6e9cfdc004ba68e5707117505810f1ac` 实际是 `local_accccb4e-410c-4b5f-9f1b-b54c6915dc9a`（前者不是 brief 举例分组中的 7dd39a39）。按统筹提供的执行背景，这些是 Codex 所写、却挂到派活 / 统筹 Claude 线程；尾注本身不能认证厂商或真正执行者。
+- **影响**：事后按线程或厂商查询「这块活是谁做的」会归错人；Owner 要的「回溯评价」评不到具体执行者。TD-440 处理历史 Git 管理员凭证与推送授权，本条处理跨 Agent / 线程归属，不能以已有推送身份记录替代。
+- **修法方向**：钩子识别 Codex 自己的会话变量（例如 `CODEX_THREAD_ID`）及派活时的 `RUN_KEY`，拿不到明确写 none，不借用父会话号；平台在调用边界分别保存认证身份与调用方声明身份，并与外部工作登记的会话关联。先不选具体做法，不在本次修债。
+- **防线 / 验收**：后续在 `agent-config/scripts/git-hooks/lineage_test.sh` 加一例：环境同时有父会话变量和 Codex 变量时，尾注不得写成父会话号；缺少自身身份时验证明确 none。本次尚未实施该防线。
+- **出处**：共享笔记 `codex/reports/rule-package-draft-part6.md`「身份目前不足以可靠区分 Agent 与线程」及各样本「谁发起」栏；同目录 `codex/reports/audit-min-step.md`「C. “谁发起”的严格边界」。完整位置为 `~/Library/Application Support/Claude/side-session-notes/local_accccb4e-410c-4b5f-9f1b-b54c6915dc9a/codex/reports/` 下这两份报告。
 
 ### TD-576
 
