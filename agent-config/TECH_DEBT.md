@@ -3672,6 +3672,7 @@
 - **修法**：升级到有只快进合并方式的 Gitea 版本后，把 `Do: rebase` 换成只快进；或者让合入账号能对 main 做只快进的推送（要改 main 的推送白名单，是另一个决定）。
 - **防线**：`scripts/landing/test_land.py::test_what_landed_is_read_from_the_pull_request_and_a_rewritten_commit_is_not_called_landed`（保证不会把它报成 landed）。
 - **验收**：换成只快进之后，那条测试改成「Gitea 拒绝而不是改写」。
+- **另记**（2026-11-13）：这条限制之外，落地流水线当天因为「变基之后读到的东西是旧的或顺序不同」被错拒过三类分支（`land-79dsl`、`land-wbnxq`、`land-9n5sh`），都已修；测试桩现在在变基后保持列表不刷新、并能带两个提交。
 
 ### TD-560
 
