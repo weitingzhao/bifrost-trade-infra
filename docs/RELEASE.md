@@ -255,6 +255,8 @@ STG 的 `rollout` 引用 `bifrost-rollout-verify-platform`，先重启并等待�
 
 **进 main 的提交号可能和你推的不一样**（被变基过）。不要拿推的提交号去 main 上找。运行的结果里有两样：`commit` 是现在 main 上的那个提交号，`change-ids` 是这些提交的 `Change-Id`，变基不改它。按这两样认。
 
+**合进去的是不是测过的那个提交：尽力保证，做不到绝对。** Gitea 1.21 的合并接口不收「main 必须还是这个提交」这样的条件，它自己的「落后不许合」读的也是一个稍后才更新的字段。流水线做两件事来补：每次请 Gitea 合之前重读一次 main，动了就不合、回去变基再测；合完从合并请求里读实际进 main 的提交号。剩下的空当是一次请求的间隔。真撞上时（两条分支几乎同一瞬间合），Gitea 会在合并里再变基一次，进 main 的提交就不是测过的那个：这次运行的结果是 `landed-not-as-tested`，不是 `landed`，`commit` 是实际在 main 上的提交号。看到它时：这个提交已经在 main 上，main 自己的那次 CI 就是对它的测试，去等那次 CI；红了就 revert。
+
 它不收的两样：改交易守护路径的提交（签名发布规则里 `no_d10_paths` 那一组）；没有 `Change-Id` 尾注的提交。Secret 清单由 CI 的 statics 段拒。
 
 哪些仓库走这条路只写在一处：`pipeline-land.yaml` 里的 `LANDING_REPOS`。加一个仓库是那里加一行、应用一次这个流水线，再由 Owner 在 Gitea 把合入账号加进那个仓库的合并白名单。

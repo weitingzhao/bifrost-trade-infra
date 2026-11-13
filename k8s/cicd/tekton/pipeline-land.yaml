@@ -36,7 +36,7 @@ spec:
       description: The pushed ref, refs/heads/ready/<name>.
   results:
     - name: outcome
-      description: landed. A run that did not land fails; its last log line says why.
+      description: landed (the tested commit is on main), or landed-not-as-tested (Gitea rebased it once more inside the merge; `commit` is what is on main). A run that did not land fails; its last log line says why.
       value: $(tasks.land.results.outcome)
     - name: commit
       description: The commit now on main. Not the pushed one when the branch had to be rebased.
@@ -141,7 +141,7 @@ spec:
               GITEA = 'http://gitea.cicd.svc.cluster.local:3000'
               TOKEN_FILE = '/etc/gitea-merger/password'  # kubernetes.io/basic-auth, put-reader-token.sh merger
               POLICY = '/etc/release-policy/policy.yaml'  # canonical JSON
-              CHANGE_ID = re.compile(r'^Change-Id: (\S+)$', re.M)
+              TRAILER = re.compile(r'^[A-Za-z0-9-]+: \S')
               RUNS = 'https://kubernetes.default.svc/apis/tekton.dev/v1/namespaces/cicd/pipelineruns'
               SA = '/var/run/secrets/kubernetes.io/serviceaccount/'
               RESULTS = '/tekton/results/'
@@ -244,24 +244,54 @@ spec:
                       return None, 'refused: the branch moved after this run started; its new push has its own run'
                   return pull, ''
 
-              def lineage(token, api, number):
-                  """(Change-Ids, '') when every commit of the pull request carries a Change-Id trailer.
-                  The agents share one Gitea account, so the trailers are the record of which change a
-                  commit is (CLAUDE.md, Owner 2026-10-06); this lane is where every commit to main passes."""
-                  ids = []
+              def change_id(message):
+                  """The Change-Id trailer of a commit message, or None. A trailer is a line of the last
+                  paragraph, and that paragraph holds trailers only: the same words in the body are text."""
+                  parts = re.split(r'\n[ \t]*\n', message.strip())
+                  last = parts[-1].splitlines() if len(parts) > 1 else []
+                  if not last or not all(TRAILER.match(line) or line[:1] in (' ', '\t') for line in last):
+                      return None
+                  found = [line.split(': ', 1)[1].strip() for line in last if line.startswith('Change-Id: ')]
+                  return found[-1] if found and re.fullmatch(r'\S+', found[-1]) else None
+
+              def checked(token, api, number, commit, policy, repo):
+                  """(Change-Ids, '') when the commits this run is for may land. Everything is read by
+                  commit id, so what is checked is what is merged: the pull request's list must hold
+                  the commit this run is for, and each commit's message and files are read by its id,
+                  not from the pull request, whose branch can move between two reads. Every commit
+                  carries a Change-Id trailer (the agents share one Gitea account; the trailers are the
+                  record of which change a commit is, Owner 2026-10-06), and none touches a path of
+                  the signed release policy's no_d10_paths group for the repository."""
+                  commits = []
                   for page in range(1, 11):
-                      code, commits = call(token, 'GET', api + '/pulls/%d/commits?limit=50&page=%d' % (number, page))
-                      if code != 200 or not isinstance(commits, list):
-                          return ids, 'refused: could not read the commits of the pull request (%s)' % code
-                      for item in commits:
-                          found = CHANGE_ID.findall((item.get('commit') or {}).get('message') or '')
-                          if not found:
-                              return ids, ('refused: commit %s has no Change-Id trailer (scripts/git-hooks adds it; '
-                                           'a clone without the hook adds it by hand)' % str(item.get('sha'))[:12])
-                          ids.append(found[-1])
-                      if len(commits) < 50:
-                          return ids, ''
-                  return ids, 'refused: more than 500 commits in one pull request'
+                      code, rows = call(token, 'GET', api + '/pulls/%d/commits?limit=50&page=%d' % (number, page))
+                      if code != 200 or not isinstance(rows, list):
+                          return [], 'refused: could not read the commits of the pull request (%s)' % code
+                      commits += [str(row.get('sha')) for row in rows]
+                      if len(rows) < 50:
+                          break
+                  else:
+                      return [], 'refused: more than 500 commits in one pull request'
+                  if commit not in commits or not all(re.fullmatch(r'[0-9a-f]{40}', sha) for sha in commits):
+                      return [], 'refused: the branch moved while this run read it; its new push has its own run'
+                  ids, names = [], set()
+                  for sha in commits:
+                      code, row = call(token, 'GET', api + '/git/commits/' + sha)
+                      if code != 200 or not isinstance(row, dict) or row.get('sha') != sha:
+                          return [], 'refused: could not read commit %s (%s)' % (sha[:12], code)
+                      found = change_id((row.get('commit') or {}).get('message') or '')
+                      if not found:
+                          return [], ('refused: commit %s has no Change-Id trailer (scripts/git-hooks adds it; '
+                                      'a clone without the hook adds it by hand)' % sha[:12])
+                      ids.append(found)
+                      if not isinstance(row.get('files'), list):
+                          return [], 'refused: could not read the files of commit %s' % sha[:12]
+                      names.update(str(item.get('filename')) for item in row['files'] if isinstance(item, dict))
+                  hit = guarded(policy, repo, names)
+                  if hit:
+                      return [], ('refused: %s is a trade-execution guard path (release policy no_d10_paths); this lane '
+                                  'does not take it' % hit)
+                  return ids, ''
 
               def matches(pattern, name):
                   """The release policy's globs: ** spans directories, * and ? stay inside one segment."""
@@ -283,23 +313,6 @@ spec:
                            for p in group['paths']]
                   return next((n for n in sorted(names) if any(matches(p, n) for p in globs)), '')
 
-              def not_taken(token, api, number, policy, repo):
-                  """'' unless the pull request changes a path this lane does not take."""
-                  names = set()
-                  for page in range(1, 41):
-                      code, files = call(token, 'GET', api + '/pulls/%d/files?limit=50&page=%d' % (number, page))
-                      if code != 200 or not isinstance(files, list):
-                          return 'refused: could not read the files of the pull request (%s)' % code
-                      for item in files:
-                          names.update(n for n in (item.get('filename'), item.get('previous_filename')) if n)
-                      if len(files) < 50:
-                          break
-                  else:
-                      return 'refused: more than 2000 files in one pull request'
-                  hit = guarded(policy, repo, names)
-                  return ('refused: %s is a trade-execution guard path (release policy no_d10_paths); this lane '
-                          'does not take it' % hit) if hit else ''
-
               def up_to_date(token, api, pull):
                   """(main's head, '') when the branch sits on it; (main's head, 'rebased') after Gitea
                   rebased the branch onto it; (None, refusal) when that is not possible."""
@@ -316,25 +329,35 @@ spec:
                                 'onto main and push ready/ again; the new commit gets its own run'
                                 % (code, (out or {}).get('message', '')))
 
-              def merge(token, api, pull, commit, tries=24, pause=5):
+              def merge(token, api, pull, commit, base, tries=24, pause=5):
+                  """(the commit now on main for this pull request, '') after the merge; ('', 'moved') when
+                  main is no longer the commit CI judged against, with nothing merged; ('', refusal).
+                  main is read again before every attempt, so a wait for Gitea is not a window in which
+                  another landing goes unseen. What landed is read from the pull request, not from
+                  main's head, which the next landing may already have moved."""
                   last = ''
                   for _ in range(tries):
+                      code, main = call(token, 'GET', api + '/branches/main')
+                      if code != 200 or main.get('commit', {}).get('id') != base:
+                          return '', 'moved'
                       code, out = call(token, 'POST', api + '/pulls/%d/merge' % pull['number'], {
                           'Do': 'rebase', 'head_commit_id': commit, 'delete_branch_after_merge': True})
                       if code == 200:
                           break
                       last = '%s %s' % (code, (out or {}).get('message', ''))
                       if code not in (405, 409):
-                          return 'refused: merge failed (%s)' % last
+                          return '', 'refused: merge failed (%s)' % last
                       time.sleep(pause)  # Gitea is still checking the new pull request
                   else:
-                      return 'refused: Gitea did not accept the merge (%s)' % last
-                  code, main = call(token, 'GET', api + '/branches/main')
-                  landed = main.get('commit', {}).get('id') if code == 200 else None
-                  if landed != commit:
-                      print('WARNING: merged pull request #%d but main reads %s, not %s' % (pull['number'], landed, commit))
-                  print('landed %s on main through pull request #%d' % (commit, pull['number']))
-                  return ''
+                      return '', 'refused: Gitea did not accept the merge (%s)' % last
+                  for _ in range(tries):
+                      code, now = call(token, 'GET', api + '/pulls/%d' % pull['number'])
+                      landed = (now or {}).get('merge_commit_sha') if code == 200 and (now or {}).get('merged') else None
+                      if landed and re.fullmatch(r'[0-9a-f]{40}', landed):
+                          return landed, ''
+                      time.sleep(pause)
+                  return '', ('refused: Gitea accepted the merge of pull request #%d but what landed could not be read; '
+                              'look at the pull request before pushing again' % pull['number'])
 
               def rebased_head(token, api, pull, tries=12, pause=5):
                   """(the branch's new head, '') once Gitea shows the rebase; (None, refusal) otherwise."""
@@ -360,11 +383,9 @@ spec:
                       return {}, 'refused: this repository is not in LANDING_REPOS (pipeline-land.yaml)'
                   branch, api = found.group(1), gitea + '/api/v1/repos/bifrost/' + repo
                   pull, problem = pull_request(token, api, branch, commit, repo)
-                  if not problem:
-                      problem = not_taken(token, api, pull['number'], policy, repo)
                   ids = []
                   if not problem:
-                      ids, problem = lineage(token, api, pull['number'])
+                      ids, problem = checked(token, api, pull['number'], commit, policy, repo)
                   if problem:
                       return {}, problem
                   # `known` is the commit a rebase just put the branch on. Right after a rebase the pull
@@ -381,6 +402,12 @@ spec:
                                   print('the branch was behind main; Gitea rebased %s to %s and this run goes on with it'
                                         % (pushed[:12], commit[:12]), flush=True)
                                   pull, problem = pull_request(token, api, branch, commit, repo)
+                              if not problem:
+                                  # The new head is taken from Gitea, so it is checked like the pushed one,
+                                  # and it must be the same changes: a rebase keeps every Change-Id.
+                                  again, problem = checked(token, api, pull['number'], commit, policy, repo)
+                                  if not problem and again != ids:
+                                      problem = 'refused: the branch changed during its rebase; its new push has its own run'
                               known = base
                           if problem:
                               return {}, problem
@@ -395,9 +422,21 @@ spec:
                       still = code == 200 and main.get('commit', {}).get('id') == base and (
                           known == base or pull.get('merge_base') == base)
                       if got == 'green' and still:
-                          problem = merge(token, api, pull, commit, tries, pause)
+                          landed, problem = merge(token, api, pull, commit, base, tries, pause)
+                          if problem == 'moved':
+                              known = None
+                              continue
                           if problem:
                               return {}, problem
+                          if landed != commit:
+                              # Gitea rebased once more inside the merge: main moved between this run's
+                              # last read and Gitea's own. What is on main was not the commit CI ran on;
+                              # main's own CI run of it is the check. Said, not passed off as landed.
+                              print('WARNING: pull request #%d landed as %s, not as the tested %s'
+                                    % (pull['number'], landed, commit), flush=True)
+                              return {'outcome': 'landed-not-as-tested', 'commit': landed,
+                                      'change-ids': ','.join(ids[:40])}, ''
+                          print('landed %s on main through pull request #%d' % (commit, pull['number']))
                           return {'outcome': 'landed', 'commit': commit, 'change-ids': ','.join(ids[:40])}, ''
                       stale += still
                       if stale > 1:

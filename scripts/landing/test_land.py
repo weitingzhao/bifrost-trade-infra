@@ -303,16 +303,25 @@ def test_ci_wait_gives_a_starting_run_time_and_then_answers():
 # --- what the task does ----------------------------------------------------------
 
 
+TRAILERS = "\n\nChange-Id: I" + "1" * 40 + "\nWork: LANE-x"
+OTHER = "9" * 40  # a commit that is not the one the run is for
+
+
 class Gitea:
     """Gitea's answers to the script's `call`, in process: no socket, so the suite also passes
-    where loopback is closed. `behind`, `moved`, `exists`, `busy`, `deny`, `conflict`, `files`,
-    `bare` and `moves` shape its answers."""
+    where loopback is closed. A commit is its id: `message` and `files` belong to the branch's
+    head as pushed, and a rebase carries them to the new head. `behind`, `moved`, `exists`,
+    `busy`, `deny`, `conflict`, `lag`, `moves`, `listed`, `overtaken`, `rewrites` and `unread`
+    shape the answers."""
 
     HOST = "http://gitea.test"
 
     def __init__(self, **kw):
         self.kw, self.calls, self.main, self.head = kw, [], MAIN, "c" * 40 if kw.get("moved") else SHA
-        self.lag = 0
+        self.lag, self.merged = 0, None
+        mine = {"message": kw.get("message", "fix: a thing" + TRAILERS), "files": kw.get("files", ["docs/RELEASE.md"])}
+        # Another version of the branch, clean in every way: what a moved branch would show.
+        self.commits = {self.head: mine, OTHER: {"message": "fix: clean" + TRAILERS, "files": ["docs/x.md"]}}
 
     def call(self, token, method, url, body=None):
         assert url.startswith(self.HOST + "/"), url
@@ -321,11 +330,14 @@ class Gitea:
         if method == "GET":
             if path.endswith("/branches/main"):
                 return 200, {"commit": {"id": self.main}}
-            if "/commits" in path:
-                trailer = "" if kw.get("bare") else "\n\nChange-Id: I" + "1" * 40
-                return 200, [{"sha": SHA, "commit": {"message": "fix: a thing" + trailer}}]
-            if "/files" in path:
-                return 200, [{"filename": n} for n in kw.get("files", ["docs/RELEASE.md"])]
+            if "/pulls/7/commits" in path:
+                return 200, [{"sha": kw.get("listed", self.head)}]
+            if "/git/commits/" in path:
+                sha = path.rsplit("/", 1)[1]
+                if sha not in self.commits:
+                    return 404, {"message": "not found"}
+                return 200, {"sha": sha, "commit": {"message": self.commits[sha]["message"]},
+                             "files": [{"filename": n, "status": "modified"} for n in self.commits[sha]["files"]]}
             return (200, self.pull()) if path.endswith("/pulls/7") else (200, [self.pull()])
         if path.endswith("/pulls"):
             return (409, {"message": "exists"}) if kw.get("exists") else (201, self.pull())
@@ -334,22 +346,29 @@ class Gitea:
                 return 409, {"message": "rebase failed because of conflict"}
             if not kw.get("behind"):
                 return 500, {"message": ""}  # as Gitea answers for a branch that is already on main
-            kw["behind"] = False  # Gitea put the branch on main: a new commit
-            self.head = "%040x" % (int(self.head, 16) + 1)
+            kw["behind"] = False  # Gitea put the branch on main: a new commit, the same change
+            old, self.head = self.head, "%040x" % (int(self.head, 16) + 1)
+            self.commits[self.head] = self.commits[old]
             self.lag = kw.get("lag", 0)  # reads for which the pull request still shows the old merge_base
             return 200, None
         if kw.get("busy", 0) > 0:
             kw["busy"] -= 1
+            if kw.get("overtaken"):  # another landing reaches main while Gitea makes this one wait
+                kw["behind"], self.main = True, "e" * 40
             return 405, {"message": "Please try again later"}
         if kw.get("deny"):
             return 403, {"message": "not on the whitelist"}
-        self.main = body["head_commit_id"]
+        # Gitea merges; `rewrites`: it rebased once more, so what lands is another commit.
+        self.merged = "7" * 40 if kw.get("rewrites") else body["head_commit_id"]
+        self.main = "8" * 40 if kw.get("rewrites") else self.merged  # with rewrites, a later landing is already on top
         return 200, None
 
     def pull(self):
         lagging = self.lag > 0
         self.lag -= lagging
-        return {"number": 7, "head": {"ref": "ready/x", "sha": self.head},
+        seen = bool(self.merged) and not self.kw.get("unread")
+        return {"number": 7, "head": {"ref": "ready/x", "sha": self.head}, "merged": seen,
+                "merge_commit_sha": self.merged if seen else None,
                 "base": {"ref": "main"}, "merge_base": "d" * 40 if self.kw.get("behind") or lagging else self.main}
 
     def paths(self, word):
@@ -389,7 +408,7 @@ def test_a_green_branch_on_top_of_main_is_merged_as_the_same_commit():
     assert merge[2] == {"Do": "rebase", "head_commit_id": SHA, "delete_branch_after_merge": True}
     assert {c[3] for c in gitea.calls} == {"token tok"}
     assert gitea.calls[0][2]["head"] == "ready/x" and gitea.calls[0][2]["base"] == "main"
-    assert {c[1].split("/pulls")[0].split("/branches")[0] for c in gitea.calls} == {"/api/v1/repos/bifrost/bifrost-platform"}
+    assert {c[1].split("/pulls")[0].split("/branches")[0].split("/git/")[0] for c in gitea.calls} == {"/api/v1/repos/bifrost/bifrost-platform"}
     assert gitea.waits == [("bifrost-ci-platform", MAIN, SHA)]
     assert gitea.landed == {"outcome": "landed", "commit": SHA, "change-ids": IDS}
 
@@ -397,7 +416,7 @@ def test_a_green_branch_on_top_of_main_is_merged_as_the_same_commit():
 def test_the_same_code_lands_another_listed_repository_with_its_own_ci():
     gitea = Gitea()
     assert run_land(gitea, repo=INFRA) == ("landed", "")
-    assert {c[1].split("/pulls")[0].split("/branches")[0] for c in gitea.calls} == {"/api/v1/repos/bifrost/bifrost-trade-infra"}
+    assert {c[1].split("/pulls")[0].split("/branches")[0].split("/git/")[0] for c in gitea.calls} == {"/api/v1/repos/bifrost/bifrost-trade-infra"}
     assert gitea.waits == [("bifrost-ci-infra", MAIN, SHA)]
 
 
@@ -501,10 +520,99 @@ def test_other_paths_and_the_same_paths_in_another_repository_are_taken():
 
 
 def test_a_commit_without_a_change_id_is_refused_before_anything_is_changed():
-    gitea = Gitea(bare=True, behind=True)
+    gitea = Gitea(message="fix: a thing", behind=True)
     outcome, problem = run_land(gitea)
     assert outcome == "" and "no Change-Id trailer" in problem and SHA[:12] in problem
     assert gitea.merges() == [] and gitea.paths("/update") == [] and gitea.waits == []
+
+
+# --- what is checked is what is merged (independent review, 2026-11-13) -----------------
+
+
+@pytest.mark.parametrize("message", [
+    "fix\n\nChange-Id: example\nThis is ordinary body text, not a trailer block.",
+    "fix\n\nChange-Id: Iabc\n\nMore text in a later paragraph.",
+    "Change-Id: Iabc",
+    "fix\n\nSee Change-Id: Iabc in the tracker\nWork: x",
+    "fix\n\nChange-Id: two words\nWork: x",
+])
+def test_a_change_id_in_the_body_is_not_a_trailer(message):
+    assert module()["change_id"](message) is None
+    gitea = Gitea(message=message)
+    outcome, problem = run_land(gitea)
+    assert outcome == "" and "no Change-Id trailer" in problem and gitea.merges() == []
+
+
+@pytest.mark.parametrize("message, found", [
+    ("fix" + TRAILERS, "I" + "1" * 40),
+    ("fix\n\nbody\n\nClaude-Session: s\nChange-Id: Iabc\nCo-Authored-By: A B <a@b.c>\n", "Iabc"),
+    ("fix\n\nWork: TD-1,\n TD-2\nChange-Id: Iabc", "Iabc"),
+])
+def test_a_change_id_in_the_trailer_block_is_read(message, found):
+    assert module()["change_id"](message) == found
+
+
+def test_the_checks_read_the_commit_the_run_is_for_and_not_whatever_the_branch_shows():
+    """The pull request's lists have no commit id in them. A branch moved to a clean version
+    and back between two reads showed the clean version's files and messages, and the run then
+    merged the commit it was started for, unread. Now each commit is read by its id, and a list
+    that does not hold the run's commit is a moved branch."""
+    for bad in ({"files": ["docs/RELEASE.md", guard_paths(PLATFORM)[0]]}, {"message": "fix: no trailer"}):
+        gitea = Gitea(listed=OTHER, **bad)  # the pull request lists the clean version; its head is the bad commit
+        outcome, problem = run_land(gitea)
+        assert outcome == "" and "branch moved while this run read it" in problem, bad
+        assert gitea.merges() == [] and gitea.waits == []
+    gitea = Gitea(files=[guard_paths(PLATFORM)[0]])
+    assert "no_d10_paths" in run_land(gitea)[1]
+    assert [c[1] for c in gitea.paths("/git/commits/")] == ["/api/v1/repos/bifrost/bifrost-platform/git/commits/" + SHA]
+    assert gitea.paths("/pulls/7/files") == []  # nothing is read from the list that carries no commit id
+
+
+def test_a_rebased_branch_is_checked_again_and_must_be_the_same_change():
+    gitea = Gitea(behind=True)
+    assert run_land(gitea) == ("landed", "")
+    assert [c[1].rsplit("/", 1)[1] for c in gitea.paths("/git/commits/")] == [SHA, NEXT]
+    gitea = Gitea(behind=True)
+    gitea.commits[NEXT] = {"message": "fix: another change\n\nChange-Id: Iother", "files": ["docs/y.md"]}
+    real = gitea.call
+
+    def swapped(token, method, url, body=None):
+        answer = real(token, method, url, body)
+        if "/update" in url:  # someone pushes another change to the branch as Gitea rebases it
+            gitea.commits[NEXT] = {"message": "fix: another change\n\nChange-Id: Iother", "files": ["docs/y.md"]}
+        return answer
+
+    gitea.call = swapped
+    outcome, problem = run_land(gitea)
+    assert outcome == "" and "changed during its rebase" in problem and gitea.merges() == []
+
+
+def test_main_moving_while_gitea_makes_the_merge_wait_is_seen_before_the_next_attempt():
+    """Between the last read of main and the merge there were up to two minutes of retries in
+    which main was not read again. Another landing in that time left this commit to be merged
+    onto a main CI had not judged it against."""
+    gitea = Gitea(busy=1, overtaken=True)
+    assert run_land(gitea) == ("landed", "")
+    assert [m[2]["head_commit_id"] for m in gitea.merges()] == [SHA, NEXT]  # the refused attempt, then the rebased commit
+    assert [w[2] for w in gitea.waits] == [SHA, NEXT] and gitea.waits[1][1] == "e" * 40
+    assert gitea.landed["commit"] == NEXT
+
+
+def test_what_landed_is_read_from_the_pull_request_and_a_rewritten_commit_is_not_called_landed():
+    """Gitea answering 200 was reported as `landed <the tested commit>` whatever main then read.
+    If Gitea rebased once more inside the merge, another commit is on main: the run says which,
+    and does not call it landed."""
+    gitea = Gitea(rewrites=True)
+    assert run_land(gitea) == ("landed-not-as-tested", "")
+    assert gitea.landed["commit"] == "7" * 40 != gitea.main  # not main's head, which a later landing moved
+    gitea = Gitea()
+    assert run_land(gitea) == ("landed", "") and gitea.landed["commit"] == SHA
+
+
+def test_a_merge_gitea_accepted_but_does_not_show_is_not_reported_either_way():
+    gitea = Gitea(unread=True)
+    outcome, problem = run_land(gitea)
+    assert outcome == "" and "accepted the merge" in problem and "look at the pull request" in problem
 
 
 def test_a_red_or_late_ci_is_the_refusal():
