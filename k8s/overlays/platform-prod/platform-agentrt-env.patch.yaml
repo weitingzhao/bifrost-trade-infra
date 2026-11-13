@@ -28,6 +28,17 @@
 # (or set UNIT_DISPATCH to off) and sync; runs already started finish and are
 # still recorded. platform-api serves the route; the workers start the one
 # retry of a run the cluster lost.
+# HEAD_RELEASE (2026-11-13, design: side-session notes ci-speed/release-head.md;
+# platform 2d099561): stg has the workers release the newest head of platform
+# main to STG by themselves when the evidence ledger has it green, one delivery
+# at a time, and write a record of every decision to the audit log (action
+# head_release). Nothing is released to PROD by it. Why: that day three STG
+# deliveries failed because each line released its own commit while main
+# moved, and commits waited 13 and 22.7 minutes for a release window other
+# lines held. Only the workers read it (the loop runs there). To go back:
+# remove the variable (or set it to off) and sync; a delivery already started
+# finishes. Turn it off before releasing an older commit to STG by hand, or
+# the loop releases main's head over it.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -72,6 +83,8 @@ spec:
       containers:
         - name: platform-api
           env:
+            - name: HEAD_RELEASE
+              value: stg
             - name: UNIT_DISPATCH
               value: shadow
             - name: UNIT_NODE_SELECTOR
