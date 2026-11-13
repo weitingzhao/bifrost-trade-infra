@@ -9,8 +9,6 @@ the token is, which CI runs count, and what `land` refuses."""
 
 import json
 import os
-import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 import pytest
@@ -295,56 +293,42 @@ def test_ci_wait_gives_a_starting_run_time_and_then_answers():
 
 
 class Gitea:
-    """A stub of the calls. `behind`, `moved`, `exists`, `busy`, `deny`, `conflict`,
-    `files`, `bare` and `moves` shape its answers."""
+    """Gitea's answers to the script's `call`, in process: no socket, so the suite also passes
+    where loopback is closed. `behind`, `moved`, `exists`, `busy`, `deny`, `conflict`, `files`,
+    `bare` and `moves` shape its answers."""
+
+    HOST = "http://gitea.test"
 
     def __init__(self, **kw):
         self.kw, self.calls, self.main, self.rebased = kw, [], MAIN, False
-        gitea = self
 
-        class Handler(BaseHTTPRequestHandler):
-            def log_message(self, *args):
-                pass
-
-            def answer(self, code, body):
-                raw = json.dumps(body).encode()
-                self.send_response(code)
-                self.send_header("Content-Length", str(len(raw)))
-                self.end_headers()
-                self.wfile.write(raw)
-
-            def do_GET(self):
-                gitea.calls.append(("GET", self.path, None, self.headers.get("Authorization")))
-                if self.path.endswith("/branches/main"):
-                    return self.answer(200, {"commit": {"id": gitea.main}})
-                if "/commits" in self.path:
-                    trailer = "" if kw.get("bare") else "\n\nChange-Id: I" + "1" * 40
-                    return self.answer(200, [{"sha": SHA, "commit": {"message": "fix: a thing" + trailer}}])
-                if "/files" in self.path:
-                    return self.answer(200, [{"filename": n} for n in kw.get("files", ["docs/RELEASE.md"])])
-                return self.answer(200, [gitea.pull()])
-
-            def do_POST(self):
-                size = int(self.headers.get("Content-Length") or 0)
-                body = json.loads(self.rfile.read(size)) if size else None
-                gitea.calls.append(("POST", self.path, body, self.headers.get("Authorization")))
-                if self.path.endswith("/pulls"):
-                    return self.answer(409, {"message": "exists"}) if kw.get("exists") else self.answer(201, gitea.pull())
-                if "/update" in self.path:
-                    if kw.get("conflict"):
-                        return self.answer(409, {"message": "rebase failed because of conflict"})
-                    gitea.rebased = True
-                    return self.answer(200, None)
-                if kw.get("busy", 0) > 0:
-                    kw["busy"] -= 1
-                    return self.answer(405, {"message": "Please try again later"})
-                if kw.get("deny"):
-                    return self.answer(403, {"message": "not on the whitelist"})
-                gitea.main = body["head_commit_id"]
-                return self.answer(200, None)
-
-        self.server = HTTPServer(("127.0.0.1", 0), Handler)
-        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+    def call(self, token, method, url, body=None):
+        assert url.startswith(self.HOST + "/"), url
+        path, kw = url[len(self.HOST):], self.kw
+        self.calls.append((method, path, body, "token " + token))
+        if method == "GET":
+            if path.endswith("/branches/main"):
+                return 200, {"commit": {"id": self.main}}
+            if "/commits" in path:
+                trailer = "" if kw.get("bare") else "\n\nChange-Id: I" + "1" * 40
+                return 200, [{"sha": SHA, "commit": {"message": "fix: a thing" + trailer}}]
+            if "/files" in path:
+                return 200, [{"filename": n} for n in kw.get("files", ["docs/RELEASE.md"])]
+            return 200, [self.pull()]
+        if path.endswith("/pulls"):
+            return (409, {"message": "exists"}) if kw.get("exists") else (201, self.pull())
+        if "/update" in path:
+            if kw.get("conflict"):
+                return 409, {"message": "rebase failed because of conflict"}
+            self.rebased = True
+            return 200, None
+        if kw.get("busy", 0) > 0:
+            kw["busy"] -= 1
+            return 405, {"message": "Please try again later"}
+        if kw.get("deny"):
+            return 403, {"message": "not on the whitelist"}
+        self.main = body["head_commit_id"]
+        return 200, None
 
     def pull(self):
         return {"number": 7, "head": {"ref": "ready/x", "sha": "c" * 40 if self.kw.get("moved") else SHA},
@@ -367,11 +351,10 @@ def run_land(gitea, ref=REF, commit=SHA, repo=PLATFORM, wait=None):
             gitea.main = "f" * 40
         return "green"
 
-    try:
-        got = module()["land"]("tok", table(), policy(), repo, ref, commit, wait=wait or waited,
-                               gitea="http://127.0.0.1:%d" % gitea.server.server_address[1], tries=3, pause=0)
-    finally:
-        gitea.server.shutdown()
+    scope = module()
+    scope["call"] = gitea.call
+    got = scope["land"]("tok", table(), policy(), repo, ref, commit, wait=wait or waited,
+                        gitea=gitea.HOST, tries=3, pause=0)
     gitea.waits = waits
     return got
 

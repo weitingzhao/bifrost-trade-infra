@@ -9,7 +9,7 @@
 # There is one landing pipeline. What differs between repositories is a row in the
 # LANDING_REPOS value below, the one place those facts are written (the scripts and tests of
 # this repository read it from this file); a second pipeline that mounts the merger token
-# fails scripts/release/test_land.py. It is in this file and not a ConfigMap because the apply
+# fails scripts/landing/test_land.py. It is in this file and not a ConfigMap because the apply
 # lane takes no ConfigMap in cicd (apply-manifest/actuation-policy.yaml).
 # It is its own pipeline because a task that writes must come after the release freeze check
 # (scripts/release/freeze_chain.py), and CI itself must keep running during a freeze.

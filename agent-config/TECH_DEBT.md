@@ -3737,7 +3737,7 @@
 - **证据**：`scripts/gitea/protection_policy.py:193-215`（`LANDING_REPOS`、`land/prod/**` 规则、main 推送白名单里的 `agentrt-lander`）；`ci-infra` 的 `landing` 用途和它的单亲提交检查（`scripts/landing/doc_policy.py:86-101`、`ci-infra.sh`）；`trigger-trade-ci.yaml` 里跳过 `agentrt-lander` 推送的条件。
 - **影响**：两条进 main 的路并存，读 CI 和保护规则的人要同时懂两套。
 - **修法**：删掉上面这些。要等：平台代码不再调 infra 的落地（`api/internal/agentrt/landing`、`rules/landing_infra.go` 还在调），两边一起动。
-- **防线**：`scripts/release/test_land.py` 已经钉住「拿得到合入令牌的流水线只有一条」；删完后补一条「main 的推送白名单里没有落地账号」。
+- **防线**：`scripts/landing/test_land.py` 已经钉住「拿得到合入令牌的流水线只有一条」；删完后补一条「main 的推送白名单里没有落地账号」。
 - **验收**：`git grep agentrt-lander -- k8s scripts` 在 infra 里没有结果，`protect-repo.sh --check` 通过。
 
 ### TD-561
@@ -3748,7 +3748,7 @@
 - **证据**：`k8s/cicd/tekton/trigger-trade-ci.yaml` 的 `platform-ci-ready`：它存在只为了让 `ready/` 的运行不带 `base`（跑整套）。infra 11-13 的做法是 CI 自己认出「这个提交是某条 `ready/` 分支的头」（`task-ci-infra-clone.yaml`），不需要单独的触发器。
 - **影响**：每接一个有自己 CI 流水线的仓库，都可能再加一个这样的触发器。
 - **修法**：platform 的 CI 照 infra 的办法自己认 `ready/`，删掉 `platform-ci-ready`，`platform-ci` 不再排除 `ready/`。要等：动的是 `pipeline-ci-platform.yaml`，和 CI 根治那条线（ci-w1）排先后；平台里有它的运行参数契约测试（TD-559），先修那条更顺。
-- **防线**：`scripts/release/test_land.py` 加一条：触发器里没有名字带 `ready` 的 CI 触发器。
+- **防线**：`scripts/landing/test_land.py` 加一条：触发器里没有名字带 `ready` 的 CI 触发器。
 - **验收**：platform 推一次 `ready/`，只起一个 CI 运行和一个落地运行，CI 是整套。
 
 ### TD-488
