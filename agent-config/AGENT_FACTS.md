@@ -385,6 +385,8 @@ kubeconfig：`~/.kube/bifrost-k3s.yaml` 是只读身份 `system:serviceaccount:b
 | 起 run | `start_pipeline_run` |
 | 其余写 | `owner_run_command` |
 
+`owner_run_command` 的卡由 Owner 在 Console 上输入验证器的一次性码批准，集群里的 `owner-exec`（命名空间 `bifrost-owner-exec`，不归 Argo）执行并把结果写回卡（2026-11-13 起）。怎么建卡、命令在哪跑、哪些会被拒、结果从哪读：`agent-config/OWNER_EXEC.md`。
+
 查库用 `agent_reader`。`kubectl exec` / `port-forward` 的范围以 `bifrost-trade-infra/k8s/agent-access/` 为准（`role-exec-*.yaml`、`role-portforward-monitoring.yaml`，由 `scripts/check_agent_access.py` 守住；集群拒绝其余的）：现在 exec 只在 research、plugin-market-data、plugin-flex-query，port-forward 只有 monitoring 里的 `prometheus-kube-prometheus-stack-prometheus-0`。
 
 下表除最后一列外由 `scripts/k3s/node_table.py` 从集群生成（`--check` 对不上会报出来，用法在脚本开头）。`postgres-role` 标签只是摆放的偏好，真正的主库看 CNPG 的 `status.currentPrimary`。
