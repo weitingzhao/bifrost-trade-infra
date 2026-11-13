@@ -351,8 +351,86 @@
 | [TD-558](#td-558) | P3 | dev | 没有受认可的办法在本机起一套一次性的平台做页面走查 | 不用批 |
 | [TD-563](#td-563) | P2 | security | Owner 级执行口起的后台子进程在卡结束或超时后可能还在跑 | 安全/凭据（要你批） |
 | [TD-564](#td-564) | P2 | observability | PROD 执行口版本落后于平台时没有提示 | — |
+| [TD-570](#td-570) | P3 | cicd | 单元任务并发派发各算容量，可超过 MaxRunning | 不用批 |
+| [TD-571](#td-571) | P2 | cicd | 单元任务超过 20 分钟窗口后不再自动续派 | 不用批 |
+| [TD-572](#td-572) | P2 | cicd | 单元任务回收与重派不读已落库的 unit_run | 不用批 |
+| [TD-573](#td-573) | P2 | cicd | 运行名只取计划号前 8 位，碰撞后任务派不出去 | 不用批 |
+| [TD-574](#td-574) | P2 | cicd | 仓库根 Go 模块无法构建模块级计划 | 不用批 |
+| [TD-575](#td-575) | P3 | cicd | 单元任务续派每轮仍重算年轻提交的计划 | 不用批 |
 
 ## 条目
+
+### TD-570
+
+**P3 · cicd · 单元任务并发派发各算容量，可超过 MaxRunning**
+
+- **状态**：未开始；独立复核 2026-11-13 发现，CI 线核实成立，统筹定这一轮不修。
+- **Claim**：MaxRunning 只是单次 List 快照的预算；不同提交并发推进没有跨调用、跨进程的容量预约。
+- **证据**：platform `api/internal/server/units_dispatch.go:131-144,189-201` 先计数再创建；`:228-229` 的锁只保护同一 receiver 的回收，不保护 HTTP 派发，也不跨 api/workers 进程。
+- **影响**：两个提交同时在派时会超过 12 个。CI 线裁定时当天没同时派过。
+- **修法方向**：未定。
+- **防线 / 验收**：线程安全 fake 用 barrier 让两个不同提交在 MaxRunning=1 时先各自 List 到空，再 Create；断言实际 running 不超过 1（当前会到 2）。
+- **出处**：共享笔记 `ci-w1/review-unit-dispatch-verdicts.md` 第 2 项；`codex/reports/review-unit-dispatch.md` 第 2 项（两份均相对本次共享笔记根目录）。repos: bifrost-platform。
+
+### TD-571
+
+**P2 · cicd · 单元任务超过 20 分钟窗口后不再自动续派**
+
+- **状态**：未开始；独立复核 2026-11-13 发现，CI 线核实成立，统筹定这一轮不修。
+- **Claim**：续派只看最新 TaskRun 的创建时间；正常长任务完成或 30 分钟超时后，待派任务与重试都可能永久停留，须再次请求推进。
+- **证据**：platform `api/internal/server/units_dispatch.go:45-50,256-258,373-380`；`api/internal/unitexec/dispatch.go:31,139` 的任务超时为 30 分钟。
+- **影响**：CI 线裁定时当天最长的任务 128 秒，离 20 分钟很远；所有运行都超过 20 分钟未结束时，后排任务不再起，30 分钟超时也不会自动重派。
+- **修法方向**：续派条件改为「这个提交还有没结束的任务，或最近一次建任务不到 N 分钟」。
+- **防线 / 验收**：MaxRunning=1、计划含两个任务，t=0 起第一项，t=21 分钟完成，断言第二项自动创建；再覆盖 t=30 分钟超时后自动创建 attempt 2。
+- **出处**：共享笔记 `ci-w1/review-unit-dispatch-verdicts.md` 第 3 项；`codex/reports/review-unit-dispatch.md` 第 3 项（两份均相对本次共享笔记根目录）。repos: bifrost-platform。
+
+### TD-572
+
+**P2 · cicd · 单元任务回收与重派不读已落库的 unit_run**
+
+- **状态**：未开始；独立复核 2026-11-13 发现，CI 线核实成立，统筹定这一轮不修。
+- **Claim**：分片结算、是否派过及重试次数只依赖集群仍保留的 TaskRun；对象清理后不能从持久化运行账可靠恢复。
+- **证据**：platform `api/internal/server/units_dispatch.go:135-180,233-272,297-306`；已有的 `api/internal/agentrt/store/unit_run.go:80-105` 查询未在此流程调用。
+- **影响**：集群清理任务 7 天后删运行；计划通常几分钟到十几分钟走完，正常碰不上，隔了 7 天再对同一提交要证据会碰上。
+- **修法方向**：结算时把库里同钥匙的 unit_run 也读进来，并让重派判断使用持久化历史。
+- **防线 / 验收**：两片任务中片 0 完成落库后清理其 TaskRun，再完成片 1 并重启 receiver，应能结算且不重跑片 0；attempt 1、2 均 infra 落库后清理对象，再 advance 不得重置重试预算。
+- **出处**：共享笔记 `ci-w1/review-unit-dispatch-verdicts.md` 第 4 项；`codex/reports/review-unit-dispatch.md` 第 4 项（两份均相对本次共享笔记根目录）。repos: bifrost-platform。
+
+### TD-573
+
+**P2 · cicd · 运行名只取计划号前 8 位，碰撞后任务派不出去**
+
+- **状态**：未开始；独立复核 2026-11-13 发现，CI 线核实成立，统筹定这一轮不修。
+- **Claim**：List 按完整 PlanID 区分计划，Create 的名字却仅取前 8 位；另一个计划的 AlreadyExists 被误计为 Present。
+- **证据**：platform `api/internal/unitexec/dispatch.go:55-74`；`api/internal/server/units_dispatch.go:138-140,193-199`；`api/internal/delivery/unit_taskruns.go:41-44`。
+- **影响**：碰撞后后一个计划永远派不出去。CI 线裁定记录：8 位十六进制，约 6.5 万个计划时生日碰撞概率达一半量级，当天共 4 个计划。
+- **修法方向**：名字使用 16 位，或撞名时比对标签里的整个计划号。
+- **防线 / 验收**：Plan.Repo=r，唯一任务 Unit=api/a、Task=test、Key 为 64 个 a；Commit 分别为 `00000000000000000000000000000000000055a9` 和 `0000000000000000000000000000000000017cd9`，PlanID 为 `e097de7a146eae7e`、`e097de7a119a019f`，Seq=0/Attempt=1 当前都得 `unit-e097de7a-0`；测试须断言不冲突，或不同完整 plan label 的 AlreadyExists 不得算 Present。
+- **出处**：共享笔记 `ci-w1/review-unit-dispatch-verdicts.md` 第 5 项；`codex/reports/review-unit-dispatch.md` 第 5 项（两份均相对本次共享笔记根目录）。repos: bifrost-platform。
+
+### TD-574
+
+**P2 · cicd · 仓库根 Go 模块无法构建模块级计划**
+
+- **状态**：未开始；独立复核 2026-11-13 发现，CI 线核实成立，统筹定这一轮不修。
+- **Claim**：合法的 Go root=. 被转为空串，模块级任务直接拿它当 unit，无法通过 unitName 校验，整个计划构建失败。
+- **证据**：platform `api/internal/unitplan/plan.go:147-150,160-168,188-204`；`api/internal/unitplan/manifest.go:82-94` 不拒绝 Go root=.。
+- **影响**：platform 的 Go 模块在 api/ 下，碰不上；别的仓库接进来、Go 模块在根上时会碰上，计划中的任务无法派发。
+- **修法方向**：未定。
+- **防线 / 验收**：树含根目录 go.mod（module example.com/m）、a.go；合法 YAML manifest 为 version=1，模块 name=api/kind=go/root='.'，vet.per=module；ParseManifest 通过后 Build 应成功产出模块级任务，当前报空串不是合法单元名。
+- **出处**：共享笔记 `ci-w1/review-unit-dispatch-verdicts.md` 第 6 项；`codex/reports/review-unit-dispatch.md` 第 6 项（两份均相对本次共享笔记根目录）。repos: bifrost-platform。
+
+### TD-575
+
+**P3 · cicd · 单元任务续派每轮仍重算年轻提交的计划**
+
+- **状态**：未开始；独立复核 2026-11-13 发现，CI 线核实成立，统筹定这一轮不修。
+- **Claim**：「一轮只算一次计划、已结算不算」只覆盖结算子阶段；dispatch-on 的续派每轮仍调用 buildUnitPlan。
+- **证据**：platform `api/internal/server/units_dispatch.go:126,283-285,316-331,373-380,463-466`；结算缓存没有传给 advanceUnits。
+- **影响**：同时在派的提交多了，每 30 秒一轮会变慢；CI 线记录每个计划约 1 秒，STG 量到一轮 10.8 秒。
+- **修法方向**：与「任务结束就接着派」同一块，一起改；具体方案未定。
+- **防线 / 验收**：复用 countingTrees，receive 传真实 advanceUnits 而不是 nil；已有 verdict 且 TaskRun 仍在年轻窗口时应不读计划，本轮新结算时至多构建一次，覆盖 dispatch-on 的完整回收轮次。
+- **出处**：共享笔记 `ci-w1/review-unit-dispatch-verdicts.md` 第 7 项；`codex/reports/review-unit-dispatch.md` 第 7 项（两份均相对本次共享笔记根目录）。repos: bifrost-platform。
 
 ### TD-85
 

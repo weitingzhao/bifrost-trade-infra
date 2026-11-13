@@ -59,7 +59,7 @@
 用 `wait_for_request`（等）或 `get_request`（读）看这张卡：
 
 - `status`: `pending`（还没批）→ `executed`（退出码 0）或 `failed`（退出码非 0、超时、被拒）。`approved` 表示他点了不带码的批准，命令还没跑。`unknown` 表示执行程序没报结果。
-- `execution.exit_code`、`execution.output_tail`（最后 2048 字节，令牌形状的字符串会被盖掉）、`execution.duration_ms`、`execution.executor_id`（`owner-exec:<pod>` 表示是执行程序跑的）。
+- `execution.exit_code`、`execution.output_tail`（脱敏后最多 2048 字节；超过完整缓冲上限时是一句固定的省略文字）、`execution.output_sha256`（有的时候，是结果接收时最终存下来的这段文字的 SHA-256，不是原始输出的哈希）、`execution.duration_ms`、`execution.executor_id`（`owner-exec:<pod>` 表示是执行程序跑的）。这个行为在 STG 已生效，PROD 的执行口要等换镜像之后才生效。
 - `result.message` 里那句「Run: bash scripts/owner/…」是旧文字，对已经由执行程序跑完的卡不适用，以 `status` 和 `execution` 为准（已记债）。
 
 读到结果后自己核对它真的生效了（对象在不在、Pod 起没起），再往下走。`executed` 只说明命令退出码是 0。
