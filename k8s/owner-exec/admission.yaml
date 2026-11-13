@@ -21,7 +21,9 @@ spec:
       - apiGroups: ["*"]
         apiVersions: ["*"]
         operations: ["CREATE", "UPDATE", "DELETE", "CONNECT"]
-        resources: ["*", "*/*"]
+        # "*/*" alone: every resource and every subresource (pods/exec,
+        # pods/portforward, deployments/scale). The API refuses "*" beside it.
+        resources: ["*/*"]
   matchConditions:
     - name: is-owner-exec
       expression: request.userInfo.username == 'system:serviceaccount:bifrost-owner-exec:owner-exec'
@@ -64,7 +66,9 @@ spec:
       - apiGroups: ["*"]
         apiVersions: ["*"]
         operations: ["CREATE", "UPDATE", "DELETE", "CONNECT"]
-        resources: ["*", "*/*"]
+        # "*/*" alone: every resource and every subresource (pods/exec,
+        # pods/portforward, deployments/scale). The API refuses "*" beside it.
+        resources: ["*/*"]
     namespaceSelector:
       matchLabels:
         kubernetes.io/metadata.name: bifrost-owner-exec
