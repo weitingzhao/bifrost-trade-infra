@@ -46,9 +46,11 @@
 
 交易、钱、D10 相关的一律不要往这里送，也不要想办法绕（换个身份、分几步、先删策略）。那些拒绝是 Owner 明确要的；绕过去的命令他在卡上看得见。
 
-另外三条自己守住的：
+另外四条自己守住的：
 
 - **不要让命令打印秘密**。卡的结果所有 Agent 都读得到。不要 `kubectl get secret -o yaml`，不要 `cat` 令牌。要核对 Secret 就只打印键名或长度。
+  脱敏认得的是请求里登记的精确值和常见的令牌形状；写在引号里带空格的、被换行拆开的、只输出了一部分就超时的、经过编码或转义的，可能盖不住。所以这一条不能靠脱敏兜底。
+- **不要让命令起后台进程**。不要用 `&`、`nohup`、`setsid` 之类把东西留在后台；卡结束或超时后它们可能还在跑，结果里看不到。
 - 命令要能重跑不出事。执行程序如果中途没了，卡会变成 unknown（不知道跑没跑），由 Owner 判断；写命令时就让「再跑一次」是安全的。
 - 一张卡一件事。别把几件不相干的事用 `&&` 串成一条让他一次批。
 
@@ -61,6 +63,18 @@
 - `result.message` 里那句「Run: bash scripts/owner/…」是旧文字，对已经由执行程序跑完的卡不适用，以 `status` 和 `execution` 为准（已记债）。
 
 读到结果后自己核对它真的生效了（对象在不在、Pod 起没起），再往下走。`executed` 只说明命令退出码是 0。
+
+## 发布之后的核对
+
+执行口复核类的修复改的是 runner 和 shell 里的代码。PROD 的执行口不随平台发布换镜像，所以每次有这类改动上了 PROD 平台之后，都要只读核对三处镜像的完整摘要是否一致：PROD 的 platform-api、执行口的 runner、执行口的 shell。不一致就说明执行口还是旧的，修复在 PROD 没生效，要另走一张执行卡去换。STG 的执行口跟着平台发布自动换。
+
+带只读身份运行下面这一条命令，读三处正在运行的容器的完整 `imageID`（滚动期间可能有多行，逐行核对）：
+
+```bash
+kubectl get pods -A -l 'app.kubernetes.io/name in (platform-api,owner-exec)' -o json | python3 -c 'import json,sys; data=json.load(sys.stdin); [print(p["metadata"]["namespace"], p["metadata"]["name"], c["name"], c.get("imageID", "MISSING")) for p in data["items"] for c in p.get("status", {}).get("containerStatuses", []) if (p["metadata"]["namespace"] == "bifrost-platform-prod" and c["name"] == "platform-api") or (p["metadata"]["namespace"] == "bifrost-owner-exec" and c["name"] in ("runner", "shell"))]'
+```
+
+三处有任何一处没输出或没有摘要，都算没核对完，不能当作一致。
 
 ## 他那一侧是什么样
 
