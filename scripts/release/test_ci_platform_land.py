@@ -1,9 +1,9 @@
 """Owner 2026-11-12: bifrost-platform's main takes a change only through a pull request that
-the CI run itself merges when it is green. A push to refs/heads/ready/<name> asks for it; the
-last task of bifrost-ci-platform, holding the only non-Owner identity on main's merge
-whitelist, opens the pull request and merges the commit the run tested. Pinned here: who can
-start a landing run, that the task waits for every other task, where the token is, and what
-the task refuses."""
+the cluster merges when the commit's CI is green. A push to refs/heads/ready/<name> asks for
+it: the CI gate runs on the whole suite, and bifrost-land-platform beside it passes the
+release freeze check, waits for that gate, and merges the same commit as bifrost-merger, the
+only non-Owner identity on main's merge whitelist. Pinned here: who starts a landing, the
+order of the three tasks, where the token is, which CI runs count, and what `land` refuses."""
 
 import json
 import threading
@@ -16,31 +16,38 @@ import yaml
 from test_ci_branch_trigger import SHA, ZERO, fired, push
 
 ROOT = Path(__file__).resolve().parents[2]
-PIPELINE = ROOT / "k8s/cicd/tekton/pipeline-ci-platform.yaml"
+PIPELINE = ROOT / "k8s/cicd/tekton/pipeline-land-platform.yaml"
+CI_PIPELINE = ROOT / "k8s/cicd/tekton/pipeline-ci-platform.yaml"
 TRIGGER = ROOT / "k8s/cicd/tekton/trigger-trade-ci.yaml"
 MAIN = "b" * 40
 REF = "refs/heads/ready/x"
+BOTH = ["platform-ci-ready", "platform-land"]
+REPO_URL = "http://gitea.cicd.svc.cluster.local:3000/bifrost/bifrost-platform.git"
 
 
 def pipeline():
     return yaml.safe_load(PIPELINE.read_text())["spec"]
 
 
+def task(name):
+    (found,) = [t for t in pipeline()["tasks"] if t["name"] == name]
+    return found
+
+
 def land_task():
-    (task,) = [t for t in pipeline()["tasks"] if t["name"] == "land"]
-    return task
+    return task("land")
 
 
-# --- who starts a landing run ---------------------------------------------------
+# --- who starts a landing ---------------------------------------------------------
 
 
-def test_only_a_ready_branch_of_platform_starts_a_landing_run():
-    assert fired(push("bifrost-platform", REF)) == ["platform-ci-land"]
-    assert fired(push("bifrost-platform", "refs/heads/ready/wave-2/fix.1")) == ["platform-ci-land"]
+def test_a_ready_branch_of_platform_starts_ci_on_the_whole_suite_and_the_landing():
+    assert fired(push("bifrost-platform", REF)) == BOTH
+    assert fired(push("bifrost-platform", "refs/heads/ready/wave-2/fix.1")) == BOTH
     for ref in ["refs/heads/w/some-lane", "refs/heads/main", "refs/heads/already/x"]:
-        assert "platform-ci-land" not in fired(push("bifrost-platform", ref)), ref
-    assert "platform-ci-land" not in fired(push("bifrost-trade-core", REF))
-    assert "platform-ci-land" not in fired(push("bifrost-ui", REF))
+        assert not set(BOTH) & set(fired(push("bifrost-platform", ref))), ref
+    for repo in ["bifrost-trade-core", "bifrost-ui", "bifrost-trade-infra"]:
+        assert not set(BOTH) & set(fired(push(repo, REF))), repo
 
 
 def test_a_ready_ref_that_is_not_a_plain_name_starts_nothing():
@@ -50,62 +57,112 @@ def test_a_ready_ref_that_is_not_a_plain_name_starts_nothing():
     assert fired(push("bifrost-platform", REF, after=ZERO)) == []
 
 
-def test_the_lander_starts_no_landing_run():
+def test_the_lander_starts_no_landing():
     body = push("bifrost-platform", REF)
     body["pusher"] = {"login": "agentrt-lander"}
     assert fired(body) == []
 
 
-def test_only_the_landing_binding_says_land_and_it_names_no_base():
+def test_the_ready_binding_names_no_base_and_only_the_two_ready_triggers_use_it():
     docs = [d for d in yaml.safe_load_all(TRIGGER.read_text()) if d]
-    saying = {d["metadata"]["name"]: {p["name"]: p["value"] for p in d["spec"]["params"]}
-              for d in docs if d["kind"] == "TriggerBinding" and any(p["name"] == "land" for p in d["spec"]["params"])}
-    assert saying == {"bifrost-gitea-push-platform-land": {
-        "revision": "$(body.after)", "land": "yes", "branch": "$(body.ref)"}}
-    (template,) = [d for d in docs if d["metadata"]["name"] == "bifrost-ci-platform-template"]
-    defaults = {p["name"]: p.get("default") for p in template["spec"]["params"]}
-    assert defaults["land"] == "no" and defaults["branch"] == "" and defaults["base"] == ""
+    (binding,) = [d for d in docs if d["metadata"]["name"] == "bifrost-gitea-push-platform-ready"]
+    assert {p["name"]: p["value"] for p in binding["spec"]["params"]} == {
+        "revision": "$(body.after)", "branch": "$(body.ref)"}
     (el,) = [d for d in docs if d["kind"] == "EventListener" and d["metadata"]["name"] == "bifrost-ci"]
-    users = [t["name"] for t in el["spec"]["triggers"]
-             if any(b["ref"] == "bifrost-gitea-push-platform-land" for b in t["bindings"])]
-    assert users == ["platform-ci-land"]
+    use = {t["name"]: t["template"]["ref"] for t in el["spec"]["triggers"]
+           if any(b["ref"] == "bifrost-gitea-push-platform-ready" for b in t["bindings"])}
+    assert use == {"platform-ci-ready": "bifrost-ci-platform-template", "platform-land": "bifrost-land-platform-template"}
+    lands = [d["metadata"]["name"] for d in docs if d["kind"] == "TriggerTemplate"
+             and "bifrost-land-platform" in json.dumps(d["spec"]["resourcetemplates"])]
+    assert lands == ["bifrost-land-platform-template"]
+    (ci,) = [d for d in docs if d["metadata"]["name"] == "bifrost-ci-platform-template"]
+    assert {p["name"]: p.get("default") for p in ci["spec"]["params"]}["base"] == ""
 
 
-def test_the_pipeline_defaults_to_not_landing():
-    params = {p["name"]: p["default"] for p in pipeline()["params"]}
-    assert params["land"] == "no" and params["branch"] == ""
+# --- the pipeline's wiring ---------------------------------------------------------
 
 
-# --- the task's wiring -----------------------------------------------------------
+def test_freeze_check_then_ci_wait_then_land():
+    tasks = pipeline()["tasks"]
+    assert [t["name"] for t in tasks] == ["freeze-check", "ci-wait", "land"]
+    assert tasks[0]["taskRef"] == {"name": "bifrost-release-freeze-check"} and "runAfter" not in tasks[0]
+    assert tasks[1]["runAfter"] == ["freeze-check"] and tasks[2]["runAfter"] == ["ci-wait"]
+    assert "finally" not in pipeline()
+    assert all("when" not in t and "onError" not in t and "retries" not in t for t in tasks)
 
 
-def test_land_runs_after_every_other_task():
-    others = [t["name"] for t in pipeline()["tasks"] if t["name"] != "land"]
-    assert sorted(land_task()["runAfter"]) == sorted(others)
-    assert pipeline()["tasks"][-1]["name"] == "land"
+def test_the_ci_pipeline_itself_is_as_it_was():
+    spec = yaml.safe_load(CI_PIPELINE.read_text())["spec"]
+    assert "land" not in [t["name"] for t in spec["tasks"]] and "finally" not in spec
+    assert "gitea-merger" not in CI_PIPELINE.read_text()
 
 
 def test_the_merger_token_is_mounted_in_the_land_task_alone():
-    text = PIPELINE.read_text()
-    assert text.count("secretName: gitea-merger") == 1
-    assert land_task()["taskSpec"]["volumes"] == [
-        {"name": "gitea-merger", "secret": {"secretName": "gitea-merger", "optional": True}}]
-    for task in pipeline()["tasks"]:
-        if task["name"] != "land":
-            assert "gitea-merger" not in json.dumps(task), task["name"]
+    assert PIPELINE.read_text().count("secretName: gitea-merger") == 1
+    assert land_task()["taskSpec"]["volumes"] == [{"name": "gitea-merger", "secret": {"secretName": "gitea-merger"}}]
+    for name in ("freeze-check", "ci-wait"):
+        assert "gitea-merger" not in json.dumps(task(name)), name
     for path in (ROOT / "k8s").rglob("*.yaml"):
         if path != PIPELINE:
             assert "gitea-merger" not in path.read_text(), path
 
 
-def test_land_is_inline_and_takes_the_commit_the_run_cloned():
-    task = land_task()
-    assert "taskRef" not in task
-    assert {p["name"]: p["value"] for p in task["params"]} == {
-        "commit": "$(tasks.clone.results.commit)", "branch": "$(params.branch)", "land": "$(params.land)"}
-    script = task["taskSpec"]["steps"][0]["script"]
+def test_land_and_ci_wait_are_inline_and_take_the_pushed_commit():
+    for name in ("ci-wait", "land"):
+        assert "taskRef" not in task(name), name
+    assert {p["name"]: p["value"] for p in land_task()["params"]} == {
+        "commit": "$(params.revision)", "branch": "$(params.branch)"}
+    assert {p["name"]: p["value"] for p in task("ci-wait")["params"]} == {"commit": "$(params.revision)"}
+    script = land_task()["taskSpec"]["steps"][0]["script"]
     assert "API = 'http://gitea.cicd.svc.cluster.local:3000/api/v1/repos/bifrost/bifrost-platform'" in script
-    assert "$(params" not in script and "giteaBase" not in script
+    for name in ("ci-wait", "land"):
+        assert "$(params" not in task(name)["taskSpec"]["steps"][0]["script"], name
+
+
+# --- which CI runs count -------------------------------------------------------------
+
+
+def ci_run(state="True", scope="full", **params):
+    params = {"revision": SHA, "repo-url": REPO_URL, "base": "", **params}
+    status = {"results": [{"name": "api-scope", "value": scope}]}
+    if state:
+        status["conditions"] = [{"type": "Succeeded", "status": state}]
+    return {"spec": {"pipelineRef": {"name": "bifrost-ci-platform"},
+                     "params": [{"name": k, "value": v} for k, v in params.items()]}, "status": status}
+
+
+def verdict(runs):
+    scope = {"__name__": "ci_wait_under_test"}
+    exec(task("ci-wait")["taskSpec"]["steps"][0]["script"], scope)  # noqa: S102 - our own file
+    return scope["verdict"](runs, SHA)
+
+
+def test_a_green_whole_suite_run_of_the_commit_counts():
+    assert verdict([ci_run()]) == "green"
+    assert verdict([ci_run(scope="console")]) == "green"
+    assert verdict([ci_run(state="False"), ci_run()]) == "green"
+
+
+@pytest.mark.parametrize("other", [
+    {"revision": "c" * 40}, {"revision": "main"}, {"base": "d" * 40},
+    {"repo-url": "http://elsewhere/bifrost/bifrost-platform.git"}])
+def test_a_green_run_of_another_commit_repository_or_an_increment_does_not_count(other):
+    assert verdict([ci_run(**other)]) == "wait"
+
+
+def test_an_incremental_scope_or_another_pipeline_does_not_count():
+    assert verdict([ci_run(scope="incremental")]) == "red"
+    other = ci_run()
+    other["spec"]["pipelineRef"]["name"] = "bifrost-ci-python"
+    assert verdict([other]) == "wait"
+
+
+def test_red_only_when_every_run_of_the_commit_finished_without_a_green_one():
+    assert verdict([]) == "wait"
+    assert verdict([ci_run(state="Unknown")]) == "wait"
+    assert verdict([ci_run(state=None)]) == "wait"
+    assert verdict([ci_run(state="False")]) == "red"
+    assert verdict([ci_run(state="False"), ci_run(state="Unknown")]) == "wait"
 
 
 # --- what the task does ----------------------------------------------------------
