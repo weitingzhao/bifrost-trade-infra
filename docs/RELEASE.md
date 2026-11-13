@@ -451,3 +451,5 @@ scripts/release/release.sh db-done prod <id>   # Owner 执行完后记录（本�
 ```
 
 记录后在下一次 infra 提交里把环境加进该步骤文件的 `done:` 行，别的机器和会话才看得到。
+
+<!-- land-all acceptance probe: this line is landed and then reverted through ready/ -->
