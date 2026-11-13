@@ -42,7 +42,6 @@ patches:
   - path: platform-api-role-tokens.patch.yaml
   - path: platform-api-recreate.patch.yaml
   - path: platform-agentrt-env.patch.yaml
-  - path: platform-api-exam-set.patch.yaml
   - path: platform-gitea-reader.patch.yaml
   - path: platform-workers-landing-drill.patch.yaml
 

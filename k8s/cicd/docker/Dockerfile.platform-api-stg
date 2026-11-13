@@ -12,10 +12,6 @@ ENV GOTOOLCHAIN=auto
 RUN go mod download
 COPY bifrost-platform/api/ ./
 RUN CGO_ENABLED=0 GOOS=linux go build -o /platform-api ./cmd/platform-api
-# W-31 B5: the read-only pre-open probe runs as a one-off Job on this exact
-# image digest under the workers' ServiceAccount (platform
-# api/cmd/stg-release-probe/CANARY.md). It is never the entrypoint.
-RUN CGO_ENABLED=0 GOOS=linux go build -o /stg-release-probe ./cmd/stg-release-probe
 # owner-exec: the cluster-side runner for owner_run_command cards approved with
 # a one-time code (platform api/internal/ownerexec). Its own Deployment runs
 # this image with command owner-exec; it is never platform-api's entrypoint.
@@ -33,7 +29,6 @@ FROM alpine:3.20
 # (36 retained owner_run_command cards, 2026-11-13: kubectl 28, git 12, python 11).
 RUN apk add --no-cache ca-certificates git openssh-client bash curl python3
 COPY --from=builder /platform-api /usr/local/bin/platform-api
-COPY --from=builder /stg-release-probe /usr/local/bin/stg-release-probe
 COPY --from=builder /owner-exec /usr/local/bin/owner-exec
 COPY --from=builder /kubectl /usr/local/bin/kubectl
 
