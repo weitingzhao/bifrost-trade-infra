@@ -301,8 +301,8 @@ spec:
                           'does not take it' % hit) if hit else ''
 
               def up_to_date(token, api, pull):
-                  """(main's head, '') when the branch sits on it; (None, 'rebased') after asking Gitea
-                  to rebase it; (None, refusal) when that is not possible."""
+                  """(main's head, '') when the branch sits on it; (main's head, 'rebased') after Gitea
+                  rebased the branch onto it; (None, refusal) when that is not possible."""
                   code, main = call(token, 'GET', api + '/branches/main')
                   head = main.get('commit', {}).get('id') if code == 200 else None
                   if not head:
@@ -311,7 +311,7 @@ spec:
                       return head, ''
                   code, out = call(token, 'POST', api + '/pulls/%d/update?style=rebase' % pull['number'])
                   if code == 200:
-                      return None, 'rebased'
+                      return head, 'rebased'
                   return None, ('refused: the branch is behind main and Gitea could not rebase it (%s %s). Rebase it '
                                 'onto main and push ready/ again; the new commit gets its own run'
                                 % (code, (out or {}).get('message', '')))
@@ -367,20 +367,24 @@ spec:
                       ids, problem = lineage(token, api, pull['number'])
                   if problem:
                       return {}, problem
-                  deadline, pushed, stale = time.time() + budget, commit, 0
+                  # `known` is the commit a rebase just put the branch on. Right after a rebase the pull
+                  # request still reports its old merge_base for a while (2026-11-13: read at once, it
+                  # sent this run to rebase a branch that was already on main, and Gitea answered 500),
+                  # so until main moves again the branch's base is what this run itself saw, not that field.
+                  deadline, pushed, stale, known = time.time() + budget, commit, 0, None
                   while time.time() < deadline:
-                      base, problem = up_to_date(token, api, pull)
-                      if problem == 'rebased':
-                          commit, problem = rebased_head(token, api, pull, pause=pause)
-                          if not problem:
-                              print('the branch was behind main; Gitea rebased %s to %s and this run goes on with it'
-                                    % (pushed[:12], commit[:12]), flush=True)
-                              pull, problem = pull_request(token, api, branch, commit, repo)
+                      if known is None:
+                          base, problem = up_to_date(token, api, pull)
+                          if problem == 'rebased':
+                              commit, problem = rebased_head(token, api, pull, pause=pause)
+                              if not problem:
+                                  print('the branch was behind main; Gitea rebased %s to %s and this run goes on with it'
+                                        % (pushed[:12], commit[:12]), flush=True)
+                                  pull, problem = pull_request(token, api, branch, commit, repo)
+                              known = base
                           if problem:
                               return {}, problem
-                          continue
-                      if problem:
-                          return {}, problem
+                      base = known or base
                       got = wait(commit, entry['ci'], base)
                       if got not in ('green', 'stale'):
                           return {}, got
@@ -388,7 +392,8 @@ spec:
                       if problem:
                           return {}, problem
                       code, main = call(token, 'GET', api + '/branches/main')
-                      still = code == 200 and main.get('commit', {}).get('id') == base == pull.get('merge_base')
+                      still = code == 200 and main.get('commit', {}).get('id') == base and (
+                          known == base or pull.get('merge_base') == base)
                       if got == 'green' and still:
                           problem = merge(token, api, pull, commit, tries, pause)
                           if problem:
@@ -397,6 +402,8 @@ spec:
                       stale += still
                       if stale > 1:
                           return {}, 'refused: CI did not judge %s against main as it is now; push ready/ again' % commit
+                      if not still:
+                          known = None  # main moved: the next round reads the pull request again
                   return {}, 'refused: main kept moving for %d minutes while this change was checked; push ready/ again' % (budget // 60)
 
               if __name__ == '__main__':

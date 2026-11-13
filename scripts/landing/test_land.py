@@ -312,6 +312,7 @@ class Gitea:
 
     def __init__(self, **kw):
         self.kw, self.calls, self.main, self.head = kw, [], MAIN, "c" * 40 if kw.get("moved") else SHA
+        self.lag = 0
 
     def call(self, token, method, url, body=None):
         assert url.startswith(self.HOST + "/"), url
@@ -331,8 +332,11 @@ class Gitea:
         if "/update" in path:
             if kw.get("conflict"):
                 return 409, {"message": "rebase failed because of conflict"}
+            if not kw.get("behind"):
+                return 500, {"message": ""}  # as Gitea answers for a branch that is already on main
             kw["behind"] = False  # Gitea put the branch on main: a new commit
             self.head = "%040x" % (int(self.head, 16) + 1)
+            self.lag = kw.get("lag", 0)  # reads for which the pull request still shows the old merge_base
             return 200, None
         if kw.get("busy", 0) > 0:
             kw["busy"] -= 1
@@ -343,8 +347,10 @@ class Gitea:
         return 200, None
 
     def pull(self):
+        lagging = self.lag > 0
+        self.lag -= lagging
         return {"number": 7, "head": {"ref": "ready/x", "sha": self.head},
-                "base": {"ref": "main"}, "merge_base": "d" * 40 if self.kw.get("behind") else self.main}
+                "base": {"ref": "main"}, "merge_base": "d" * 40 if self.kw.get("behind") or lagging else self.main}
 
     def paths(self, word):
         return [c for c in self.calls if word in c[1]]
@@ -420,6 +426,16 @@ def test_a_branch_behind_main_is_rebased_and_the_same_run_lands_the_new_commit()
     (merge,) = gitea.merges()
     assert merge[2]["head_commit_id"] == NEXT
     assert gitea.landed == {"outcome": "landed", "commit": NEXT, "change-ids": IDS} and gitea.main == NEXT
+
+
+def test_a_pull_request_that_still_shows_its_old_merge_base_after_the_rebase_is_not_rebased_again():
+    """2026-11-13, land-79dsl: read straight after the rebase, the pull request still named its
+    old merge_base; the run asked Gitea to rebase a branch that was already on main, got 500 and
+    refused a good change. The run knows where its own rebase put the branch."""
+    gitea = Gitea(behind=True, lag=50)
+    assert run_land(gitea) == ("landed", "")
+    assert len(gitea.paths("/update")) == 1 and gitea.landed["commit"] == NEXT
+    assert gitea.waits == [("bifrost-ci-platform", MAIN, NEXT)]
 
 
 def test_main_moving_while_ci_ran_is_followed_as_often_as_it_happens():
