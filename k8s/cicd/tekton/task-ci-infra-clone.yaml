@@ -18,6 +18,8 @@ spec:
   - name: commit
   - name: base-commit
   - name: platform-commit
+  - name: tree
+  - name: platform-tree
   workspaces:
   - name: source
   steps:
@@ -97,3 +99,5 @@ spec:
       printf '%s' "$REVISION" > "$(results.commit.path)"
       printf '%s' "$BASE" > "$(results.base-commit.path)"
       printf '%s' "$PLATFORM_REVISION" > "$(results.platform-commit.path)"
+      printf '%s' "$(git -C "$infra" rev-parse 'HEAD^{tree}')" > "$(results.tree.path)"
+      printf '%s' "$(git -C "$ws/cand/bifrost-platform" rev-parse 'HEAD^{tree}')" > "$(results.platform-tree.path)"
