@@ -21,6 +21,7 @@ NFS_COLD_PATH="${NFS_COLD_PATH:-/volume1/k3s-cold}"
 NFS_CHART_REPO="${NFS_CHART_REPO:-https://kubernetes-sigs.github.io/nfs-subdir-external-provisioner/}"
 NFS_CHART="${NFS_CHART:-nfs-subdir-external-provisioner/nfs-subdir-external-provisioner}"
 NFS_NAMESPACE="${NFS_NAMESPACE:-kube-system}"
+# renovate: datasource=helm depName=nfs-subdir-external-provisioner registryUrl=https://kubernetes-sigs.github.io/nfs-subdir-external-provisioner/
 NFS_CHART_VERSION="${NFS_CHART_VERSION:-4.0.18}"
 # The NAS also offers NFSv4, and a mount without a version tries v4 first: the
 # NAS answers "No such file or directory" for /volume1/..., and the client

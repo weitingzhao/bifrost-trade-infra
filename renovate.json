@@ -1,0 +1,75 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": [
+    "Renovate finds new versions of the open-source components this cluster runs and opens a pull request with the upstream change notes. It never merges: an Agent reads the notes, runs scripts/k3s/pluto-report.sh, takes the change through STG and then PROD.",
+    "First round is deliberately narrow: only a version that carries a `# renovate:` line above it is proposed (scripts/k3s/versions.env, the Helm chart pins in the install scripts, Gitea and kube-vip). The CloudNativePG operator is left out on purpose: its version appears twice in one URL and it runs the only database. Widen once the round trip has been walked."
+  ],
+  "enabledManagers": [
+    "custom.regex"
+  ],
+  "automerge": false,
+  "platformAutomerge": false,
+  "prConcurrentLimit": 3,
+  "prHourlyLimit": 2,
+  "branchPrefix": "renovate/",
+  "labels": [
+    "upgrade"
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "scripts/k3s/versions.env: a `# renovate:` line, then NAME=version",
+      "managerFilePatterns": [
+        "/^scripts/k3s/versions\\.env$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\n[A-Z_]+=(?<currentValue>\\S+)"
+      ]
+    },
+    {
+      "customType": "regex",
+      "description": "Helm chart pins in the install scripts: a `# renovate:` line, then NAME=\"${NAME:-version}\"",
+      "managerFilePatterns": [
+        "/^scripts/k3s/install-[a-z-]+\\.sh$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=helm depName=(?<depName>\\S+) registryUrl=(?<registryUrl>\\S+)\\n[A-Z_]+=\"\\$\\{[A-Z_]+:-(?<currentValue>[^}]+)\\}\""
+      ],
+      "datasourceTemplate": "helm"
+    },
+    {
+      "customType": "regex",
+      "description": "Image tags in the few manifests that carry a `# renovate:` line above `image:`",
+      "managerFilePatterns": [
+        "/^k8s/(system|cicd/gitea)/.+\\.yaml$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=docker depName=(?<depName>\\S+)\\n\\s*image: \\S+?:(?<currentValue>[^\\s@]+)"
+      ],
+      "datasourceTemplate": "docker"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "One pull request per component; majors are proposed but never grouped with anything",
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "labels": [
+        "upgrade",
+        "major"
+      ]
+    },
+    {
+      "description": "Gitea: stay inside the running minor until the merge lane's reliance on 1.21 behaviour has been checked against a newer one",
+      "matchPackageNames": [
+        "gitea/gitea"
+      ],
+      "matchUpdateTypes": [
+        "major",
+        "minor"
+      ],
+      "enabled": false
+    }
+  ]
+}

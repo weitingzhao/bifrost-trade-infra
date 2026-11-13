@@ -10,6 +10,7 @@ RELEASE_NAME="${RELEASE_NAME:-kube-prometheus-stack}"
 MONITORING_NAMESPACE="${MONITORING_NAMESPACE:-monitoring}"
 CHART_REF="${CHART_REF:-prometheus-community/kube-prometheus-stack}"
 # Pin to the deployed chart — do not surprise-upgrade on ensure.
+# renovate: datasource=helm depName=kube-prometheus-stack registryUrl=https://prometheus-community.github.io/helm-charts
 CHART_VERSION="${CHART_VERSION:-88.1.3}"
 VALUES_FILE="${VALUES_FILE:-$(dirname "$0")/values-kube-prometheus.yaml}"
 

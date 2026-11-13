@@ -57,6 +57,7 @@ spec:
           effect: NoSchedule
       containers:
         - name: gitea
+          # renovate: datasource=docker depName=gitea/gitea
           image: gitea/gitea:1.21.11
           ports:
             - containerPort: 3000

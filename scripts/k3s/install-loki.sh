@@ -9,7 +9,9 @@ RELEASE_NAME="${RELEASE_NAME:-loki}"
 MONITORING_NAMESPACE="${MONITORING_NAMESPACE:-monitoring}"
 CHART_REF="${CHART_REF:-grafana/loki}"
 # Pinned: an unpinned `helm upgrade` takes the repo's latest chart (7.3.0 when 7.0.0 was deployed).
+# renovate: datasource=helm depName=loki registryUrl=https://grafana.github.io/helm-charts
 CHART_VERSION="${CHART_VERSION:-7.0.0}"
+# renovate: datasource=helm depName=promtail registryUrl=https://grafana.github.io/helm-charts
 PROMTAIL_CHART_VERSION="${PROMTAIL_CHART_VERSION:-6.17.1}"
 VALUES_FILE="${VALUES_FILE:-$(dirname "$0")/values-loki.yaml}"
 
