@@ -53,78 +53,11 @@ spec:
       value: $(body.before)
 
 ---
-# --- TriggerBinding: a push to refs/heads/ready/<name> of bifrost-platform asks for a landing ---
-# Owner 2026-11-12 (pipeline-land-platform.yaml). No `base`: the CI run of a ready/ push tests
-# the whole suite (or the console scope, which is measured from main), never the increment
-# since the last push to the branch. The same binding feeds the landing run.
-apiVersion: triggers.tekton.dev/v1beta1
-kind: TriggerBinding
-metadata:
-  name: bifrost-gitea-push-platform-ready
-  namespace: cicd
-  labels:
-    bifrost.io/purpose: ci-trigger
-spec:
-  params:
-    - name: revision
-      value: $(body.after)
-    - name: branch
-      value: $(body.ref)
-
----
-# --- TriggerTemplate: a ready/ push of bifrost-platform → bifrost-land-platform ---
-apiVersion: triggers.tekton.dev/v1beta1
-kind: TriggerTemplate
-metadata:
-  name: bifrost-land-platform-template
-  namespace: cicd
-  labels:
-    bifrost.io/purpose: ci-trigger
-    bifrost.io/layer: L1
-spec:
-  params:
-    - name: revision
-    - name: branch
-  resourcetemplates:
-    - apiVersion: tekton.dev/v1
-      kind: PipelineRun
-      metadata:
-        generateName: land-platform-
-        namespace: cicd
-        labels:
-          tekton.dev/pipeline: bifrost-land-platform
-          bifrost.io/trigger: gitea-webhook
-          bifrost.io/repo: bifrost-platform
-          bifrost.io/layer: L1
-      spec:
-        pipelineRef:
-          name: bifrost-land-platform
-        params:
-          - name: revision
-            value: $(tt.params.revision)
-          - name: branch
-            value: $(tt.params.branch)
-        # ci-wait reads the CI runs with the reader identity the reuse task already has.
-        taskRunSpecs:
-          - pipelineTaskName: ci-wait
-            serviceAccountName: tekton-platform-ci-reuse
-        taskRunTemplate:
-          podTemplate:
-            nodeSelector:
-              kubernetes.io/arch: amd64
-            tolerations:
-              - key: node-role.kubernetes.io/control-plane
-                operator: Exists
-                effect: NoSchedule
-
----
 # --- TriggerBinding and TriggerTemplate: a ready/ push → bifrost-land (pipeline-land.yaml) ---
-# The one landing pipeline for every repository listed in LANDING_REPOS (pipeline-land.yaml). The
-# repository's name is passed on only to be looked up there.
-# MIGRATION (2026-11-13, hours): bifrost-platform still lands through bifrost-land-platform
-# above, untouched, until this pipeline has landed bifrost-trade-infra for real. The next
-# commit moves it here and removes bifrost-land-platform, its template, its binding and the
-# repository name in the `land` filter below.
+# The one landing pipeline for every repository listed in LANDING_REPOS (pipeline-land.yaml).
+# The repository's name is passed on only to be looked up there. The binding names no
+# `base`: the bifrost-platform CI run of a ready/ push tests the whole suite (or the console
+# scope, which is measured from main), never the increment since the last push to the branch.
 apiVersion: triggers.tekton.dev/v1beta1
 kind: TriggerBinding
 metadata:
@@ -502,8 +435,9 @@ spec:
       template:
         ref: bifrost-ci-platform-template
     # Owner 2026-11-12: a push to ready/<name> is the request to land that commit. Two runs
-    # start: the CI gate without a base (the whole suite), and bifrost-land-platform, which
-    # waits for that gate and merges. The ref is pinned to a plain name: it is passed on as data.
+    # start: the repository's CI gate on the whole suite, and bifrost-land (trigger `land`
+    # below), which waits for that gate and merges. For bifrost-platform the gate is this
+    # trigger (no base). The ref is pinned to a plain name: it is passed on as data.
     - name: platform-ci-ready
       interceptors:
         - ref:
@@ -520,33 +454,13 @@ spec:
                    (!has(body.pusher.username) || body.pusher.username != 'agentrt-lander'))) &&
                 body.repository.name == 'bifrost-platform'
       bindings:
-        - ref: bifrost-gitea-push-platform-ready
+        - ref: bifrost-gitea-push-ready
       template:
         ref: bifrost-ci-platform-template
-    - name: platform-land
-      interceptors:
-        - ref:
-            name: "cel"
-          params:
-            - name: filter
-              value: >-
-                body.ref.startsWith('refs/heads/') &&
-                body.after.matches('^[0-9a-f]{40}$') &&
-                body.after != '0000000000000000000000000000000000000000' &&
-                body.ref.matches('^refs/heads/ready/[A-Za-z0-9._/-]{1,100}$') &&
-                (!has(body.pusher) ||
-                  ((!has(body.pusher.login) || body.pusher.login != 'agentrt-lander') &&
-                   (!has(body.pusher.username) || body.pusher.username != 'agentrt-lander'))) &&
-                body.repository.name == 'bifrost-platform'
-      bindings:
-        - ref: bifrost-gitea-push-platform-ready
-      template:
-        ref: bifrost-land-platform-template
     # One landing trigger for every repository: which ones land is LANDING_REPOS (pipeline-land.yaml), read
     # by the pipeline; the name is pinned to a plain one and is data. A repository's CI gate
     # starts beside it from its own trigger (bifrost-trade-infra: infra-ci above, whose clone
     # task takes main as the base of a commit that heads a ready/ branch).
-    # MIGRATION: the last line keeps bifrost-platform on platform-land until the next commit.
     - name: land
       interceptors:
         - ref:
@@ -561,8 +475,7 @@ spec:
                 (!has(body.pusher) ||
                   ((!has(body.pusher.login) || body.pusher.login != 'agentrt-lander') &&
                    (!has(body.pusher.username) || body.pusher.username != 'agentrt-lander'))) &&
-                body.repository.name.matches('^[a-z0-9-]{1,100}$') &&
-                body.repository.name != 'bifrost-platform'
+                body.repository.name.matches('^[a-z0-9-]{1,100}$')
       bindings:
         - ref: bifrost-gitea-push-ready
       template:

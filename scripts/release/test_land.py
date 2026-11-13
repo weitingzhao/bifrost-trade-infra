@@ -76,24 +76,19 @@ def tekton_docs():
                     yield name, doc
 
 
-MIGRATING = True  # platform still lands through bifrost-land-platform; False in the next commit
-
-
 def test_one_pipeline_holds_the_merger_token_and_none_is_named_for_a_repository():
     """A copy of the landing pipeline for one more repository fails here, under any name:
     what marks a landing pipeline is that it can reach the merging account's token.
     The mistake this answers: 2026-11-12 built a landing pipeline named for one repository,
     and the Owner's word on 2026-11-13 was that reaching more repositories extends what
     exists and does not copy it."""
-    old = [("pipeline-land-platform.yaml", "bifrost-land-platform")] if MIGRATING else []
     holders = sorted({(name, doc["metadata"]["name"]) for name, doc in tekton_docs()
                       if "gitea-merger" in json.dumps(doc) and doc["kind"] != "ConfigMap"})
-    assert holders == sorted(old + [("pipeline-land.yaml", "bifrost-land")])
+    assert holders == [("pipeline-land.yaml", "bifrost-land")]
     lands = sorted(doc["metadata"]["name"] for _, doc in tekton_docs()
                    if doc["kind"] == "Pipeline" and doc["metadata"]["name"].startswith("bifrost-land"))
-    assert lands == sorted(["bifrost-land"] + [name for _, name in old])
-    assert sorted(n for n in os.listdir(TEKTON) if n.startswith("pipeline-land")) == sorted(
-        ["pipeline-land.yaml"] + [name for name, _ in old])
+    assert lands == ["bifrost-land"]
+    assert [n for n in os.listdir(TEKTON) if n.startswith("pipeline-land")] == ["pipeline-land.yaml"]
 
 
 def landing_templates():
@@ -104,12 +99,11 @@ def landing_templates():
 
 def test_one_trigger_and_one_template_start_it_and_the_trigger_names_no_repository():
     docs, templates = landing_templates()
-    assert sorted(templates) == (["bifrost-land-platform-template"] if MIGRATING else []) + ["bifrost-land-template"]
+    assert templates == ["bifrost-land-template"]
     (el,) = [d for d in docs if d["kind"] == "EventListener" and d["metadata"]["name"] == "bifrost-ci"]
     assert [t["name"] for t in el["spec"]["triggers"] if t["template"]["ref"] == "bifrost-land-template"] == ["land"]
-    named = " && body.repository.name != 'bifrost-platform'" if MIGRATING else ""
-    assert " ".join(filters()["land"].split()).endswith("body.repository.name.matches('^[a-z0-9-]{1,100}$')" + named)
-    assert "bifrost-" not in filters()["land"].replace(named.strip(" &"), "")
+    assert " ".join(filters()["land"].split()).endswith("body.repository.name.matches('^[a-z0-9-]{1,100}$')")
+    assert "bifrost-" not in filters()["land"]
 
 
 def test_the_pipeline_names_no_repository_and_every_row_is_complete():
@@ -128,7 +122,7 @@ def test_the_pipeline_names_no_repository_and_every_row_is_complete():
 
 
 def test_a_ready_branch_starts_the_landing_and_for_platform_ci_on_the_whole_suite():
-    both = ["platform-ci-ready", "platform-land"] if MIGRATING else ["land", "platform-ci-ready"]
+    both = ["land", "platform-ci-ready"]
     assert fired(push(PLATFORM, REF)) == both
     assert fired(push(PLATFORM, "refs/heads/ready/wave-2/fix.1")) == both
     for ref in ["refs/heads/w/some-lane", "refs/heads/main", "refs/heads/already/x"]:
@@ -154,7 +148,7 @@ def test_the_lander_starts_no_landing():
     for repo in (PLATFORM, INFRA):
         body = push(repo, REF)
         body["pusher"] = {"login": "agentrt-lander"}
-        assert not {"land", "platform-land"} & set(fired(body)), repo
+        assert "land" not in fired(body), repo
 
 
 def test_the_ready_binding_and_template_pass_on_the_repository_commit_and_branch():
@@ -165,8 +159,7 @@ def test_the_ready_binding_and_template_pass_on_the_repository_commit_and_branch
     (el,) = [d for d in docs if d["kind"] == "EventListener" and d["metadata"]["name"] == "bifrost-ci"]
     use = {t["name"]: t["template"]["ref"] for t in el["spec"]["triggers"]
            if any(b["ref"] == "bifrost-gitea-push-ready" for b in t["bindings"])}
-    ci = {} if MIGRATING else {"platform-ci-ready": "bifrost-ci-platform-template"}
-    assert use == {**ci, "land": "bifrost-land-template"}
+    assert use == {"platform-ci-ready": "bifrost-ci-platform-template", "land": "bifrost-land-template"}
     (template,) = [d for d in docs if d["metadata"]["name"] == "bifrost-land-template"]
     run = template["spec"]["resourcetemplates"][0]["spec"]
     assert run["pipelineRef"] == {"name": "bifrost-land"}
