@@ -16,14 +16,26 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o /platform-api ./cmd/platform-api
 # image digest under the workers' ServiceAccount (platform
 # api/cmd/stg-release-probe/CANARY.md). It is never the entrypoint.
 RUN CGO_ENABLED=0 GOOS=linux go build -o /stg-release-probe ./cmd/stg-release-probe
+# owner-exec: the cluster-side runner for owner_run_command cards approved with
+# a one-time code (platform api/internal/ownerexec). Its own Deployment runs
+# this image with command owner-exec; it is never platform-api's entrypoint.
+RUN CGO_ENABLED=0 GOOS=linux go build -o /owner-exec ./cmd/owner-exec
+# kubectl for the commands owner-exec runs: the cluster's minor version, pinned by checksum.
+RUN wget -q -O /kubectl https://dl.k8s.io/release/v1.35.5/bin/linux/amd64/kubectl \
+    && echo "90f75ea6ecc9ea5633262e1c0b83a40560003b30fc94a04cb099404fcef0c224  /kubectl" | sha256sum -c - \
+    && chmod 0755 /kubectl
 
 FROM alpine:3.20
 # git: the STG landing drill (W-31 4.1 S2) clones, replays and pushes land/stg/**
 # with the git binary (landinggit); PROD runs the same image and never enables it.
 # deploy_agentd already invokes ssh; include its runtime client.
-RUN apk add --no-cache ca-certificates git openssh-client
+# bash, curl, python3 and kubectl: what the commands owner-exec runs have used
+# (36 retained owner_run_command cards, 2026-11-13: kubectl 28, git 12, python 11).
+RUN apk add --no-cache ca-certificates git openssh-client bash curl python3
 COPY --from=builder /platform-api /usr/local/bin/platform-api
 COPY --from=builder /stg-release-probe /usr/local/bin/stg-release-probe
+COPY --from=builder /owner-exec /usr/local/bin/owner-exec
+COPY --from=builder /kubectl /usr/local/bin/kubectl
 
 ENV PLATFORM_CONFIG=/app/config/environments.yaml
 WORKDIR /app
