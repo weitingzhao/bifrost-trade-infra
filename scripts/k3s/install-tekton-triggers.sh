@@ -3,9 +3,12 @@
 # Idempotent — safe to re-run. Requires Tekton Pipelines already installed.
 set -euo pipefail
 
+# shellcheck source=scripts/k3s/versions.env
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/versions.env"
+
 KUBECONFIG="${KUBECONFIG:-${PLATFORM_KUBECONFIG:-$HOME/.kube/bifrost-k3s.yaml}}"
-TRIGGERS_VERSION="${TRIGGERS_VERSION:-latest}"
-INTERCEPTORS_VERSION="${INTERCEPTORS_VERSION:-latest}"
+TRIGGERS_VERSION="${TRIGGERS_VERSION:-${TEKTON_TRIGGERS_VERSION}}"
+INTERCEPTORS_VERSION="${INTERCEPTORS_VERSION:-${TRIGGERS_VERSION}}"
 
 export KUBECONFIG
 
@@ -19,7 +22,7 @@ if ! kubectl get crd pipelines.tekton.dev >/dev/null 2>&1; then
   exit 1
 fi
 
-TRIGGERS_URL="https://storage.googleapis.com/tekton-releases/triggers/${TRIGGERS_VERSION}/release.yaml"
+TRIGGERS_URL="https://storage.googleapis.com/tekton-releases/triggers/previous/${TRIGGERS_VERSION}/release.yaml"
 echo "==> Tekton Triggers (${TRIGGERS_URL})"
 kubectl apply --server-side --force-conflicts -f "${TRIGGERS_URL}" || {
   echo "WARN: Triggers apply had conflicts; continuing if controller exists" >&2
@@ -31,7 +34,7 @@ kubectl rollout status deployment/tekton-triggers-controller -n tekton-pipelines
 echo "==> Waiting for tekton-triggers-webhook"
 kubectl rollout status deployment/tekton-triggers-webhook -n tekton-pipelines --timeout=300s
 
-INTERCEPTORS_URL="https://storage.googleapis.com/tekton-releases/triggers/${INTERCEPTORS_VERSION}/interceptors.yaml"
+INTERCEPTORS_URL="https://storage.googleapis.com/tekton-releases/triggers/previous/${INTERCEPTORS_VERSION}/interceptors.yaml"
 echo "==> Tekton Interceptors (${INTERCEPTORS_URL})"
 kubectl apply --server-side --force-conflicts -f "${INTERCEPTORS_URL}" || {
   echo "WARN: Interceptors apply had conflicts; continuing if interceptor exists" >&2

@@ -19,10 +19,13 @@
 #   http://el-bifrost-ci.cicd.svc.cluster.local:8080  (type: application/json, event: Push)
 set -euo pipefail
 
+# shellcheck source=scripts/k3s/versions.env
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/versions.env"
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 KUBECONFIG="${KUBECONFIG:-${PLATFORM_KUBECONFIG:-$HOME/.kube/bifrost-k3s.yaml}}"
 CICD_NAMESPACE="${CICD_NAMESPACE:-cicd}"
-TRIGGERS_VERSION="${TRIGGERS_VERSION:-latest}"
+TRIGGERS_VERSION="${TRIGGERS_VERSION:-${TEKTON_TRIGGERS_VERSION}}"
 SKIP_TRIGGERS_INSTALL="${SKIP_TRIGGERS_INSTALL:-0}"
 
 export KUBECONFIG
@@ -39,7 +42,7 @@ fi
 
 # ── 1. Tekton Triggers ────────────────────────────────────────────────────────
 if [[ "${SKIP_TRIGGERS_INSTALL}" != "1" ]]; then
-  base="https://storage.googleapis.com/tekton-releases/triggers/${TRIGGERS_VERSION}"
+  base="https://storage.googleapis.com/tekton-releases/triggers/previous/${TRIGGERS_VERSION}"
   echo "==> Tekton Triggers (${base}/release.yaml)"
   kubectl apply --server-side --force-conflicts -f "${base}/release.yaml"
 

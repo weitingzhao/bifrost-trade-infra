@@ -9,10 +9,13 @@
 # Verify via Ops Console → Program → Delivery → GitOps — Argo CD probe.
 set -euo pipefail
 
+# shellcheck source=scripts/k3s/versions.env
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/versions.env"
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 KUBECONFIG="${KUBECONFIG:-${PLATFORM_KUBECONFIG:-$HOME/.kube/bifrost-k3s.yaml}}"
 ARGOCD_NAMESPACE="${ARGOCD_NAMESPACE:-cicd}"
-ARGOCD_VERSION="${ARGOCD_VERSION:-stable}"
+ARGOCD_VERSION="${ARGOCD_VERSION:-${ARGOCD_VERSION_PIN}}"
 	APPLY_HELLO_APP="${APPLY_HELLO_APP:-1}"
 	RBAC_FIX="${ROOT}/k8s/cicd/argocd/rbac-cicd-namespace-bindings.yaml"
 

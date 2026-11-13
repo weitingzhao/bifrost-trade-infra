@@ -9,10 +9,13 @@
 # Verify via Ops Console → Program → Delivery → CI/CD stack + Pipeline runs.
 set -euo pipefail
 
+# shellcheck source=scripts/k3s/versions.env
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/versions.env"
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 KUBECONFIG="${KUBECONFIG:-${PLATFORM_KUBECONFIG:-$HOME/.kube/bifrost-k3s.yaml}}"
 CICD_NAMESPACE="${CICD_NAMESPACE:-cicd}"
-TEKTON_VERSION="${TEKTON_VERSION:-latest}"
+TEKTON_VERSION="${TEKTON_VERSION:-${TEKTON_PIPELINES_VERSION}}"
 SKIP_TEKTON="${SKIP_TEKTON:-0}"
 
 export KUBECONFIG
@@ -40,7 +43,8 @@ chmod +x "${ROOT}/scripts/k3s/install-gitea-persistent.sh"
 "${ROOT}/scripts/k3s/install-gitea-persistent.sh"
 
 if [[ "${SKIP_TEKTON}" != "1" ]]; then
-  TEKTON_URL="https://storage.googleapis.com/tekton-releases/pipeline/${TEKTON_VERSION}/release.yaml"
+  # Upstream keeps a tagged release under previous/<tag>/.
+  TEKTON_URL="https://storage.googleapis.com/tekton-releases/pipeline/previous/${TEKTON_VERSION}/release.yaml"
   echo "==> Tekton Pipelines (${TEKTON_URL})"
   kubectl apply --server-side --force-conflicts -f "${TEKTON_URL}" || {
     echo "WARN: Tekton apply had conflicts; continuing if controller exists" >&2
