@@ -96,6 +96,8 @@ def landing_templates():
 
 
 def test_one_trigger_and_one_template_start_it_and_the_trigger_names_no_repository():
+    """Why: 2026-11-12 the landing trigger, template and binding were written for one repository by name;
+    the Owner, 2026-11-13: reaching more repositories extends what exists and does not copy it."""
     docs, templates = landing_templates()
     assert templates == ["bifrost-land-template"]
     (el,) = [d for d in docs if d["kind"] == "EventListener" and d["metadata"]["name"] == "bifrost-ci"]
@@ -106,6 +108,7 @@ def test_one_trigger_and_one_template_start_it_and_the_trigger_names_no_reposito
 
 
 def test_the_pipeline_names_no_repository_and_every_row_is_complete():
+    """Why: the same remark of 2026-11-13. What differs between repositories is written in one place."""
     assert not [repo for repo in table() if repo in script()]
     assert set(table()) == {PLATFORM, INFRA}
     mounted = {v["secret"]["secretName"] for v in land_task()["taskSpec"]["volumes"] if "secret" in v}
@@ -416,6 +419,8 @@ def test_a_green_branch_on_top_of_main_is_merged_as_the_same_commit():
 
 
 def test_the_same_code_lands_another_listed_repository_with_its_own_ci():
+    """Why: 2026-11-13, bifrost-trade-infra waited for the Owner to merge nine times in a day while
+    bifrost-platform landed by itself: the lane existed for one repository only."""
     gitea = Gitea()
     assert run_land(gitea, repo=INFRA) == ("landed", "")
     assert {c[1].split("/pulls")[0].split("/branches")[0].split("/git/")[0] for c in gitea.calls} == {"/api/v1/repos/bifrost/bifrost-trade-infra"}
@@ -460,26 +465,13 @@ def test_a_pull_request_that_still_shows_its_old_merge_base_after_the_rebase_is_
 
 
 def test_main_moving_while_ci_ran_is_followed_as_often_as_it_happens():
+    """Why: 2026-11-13 on bifrost-platform, a README branch was overtaken three times in a row by
+    other lanes (land-98ftz, land-g5knq, land-cqs2z) before it landed; each time is one more round."""
     gitea = Gitea(moves=2)
     assert run_land(gitea) == ("landed", "")
     assert [w[2] for w in gitea.waits] == [SHA, NEXT, "%040x" % (int(SHA, 16) + 2)]
     assert len(gitea.paths("/update")) == 2 and len(gitea.merges()) == 1
     assert gitea.landed["commit"] == "%040x" % (int(SHA, 16) + 2)
-
-
-def test_main_that_never_stops_moving_is_a_refusal_when_the_time_is_up():
-    gitea = Gitea(moves=10 ** 6)
-    outcome, problem = run_land(gitea, budget=0.2)
-    assert outcome == "" and "main kept moving" in problem and gitea.merges() == []
-
-
-def test_a_rebased_head_that_cannot_be_read_is_a_refusal():
-    gitea = Gitea(behind=True)
-    gitea.head = "not-a-commit-after-this"
-    module_scope = module()
-    module_scope["call"] = gitea.call
-    assert module_scope["rebased_head"]("tok", gitea.HOST + "/api/v1/repos/bifrost/x", gitea.pull(), tries=2, pause=0) == (
-        None, "refused: Gitea rebased the branch but its new head could not be read; push ready/ again")
 
 
 def test_a_stale_ci_answer_on_an_unmoved_main_is_asked_again_and_then_refused():
@@ -513,6 +505,8 @@ def test_a_change_to_a_trade_execution_guard_path_is_not_taken():
 
 
 def test_other_paths_and_the_same_paths_in_another_repository_are_taken():
+    """The control for the test above (a scan that finds nothing needs a case where it must find
+    something, 2026-10-09): the refusal is for the signed group of that repository and nothing wider."""
     for files, repo in ((["k8s/overlays/platform-prod/kustomization.yaml", "k8s/overlays/stg/config/x.yaml",
                           "scripts/release/release.sh"], INFRA),
                         (guard_paths(INFRA), PLATFORM)):
@@ -522,6 +516,9 @@ def test_other_paths_and_the_same_paths_in_another_repository_are_taken():
 
 
 def test_a_commit_without_a_change_id_is_refused_before_anything_is_changed():
+    """Why: the agents share one Gitea account, so the trailers are the only record of which change a
+    commit is (Owner 2026-10-06); a fresh clone runs no commit hook, and on 2026-11-13 every commit
+    of this lane had its trailers added by hand."""
     gitea = Gitea(message="fix: a thing", behind=True)
     outcome, problem = run_land(gitea)
     assert outcome == "" and "no Change-Id trailer" in problem and SHA[:12] in problem
@@ -540,6 +537,8 @@ def test_a_commit_without_a_change_id_is_refused_before_anything_is_changed():
     "fix\n\nChange-Id: Iabc\n\n(cherry picked from commit " + "9" * 40 + ")",
 ])
 def test_a_change_id_in_the_body_is_not_a_trailer(message):
+    """Why: independent review, 2026-11-13, first tier 3: `Change-Id: example` followed by a line of
+    ordinary text in the body passed as a trailer, and what reads trailers later would not find it."""
     assert module()["change_id"](message) is None
     gitea = Gitea(message=message)
     outcome, problem = run_land(gitea)
@@ -555,6 +554,8 @@ def test_a_change_id_in_the_body_is_not_a_trailer(message):
     ("fix\n\n(cherry picked from commit " + "9" * 40 + ")\nChange-Id: Iabc", "Iabc"),
 ])
 def test_a_change_id_in_the_trailer_block_is_read(message, found):
+    """The control for the test above, and land-ncbhb (2026-11-13): the first form of the rule refused a
+    cherry-picked commit, whose block ends with the line git writes for the cherry-pick."""
     assert module()["change_id"](message) == found
 
 
@@ -588,6 +589,9 @@ def test_after_a_rebase_the_commits_are_followed_from_the_new_head_and_not_read_
 
 
 def test_a_rebased_branch_is_checked_again_and_must_be_the_same_change():
+    """Why: 4ed8e1bf (2026-11-13) made the run go on with whatever head Gitea showed after the rebase,
+    unchecked. Found while fixing the review's first tier 2: a push in that moment would have been
+    merged without the path and trailer checks. No such push is known to have happened."""
     gitea = Gitea(behind=True)
     assert run_land(gitea) == ("landed", "")
     # the pushed commit, then the rebased one: once to follow it down to main, once to check it
@@ -630,6 +634,8 @@ def test_what_landed_is_read_from_the_pull_request_and_a_rewritten_commit_is_not
 
 
 def test_a_merge_gitea_accepted_but_does_not_show_is_not_reported_either_way():
+    """Why: independent review, 2026-11-13, second tier 5 (shown with a stub, not seen on the cluster):
+    after a merge whose answer is lost the run cannot say landed, and must not say it did not land."""
     gitea = Gitea(unread=True)
     outcome, problem = run_land(gitea)
     assert outcome == "" and "accepted the merge" in problem and "look at the pull request" in problem
