@@ -8,6 +8,17 @@
 # it cannot read or of more than 2000 files, any failure. It writes full before
 # anything else and always exits 0, so it never fails a run. No workspace: it clones
 # into its own container (blobless).
+#
+# console-scope (Owner 2026-11-13: "if only the backend changed, do not test the
+# frontend"; three backend-only runs that day spent 299 to 389 seconds in test-console,
+# the slowest task, and 39 to 164 in the Go tasks). From the same change list it answers
+# skip only when every change is a plain file under api/ and none is a file the Console's
+# tests read. That list is scripts/ci/console_reads_api.txt of the commit under test (one
+# path per line, a line ending in / is a directory); a Console test of that repository
+# fails when it is incomplete. Anything else answers run, and says why: a change outside
+# api/, a listed file, no list, and every case above that answers full. It writes run
+# before anything else. What skip relies on: main's Console was tested when it landed, and
+# this commit's Console is main's. The daily full run tests it again whatever changed.
 apiVersion: tekton.dev/v1
 kind: Task
 metadata:
@@ -27,6 +38,10 @@ spec:
       description: full, or console when the Go code is main's and only console or Markdown changed
     - name: why
       description: One line on how api-scope was chosen
+    - name: console-scope
+      description: run, or skip when only files under api/ that no Console test reads changed
+    - name: console-why
+      description: One line on how console-scope was chosen
   steps:
     - name: diff
       image: alpine/git:2.45.2
@@ -59,13 +74,24 @@ spec:
         why_file="$(results.why.path)"
         printf 'full' > "$scope_file"
         printf 'not decided' > "$why_file"
+        console_file="$(results.console-scope.path)"
+        console_why_file="$(results.console-why.path)"
+        printf 'run' > "$console_file"
+        printf 'not decided: %s' 'the change list was not read' > "$console_why_file"
+        console() {
+          printf '%s' "$1" > "$console_file"
+          printf '%s' "$2" | cut -c1-300 | tr -d '\n' > "$console_why_file"
+          echo "console-scope: $1 ($2)"
+          console_decided=1
+        }
         answer() {
           printf '%s' "$1" > "$scope_file"
           printf '%s' "$2" | cut -c1-300 | tr -d '\n' > "$why_file"
           echo "api-scope: $1 ($2)"
           exit 0
         }
-        full() { answer full "$1"; }
+        # A run that cannot read the changes tests the Console as well, for the same reason.
+        full() { [ -n "${console_decided:-}" ] || console run "$1"; answer full "$1"; }
         user="${GIT_USERNAME:-}"
         password="${GIT_PASSWORD:-}"
         unset GIT_USERNAME GIT_PASSWORD
@@ -112,6 +138,55 @@ spec:
           full "cannot read the changes against main"
         echo "changes of $rev against main (merge base $base):"
         tr '\0' '\n' < "$work/raw" | awk 'NR % 2 == 0' | head -50
+        # console-scope. The list is one small file of the commit under test: the clone is
+        # blobless, so this one read may fetch it.
+        if GIT_NO_LAZY_FETCH=0 git_read cat-file -p "$rev:scripts/ci/console_reads_api.txt" > "$work/reads" 2>/dev/null &&
+          grep -v '^[[:space:]]*#' "$work/reads" | grep -q '[^[:space:]]'; then
+          console_verdict="$( (grep -v '^[[:space:]]*#' "$work/reads" | sed 's/[[:space:]]*$//' | grep . | sed 's/^/L /'; tr '\0' '\n' < "$work/raw") | awk -v max=2000 '
+            BEGIN { n = 0; meta = 1; bad = ""; lists = 0 }
+            $1 == "L" && meta == 1 && substr($0, 1, 1) == "L" {
+              entry = substr($0, 3)
+              if (entry !~ /^api\/[A-Za-z0-9._@+\/-]+$/) { bad = "the list of files the Console tests read has a line this task does not read"; exit }
+              list[lists++] = entry; next
+            }
+            meta == 1 {
+              if ($0 !~ /^:[0-7][0-7][0-7][0-7][0-7][0-7] [0-7][0-7][0-7][0-7][0-7][0-7] [0-9a-f]+ [0-9a-f]+ [ADM]$/) {
+                bad = "a change that is not an add, delete or edit of one file"; exit
+              }
+              old = substr($0, 2, 6); new = substr($0, 9, 6); meta = 0; next
+            }
+            {
+              meta = 1; n++; path = $0
+              if (n > max) { bad = "more than " max " files changed"; exit }
+              if (path !~ /^[A-Za-z0-9._@+-][A-Za-z0-9._@+\/-]*$/ || path ~ /(^|\/)\.\.?(\/|$)/ || path ~ /\/\// || path ~ /\/$/) {
+                bad = "a path this task does not read"; exit
+              }
+              if (!((old == "000000" || old == "100644" || old == "100755") && (new == "000000" || new == "100644" || new == "100755"))) {
+                bad = path " is not a plain file"; exit
+              }
+              if (substr(path, 1, 4) != "api/") { bad = path " is outside api/"; exit }
+              for (i = 0; i < lists; i++) {
+                entry = list[i]
+                if (path == entry || (substr(entry, length(entry)) == "/" && substr(path, 1, length(entry)) == entry)) {
+                  bad = path " is a file the Console tests read"; exit
+                }
+              }
+            }
+            END {
+              if (bad == "" && meta == 0) bad = "the change list ends inside a record"
+              if (bad == "" && lists == 0) bad = "no list of the files the Console tests read"
+              if (bad == "" && n == 0) bad = "no change against main"
+              if (bad != "") { print "run"; print bad; exit }
+              print "skip"
+              print n " file(s), each under api/ and none a file the Console tests read"
+            }')" || console_verdict=""
+          case "$(printf '%s\n' "$console_verdict" | sed -n 1p)" in
+            skip) console skip "$(printf '%s\n' "$console_verdict" | sed -n 2p)" ;;
+            *) console run "$(printf '%s\n' "$console_verdict" | sed -n 2p | grep . || echo 'cannot classify the changes')" ;;
+          esac
+        else
+          console run "this commit has no scripts/ci/console_reads_api.txt that names a file"
+        fi
         # Records alternate: ":<old mode> <new mode> <old> <new> <status>", then the path.
         verdict="$(tr '\0' '\n' < "$work/raw" | awk -v max=2000 '
           BEGIN { n = 0; meta = 1; bad = ""; shown = 0; list = "" }

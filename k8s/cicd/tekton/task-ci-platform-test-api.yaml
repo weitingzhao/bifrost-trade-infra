@@ -237,6 +237,27 @@ spec:
             echo "WARN: could not set the mtimes of ${repo}; its readers miss Go's test cache this run"
           fi
         done
+        # Go looks again only at files inside the module root (api/) when it
+        # decides whether a cached test result still holds. A test that reads
+        # console/, config/ or a checkout beside this one keeps its old result
+        # when only those files change: 2026-11-13, commit 5f1e5df2 deleted
+        # Console files two Go tests read, and its whole-suite run
+        # ci-platform-4glhs printed "(cached)" for both packages and was green.
+        # An environment variable a test reads is part of its cache key, so the
+        # platform's script prints one variable per such input (the git object
+        # id of that tree or file) and the packages that read them say so
+        # (api/internal/outsideinput). Only lines of that exact shape are taken.
+        # Without the script, or when it fails, Go caches as it did before.
+        outside="${ws}/bifrost-platform/scripts/ci/outside_inputs.sh"
+        if [ -f "${outside}" ]; then
+          if inputs="$(bash "${outside}" 2>/dev/null)" && [ -n "${inputs}" ] &&
+            ! printf '%s\n' "${inputs}" | grep -qvE '^export BIFROST_INPUT_[A-Z0-9_]+=[0-9a-f]{40}$'; then
+            eval "${inputs}"
+            echo "==> outside inputs: $(printf '%s\n' "${inputs}" | wc -l | tr -d ' ') variables for the Go test cache"
+          else
+            echo "WARN: could not read the inputs outside api/; Go tests that read them may report a stale cached result this run"
+          fi
+        fi
         # The daily full CI (the platform's controller/fullci.go, runs named
         # ci-full-<commit>-<day>) is the one run creator that sends
         # api-scope-request=full. There the slow tests, which skip without
@@ -270,8 +291,10 @@ spec:
         # codehealth/scanner.go walks up to ".", the workspace of a running platform-api;
         # unitscript's tests read bifrost.units.yaml and the Go test files under api/ from
         # "." (manifest_guard_test.go) and run the entry scripts in scripts/ci
-        # (unit_go_test_test.go), none of which a console-scope change touches.
-        CONSOLE_SCOPE_KNOWN="api/internal/devsession/catalog_repo_test.go=. api/internal/codehealth/scanner.go=. api/internal/unitscript/manifest_guard_test.go=. api/internal/unitscript/unit_go_test_test.go=scripts/ci"
+        # (unit_go_test_test.go), none of which a console-scope change touches;
+        # outsideinput's test runs scripts/ci/outside_inputs.sh from "." and checks that the
+        # top-level entries other tests declare exist (a console-scope change removes none).
+        CONSOLE_SCOPE_KNOWN="api/internal/devsession/catalog_repo_test.go=. api/internal/codehealth/scanner.go=. api/internal/unitscript/manifest_guard_test.go=. api/internal/unitscript/unit_go_test_test.go=scripts/ci api/internal/outsideinput/outsideinput_test.go=."
         if [ "${API_SCOPE:-full}" = "console" ] && [ -z "${LANDING_BASE:-}" ] && [ "${API_SCOPE_REQUEST:-}" != full ]; then
           scope_check="$(mktemp -d)"
           cat > "${scope_check}/main.go" <<'GO'
