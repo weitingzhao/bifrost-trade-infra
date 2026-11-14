@@ -245,7 +245,7 @@ STG 的 `rollout` 引用 `bifrost-rollout-verify-platform`，先重启并等待�
 
 ## 怎么进 main：推 `ready/<名字>`（2026-11-13 起，infra 和 platform）
 
-从最新的 main 牵出分支，改完推到 `ready/<名字>`。之后没有人要动手：
+从最新的 main 牵出分支，改完推到 `ready/<名字>`。之后没有人要动手。（11-12 定的是「main 只经合并请求进」；11-13 起，经 Owner 同意，合并请求照开，最后一步改成合入账号把测过的提交只快进地推到 main。）
 
 1. 这次推送起两个运行：仓库自己的 CI（整套，拿 main 当时的头当基线），和落地流水线 `bifrost-land`（`k8s/cicd/tekton/pipeline-land.yaml`）。
 2. 分支落后于 main 时，落地流水线让 Gitea 把它变基到最新的 main，**同一次运行接着跟新的提交**：等它的 CI、再合；main 再动就再跟，直到合进去或到时间上限（50 分钟）。有冲突时它拒绝，要自己变基后重推。

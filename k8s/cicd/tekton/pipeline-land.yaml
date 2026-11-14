@@ -1,5 +1,7 @@
-# Owner 2026-11-12 / 2026-11-13: main takes a change only through a pull request, and nobody
-# clicks merge. A push to refs/heads/ready/<name> of a repository listed in LANDING_REPOS below
+# Owner 2026-11-12 / 2026-11-13: main takes a change through this pipeline, and nobody clicks
+# merge. (2026-11-12 it was "only through a pull request"; since 2026-11-13, with the Owner's
+# word, the pull request is still opened but the last step is the merging account's
+# fast-forward push of the tested commit.) A push to refs/heads/ready/<name> of a repository listed in LANDING_REPOS below
 # starts that repository's CI gate and this pipeline beside it (trigger-trade-ci.yaml `land`).
 # It opens the pull request, brings a branch that is behind main up to date (a rebase by
 # Gitea, which this same run then follows: one push, one run, Succeeded means on main), waits

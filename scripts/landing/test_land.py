@@ -1,11 +1,12 @@
-"""Owner 2026-11-12 / 2026-11-13: main takes a change only through a pull request that the
-cluster merges when the commit's CI is green. A push to refs/heads/ready/<name> asks for it:
-the repository's CI gate runs on the whole suite, and bifrost-land beside it passes the
-release freeze check, opens the pull request, has Gitea rebase a branch that is behind main,
-waits for that gate, and merges the same commit as bifrost-merger, the only non-Owner identity
-on main's merge whitelist. There is one landing pipeline for every repository; what differs is
-a row in LANDING_REPOS (pipeline-land.yaml). Pinned here: that there is only one, who starts a landing, where
-the token is, which CI runs count, and what `land` refuses."""
+"""Owner 2026-11-12 / 2026-11-13: main takes a change when the commit's CI is green, and nobody
+clicks merge. A push to refs/heads/ready/<name> asks for it: the repository's CI gate runs on
+the whole suite, and bifrost-land beside it passes the release freeze check, opens the pull
+request, has Gitea rebase a branch that is behind main, waits for that gate, and pushes the
+tested commit to main as a fast-forward as bifrost-merger, the only non-Owner identity that
+reaches main (where the push is not open to it yet, it asks Gitea to merge). There is one
+landing pipeline for every repository; what differs is a row in LANDING_REPOS
+(pipeline-land.yaml). Pinned here: that there is only one, who starts a landing, where the
+token is, which CI runs count, and what `land` refuses."""
 
 import json
 import os
