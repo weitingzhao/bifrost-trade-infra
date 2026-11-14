@@ -27,6 +27,21 @@ spec:
   matchConditions:
     - name: is-owner-exec
       expression: request.userInfo.username == 'system:serviceaccount:bifrost-owner-exec:owner-exec'
+  variables:
+    - name: namespaced
+      expression: has(request.namespace) && request.namespace != ''
+    - name: priorityClass
+      expression: request.resource.group == 'scheduling.k8s.io' && request.resource.resource == 'priorityclasses'
+    - name: nodeUpdate
+      expression: >-
+        !variables.namespaced && request.resource.group == ''
+        && request.resource.resource == 'nodes' && request.operation == 'UPDATE'
+        && object != null && oldObject != null
+        && has(object.metadata) && has(oldObject.metadata)
+    - name: newLabels
+      expression: "variables.nodeUpdate && has(object.metadata.labels) ? object.metadata.labels : {}"
+    - name: oldLabels
+      expression: "variables.nodeUpdate && has(oldObject.metadata.labels) ? oldObject.metadata.labels : {}"
   validations:
     - expression: "!(has(request.namespace) && request.namespace in ['bifrost-prod', 'bifrost-stg', 'bifrost-dev'])"
       message: owner-exec may not write, delete or exec in the Trade namespaces (D10; Owner 2026-11-13)
@@ -34,22 +49,72 @@ spec:
       message: owner-exec may not touch a Deployment named daemon, its scale included (D10)
     - expression: "!(has(request.namespace) && request.namespace == 'data' && (request.name.startsWith('redis-ib') || request.name.startsWith('ib-gateway')))"
       message: owner-exec may not write, delete, exec into or port-forward redis-ib or the IB gateway (D10)
-    # #537; coordinator 2026-11-14: absent/empty namespace is cluster scope.
-    # PATCH is admission UPDATE. No subresources, including nodes/status.
-    # This permits metadata changes beyond labels; it does not constrain names
-    # of PriorityClasses. Admission policies/bindings are exempt in Kubernetes.
+    # #537; coordinator 2026-11-14 tightened scope; compute-13 review.
+    # Every added validation bypasses namespaced requests. PATCH is UPDATE.
+    # Kubernetes exempts admission policies/bindings from policy evaluation.
     - expression: >-
-        (has(request.namespace) && request.namespace != '')
+        variables.namespaced
         || ((!has(request.subResource) || request.subResource == '')
-          && ((request.resource.group == 'scheduling.k8s.io'
-              && request.resource.resource == 'priorityclasses'
-              && request.operation in ['CREATE', 'DELETE'])
-            || (request.resource.group == '' && request.resource.resource == 'nodes'
-              && request.operation == 'UPDATE'
-              && object != null && oldObject != null
-              && has(object.spec) && has(oldObject.spec)
-              && object.spec == oldObject.spec)))
-      message: owner-exec may not modify this kind of cluster-scoped object; only PriorityClass CREATE/DELETE and Node UPDATE with unchanged spec are allowed
+          && ((variables.priorityClass && request.operation in ['CREATE', 'DELETE'])
+            || variables.nodeUpdate))
+      message: owner-exec cluster scope permits only PriorityClass CREATE/DELETE or Node UPDATE without subresources
+    # CREATE uses object: request.name may be absent. DELETE has no object;
+    # oldObject is the persisted object supplied by admission on DELETE.
+    - expression: >-
+        variables.namespaced || !variables.priorityClass
+        || (request.operation == 'CREATE'
+          ? (object != null && has(object.metadata) && has(object.metadata.name)
+            && object.metadata.name.startsWith('bifrost-'))
+          : (request.operation == 'DELETE' && oldObject != null
+            && has(oldObject.metadata) && has(oldObject.metadata.name)
+            && oldObject.metadata.name.startsWith('bifrost-')))
+      message: owner-exec PriorityClass name must start with bifrost- and operation must be CREATE or DELETE
+    - expression: >-
+        variables.namespaced || !variables.priorityClass || request.operation != 'CREATE'
+        || (object != null && (!has(object.globalDefault) || object.globalDefault == false))
+      message: owner-exec PriorityClass CREATE must not set globalDefault to true
+    - expression: >-
+        !variables.nodeUpdate || (has(object.spec) && has(oldObject.spec)
+          && object.spec == oldObject.spec)
+      message: owner-exec Node spec must remain unchanged
+    # Compare optional user metadata explicitly, guarding both sides. Server
+    # bookkeeping (managedFields, resourceVersion, generation, uid,
+    # creationTimestamp) is not compared; see README for upstream handling.
+    - expression: >-
+        !variables.nodeUpdate || (
+          has(object.metadata.name) == has(oldObject.metadata.name)
+          && (!has(object.metadata.name) || object.metadata.name == oldObject.metadata.name)
+          && has(object.metadata.generateName) == has(oldObject.metadata.generateName)
+          && (!has(object.metadata.generateName) || object.metadata.generateName == oldObject.metadata.generateName)
+          && has(object.metadata.namespace) == has(oldObject.metadata.namespace)
+          && (!has(object.metadata.namespace) || object.metadata.namespace == oldObject.metadata.namespace)
+          && has(object.metadata.annotations) == has(oldObject.metadata.annotations)
+          && (!has(object.metadata.annotations) || object.metadata.annotations == oldObject.metadata.annotations)
+          && has(object.metadata.finalizers) == has(oldObject.metadata.finalizers)
+          && (!has(object.metadata.finalizers) || object.metadata.finalizers == oldObject.metadata.finalizers)
+          && has(object.metadata.ownerReferences) == has(oldObject.metadata.ownerReferences)
+          && (!has(object.metadata.ownerReferences) || object.metadata.ownerReferences == oldObject.metadata.ownerReferences)
+          && has(object.metadata.deletionTimestamp) == has(oldObject.metadata.deletionTimestamp)
+          && (!has(object.metadata.deletionTimestamp) || object.metadata.deletionTimestamp == oldObject.metadata.deletionTimestamp)
+          && has(object.metadata.deletionGracePeriodSeconds) == has(oldObject.metadata.deletionGracePeriodSeconds)
+          && (!has(object.metadata.deletionGracePeriodSeconds) || object.metadata.deletionGracePeriodSeconds == oldObject.metadata.deletionGracePeriodSeconds)
+          && has(object.metadata.selfLink) == has(oldObject.metadata.selfLink)
+          && (!has(object.metadata.selfLink) || object.metadata.selfLink == oldObject.metadata.selfLink))
+      message: owner-exec Node metadata other than labels must remain unchanged
+    - expression: >-
+        !variables.nodeUpdate || (
+          variables.oldLabels.all(k, k == 'bifrost.io/batch'
+            || (k in variables.newLabels && variables.newLabels[k] == variables.oldLabels[k]))
+          && variables.newLabels.all(k, k == 'bifrost.io/batch'
+            || (k in variables.oldLabels && variables.newLabels[k] == variables.oldLabels[k])))
+      message: owner-exec Node labels other than bifrost.io/batch must remain unchanged
+    # Also reject an existing non-deny value, even when removing it. No
+    # transition between two existing values is allowed. No-op deny is safe.
+    - expression: >-
+        !variables.nodeUpdate || (
+          (!('bifrost.io/batch' in variables.oldLabels) || variables.oldLabels['bifrost.io/batch'] == 'deny')
+          && (!('bifrost.io/batch' in variables.newLabels) || variables.newLabels['bifrost.io/batch'] == 'deny'))
+      message: owner-exec Node bifrost.io/batch may only be added or removed with value deny
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding

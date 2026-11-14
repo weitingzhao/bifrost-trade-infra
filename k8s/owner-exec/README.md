@@ -53,23 +53,65 @@ goes at Trade directly, however it is worded. It does not stop:
   platform-api redacts token shapes from stored output; an encoded token
   would pass.
 
-For cluster-scoped writes, the no-trade policy permits only PriorityClass
-CREATE/DELETE (any name) and Node UPDATE with unchanged spec, without a
-subresource. Node metadata changes include annotations, finalizers and owner
-references, not just labels; the normal API validation still applies. Taints,
-cordon and nodes/status are not permitted. Other cluster-scoped writes are
-denied where Kubernetes evaluates this policy. Kubernetes exempts admission
-policies and their bindings from these checks: the runner's existing RBAC still
-lets it patch/update its own policy. This change does not close that hole.
+For cluster-scoped writes, the no-trade policy permits only these operations,
+without a subresource (coordinator 2026-11-14 tightened scope; compute-13 review):
+
+- PriorityClass CREATE/DELETE with a name starting with `bifrost-`. CREATE
+  requires `globalDefault` false or absent. UPDATE is refused. CREATE checks
+  `object.metadata.name`, since `request.name` may be absent; DELETE checks
+  `oldObject.metadata.name`, since DELETE has no new object. Missing oldObject
+  fails closed. Value, description and preemptionPolicy have no extra restriction.
+- Node UPDATE with identical spec and user metadata except labels. Name,
+  generateName, namespace, annotations, finalizers, ownerReferences, selfLink,
+  deletionTimestamp and deletionGracePeriodSeconds are compared with presence
+  guards. Other label keys and values must be identical in both directions.
+  Only `bifrost.io/batch=deny` may be added or removed. Both old and new values,
+  if present, must be `deny`: even removal of an existing non-deny value is
+  refused. An unchanged deny value is allowed. Absent labels mean an empty map.
+
+Taints, cordon, other labels, annotations, Node CREATE/DELETE and nodes/status
+are refused. Other cluster-scoped writes are denied where Kubernetes evaluates
+this policy. Namespaced requests keep all three original Trade protections.
+Match scope, failure policy and bindings are unchanged.
+
+Server bookkeeping is not compared: managedFields may change when the field
+manager processes a label/JSON Patch; resourceVersion is concurrency/storage
+bookkeeping. The update path restores generation and creationTimestamp, fills
+an omitted UID and validates UID immutability. Node's main endpoint restores
+old status before validation. See Kubernetes v1.35
+[patch handling](https://github.com/kubernetes/kubernetes/blob/v1.35.0/staging/src/k8s.io/apiserver/pkg/endpoints/handlers/patch.go),
+[update normalization](https://github.com/kubernetes/kubernetes/blob/v1.35.0/staging/src/k8s.io/apiserver/pkg/registry/rest/update.go),
+[metadata validation](https://github.com/kubernetes/kubernetes/blob/v1.35.0/staging/src/k8s.io/apimachinery/pkg/api/validation/objectmeta.go),
+[Node strategy](https://github.com/kubernetes/kubernetes/blob/v1.35.0/pkg/registry/core/node/strategy.go), and
+[AdmissionRequest](https://github.com/kubernetes/kubernetes/blob/v1.35.0/staging/src/k8s.io/api/admission/v1/types.go).
+This is source reasoning, not a captured live admission request.
+
+Kubernetes exempts admission policies and their bindings from these checks;
+the runner's existing RBAC still lets it patch/update its own policy. This is
+the known, accepted risk of the current design, not fixed here. To allow a new
+cluster-scoped kind later, change this policy and its probes, review and merge
+the repository change in Gitea, then update the policy through the same reviewed
+execution-card path. Do not broaden RBAC or re-enroll to bypass this process.
 
 Step 4 of enrollment tests these boundaries with server dry-runs. It discovers
-an existing Node and PV; a missing PV fails verification rather than treating
+an existing Node without the batch label and an existing PV; missing fixtures fail verification rather than treating
 NotFound as a policy refusal. The new cluster refusal probes require both the
-no-trade policy's name and its cluster-scope rejection message. Existing Trade
+no-trade policy's name and the particular validation's rejection message. Existing Trade
 probes keep their original checks. If verification fails, the newly applied
 policy remains in place, and a runner from an earlier enrollment keeps running.
 Re-enrollment keeps the seed when the Owner presses Enter at its prompt, but
 step 6 still restarts the runner. There is no delete/recreate policy gap.
+If step 6 fails it removes the namespace guard binding, leaving that protection
+absent. Policy-only upgrades therefore use an execution card after the Gitea
+merge, not a rerun of enrollment. Step 4 stays synchronized for future enrollments.
+
+The two label-map traversals are linear in the number of labels. Kubernetes
+v1.35 defines a per-expression cost limit of 1,000,000 and a policy runtime
+budget of 10,000,000 in
+[CEL configuration](https://github.com/kubernetes/kubernetes/blob/v1.35.0/staging/src/k8s.io/apiserver/pkg/apis/cel/config.go).
+No offline CEL evaluation or server test has been performed for this revision;
+actual typing/cost and admission results must be checked by the execution card's
+server dry-runs. YAML rendering alone does not prove policy acceptance.
 
 ## Not verified by an agent
 
