@@ -1,0 +1,44 @@
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: bifrost-lifeline
+value: 1000000
+globalDefault: false
+preemptionPolicy: PreemptLowerPriority
+description: Lifeline services; workload enrollment requires separate authorization.
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: bifrost-prod
+value: 100000
+globalDefault: false
+preemptionPolicy: PreemptLowerPriority
+description: Production services below lifeline; explicit enrollment only.
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: bifrost-default
+value: 10000
+globalDefault: false
+preemptionPolicy: PreemptLowerPriority
+description: Explicitly approved staging, development and tools; not a global default.
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: bifrost-batch-waited
+value: 1000
+globalDefault: false
+preemptionPolicy: Never
+description: Waited batch work; branch tests, merge tests and builds share one priority.
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: bifrost-batch-idle
+value: 100
+globalDefault: false
+preemptionPolicy: Never
+description: Recoverable background batch work; never preempts other pods.
