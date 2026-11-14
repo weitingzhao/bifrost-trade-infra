@@ -3128,6 +3128,7 @@
 - **证据**：`scripts/gitea/protection_policy.py:193-215`（`LANDING_REPOS`、`land/prod/**` 规则、main 推送白名单里的 `agentrt-lander`）；`ci-infra` 的 `landing` 用途和它的单亲提交检查（`scripts/landing/doc_policy.py:86-101`、`ci-infra.sh`）；`trigger-trade-ci.yaml` 里跳过 `agentrt-lander` 推送的条件。
 - **影响**：两条进 main 的路并存，读 CI 和保护规则的人要同时懂两套。
 - **修法**：删掉上面这些。要等：平台代码不再调 infra 的落地（`api/internal/agentrt/landing`、`rules/landing_infra.go` 还在调），两边一起动。
+- **一起删的还有平台里的落地硬名单**（统筹 2026-11-13 定）：`bifrost-platform` 的 `api/internal/agentrt/rules/landing_hard.go`、`landing_infra.go` 那几张路径表是 10-28、10-29 随旧通道的设计稿带进来的，不是哪次事故引出来的，也不是 Owner 签的；Owner 签过名的发布规则里另有信任锚名单，上 PROD 时仍然出单。通用落地通道不搬这张表，只认 `no_d10_paths` 和 Secret 检查。
 - **防线**：`scripts/landing/test_land.py` 已经钉住「拿得到合入令牌的流水线只有一条」；删完后补一条「main 的推送白名单里没有落地账号」。
 - **验收**：`git grep agentrt-lander -- k8s scripts` 在 infra 里没有结果，`protect-repo.sh --check` 通过。
 
