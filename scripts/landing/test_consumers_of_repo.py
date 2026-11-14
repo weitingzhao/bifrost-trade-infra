@@ -83,7 +83,7 @@ def test_the_line_changed_on_2026_11_14_is_reported_with_the_value_the_row_needs
 def test_every_difference_is_listed_not_only_the_first(repos):
     # doc_consumers.py stops at the first: on 2026-10-31 that cost one CI run a difference.
     registry, other = repos
-    commit(other, {PAGE: AFTER, "api/new.go": 'var path = "agent-config/work/x.md"\n', "docs/a.md": "see /work/ here\n"})
+    commit(other, {PAGE: AFTER, "api/new.go": 'var path = "agent-config/work/x.md"\n', "docs/a.md": "a document that names /work/ and is not scanned\n"})
     r = run(registry, other)
     assert r.returncode == 1
     assert f"FAIL consumer_changed {PAGE}" in r.stderr and "FAIL unregistered_consumer api/new.go" in r.stderr
