@@ -314,3 +314,28 @@ spec:
               CronJob monitoring/maintainer-reconcile runs at 07:00 UTC.
               A successful run can still have deleted the clean ConfigMap;
               this rule is only "the job itself did not finish".
+    # The daily full CI of main (platform workers, PROD, 03:00 America/Chicago).
+    # With a landing's own CI leaving out the modules whose keys did not
+    # change, the full run is the only one that catches a module wrongly left
+    # out; before 2026-11-14 a red one was a log line and a note nobody read.
+    # The gauge is 1 while the newest finished full run is red and carries
+    # that run's name; a green run of a later day replaces the series.
+    # Not here yet: "the full run has not run for 36 hours". The gauge keeps
+    # the last finished run's name and cannot tell that; it needs a
+    # last-run timestamp from the platform first.
+    - name: bifrost-full-ci
+      rules:
+        - alert: BifrostFullCIRed
+          expr: |
+            max by (run) (bifrost_full_ci_red{namespace="bifrost-platform-prod"}) == 1
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "The daily full CI run {{ $labels.run }} of main is red"
+            description: >-
+              The newest finished full run is red. A commit that landed with a
+              module left out of its own CI run is only caught here.
+              GET /api/v1/units/full-ci on the PROD platform lists the tasks
+              that failed and the commits landed since the last green full
+              run whose own CI run left a module out.

@@ -1,0 +1,43 @@
+# promtool unit test for BifrostFullCIRed (2026-11-14, CI line).
+# Run: make check-alert-rules. The series is the one PROD served that day:
+# bifrost_full_ci_red{namespace="bifrost-platform-prod",run="ci-full-98900d68807c-20261114"} 0.
+rule_files:
+  - bifrost-maintainer-rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  - name: a green full run does not fire; a red one fires after 5 minutes and names the run; the next green run clears it
+    interval: 1m
+    input_series:
+      # Green all along, until a later day's run replaces it.
+      - series: 'bifrost_full_ci_red{namespace="bifrost-platform-prod",pod="platform-workers-a",run="ci-full-98900d68807c-20261114"}'
+        values: '0x20 stale'
+      # The next day's run is red for 20 minutes, then a green rerun's series replaces it.
+      - series: 'bifrost_full_ci_red{namespace="bifrost-platform-prod",pod="platform-workers-a",run="ci-full-aaaaaaaaaaaa-20261115"}'
+        values: '_x20 1x20 stale'
+      - series: 'bifrost_full_ci_red{namespace="bifrost-platform-prod",pod="platform-workers-a",run="ci-full-bbbbbbbbbbbb-20261115"}'
+        values: '_x41 0x20'
+      # Another environment's red run is not this alert's.
+      - series: 'bifrost_full_ci_red{namespace="bifrost-platform-stg",pod="platform-workers-b",run="ci-full-cccccccccccc-20261115"}'
+        values: '1x70'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: BifrostFullCIRed
+        exp_alerts: []
+      # Red from minute 21; pending for 5 minutes.
+      - eval_time: 24m
+        alertname: BifrostFullCIRed
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: BifrostFullCIRed
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              run: ci-full-aaaaaaaaaaaa-20261115
+            exp_annotations:
+              summary: "The daily full CI run ci-full-aaaaaaaaaaaa-20261115 of main is red"
+              description: "The newest finished full run is red. A commit that landed with a module left out of its own CI run is only caught here. GET /api/v1/units/full-ci on the PROD platform lists the tasks that failed and the commits landed since the last green full run whose own CI run left a module out."
+      - eval_time: 50m
+        alertname: BifrostFullCIRed
+        exp_alerts: []
