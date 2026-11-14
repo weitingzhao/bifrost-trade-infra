@@ -216,7 +216,7 @@ window() {
   "$WINDOW" window || rc=$?
   case "$rc" in
     0) ;;
-    1) die "the release window is open; nothing pushed" ;;
+    1) die "the release window is open; nothing pushed. This script pushes only while the window is closed, whoever holds it: push first and hold the window after, for the sync or the release that follows. A lane's commit goes in through ready/<name> (docs/RELEASE.md), which does not read the window" ;;
     *) die "cannot read the release window (exit $rc); nothing pushed" ;;
   esac
 }
@@ -411,6 +411,11 @@ run_tests() {
         return 0
       fi
       [[ -f "$HERE/push_main_tests.py" ]] || die "push_main_tests.py is not beside push-main.sh ($HERE); nothing pushed"
+      # 2026-11-14 (ci-feedback 39): a sandbox whose python3 has no pytest ran
+      # these as "0 of 81 passed", which reads as 81 red tests. It is the
+      # machine, not the commit; say that, and the way that needs no pytest here.
+      python3 -c 'import pytest' >/dev/null 2>&1 ||
+        die "python3 here ($(command -v python3)) has no pytest, so the tests of $repo cannot run on this machine; that says nothing about $commit. Nothing pushed. Push the commit to ready/<name> instead (docs/RELEASE.md): CI runs these tests there and lands it"
       echo "push-main: tests of $repo: ${paths[*]}, one process per test file (a large one in parts; pytest -q, a .sh with bash), side by side"
       (cd "$tree" && python3 "$HERE/push_main_tests.py" "${paths[@]}") || rc=$?
       ;;
@@ -600,7 +605,7 @@ if $gated; then
   bash "$SCAN" --root "$tmp" --repo "$repo" || rc=$?
   [[ "$rc" -eq 0 ]] || die "code-health refused $commit of $repo (exit $rc); nothing pushed"
 else
-  echo "push-main: $repo has no code-health task in CI; not scanned"
+  echo "push-main: $repo has no code-health task in CI; not scanned (scan.sh is not CI's judgment of this repository: a run of it by hand says nothing about $commit)"
 fi
 if $testing; then
   neighbours "$tmp"

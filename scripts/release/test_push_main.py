@@ -14,6 +14,7 @@ import re
 import secrets
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -228,6 +229,8 @@ class PushMain(_Fixture):
         r = self._push()
         self.assertEqual(r.returncode, 1)
         self.assertIn("release window is open", r.stderr)
+        # 2026-11-14, ci-feedback 39: the refusal says the order (push, then hold).
+        self.assertIn("push first and hold the window after", r.stderr)
         self.assertEqual(self._remote_main(), before)
         self.window_rc.write_text("3")
         r = self._push()
@@ -733,6 +736,26 @@ class PushMain(_Fixture):
         self.assertIn("the tests of bifrost-trade-infra passed", r.stdout)
         self.assertNotIn("test_wip", r.stdout)
         self.assertEqual(_git(origin, "rev-parse", "main"), head)
+
+    # Origin: 2026-11-14, ci-feedback 39. A sandbox whose python3 had no pytest
+    # ran the tests as "0 of 81 test runs passed", which reads as 81 red tests,
+    # and a Codex lane stopped there for a round. The refusal now says it is the
+    # machine and names the way in that needs no pytest here.
+    def test_a_python_without_pytest_is_said_to_be_the_machine(self) -> None:
+        origin, work = self._infra()
+        before = _git(origin, "rev-parse", "main")
+        self._add(work, "scripts/agent-host/test_fine.py", "def test_fine():\n    assert 2 == 2\n")
+        bin_dir = Path(self._tmp.name) / "nopytest"
+        bin_dir.mkdir()
+        fake = bin_dir / "python3"
+        fake.write_text(f'#!/bin/sh\n[ "$1" = -c ] && [ "$2" = "import pytest" ] && exit 1\nexec "{sys.executable}" "$@"\n')
+        fake.chmod(0o755)
+        r = self._push(cwd=work, env=self._env(PATH=f"{bin_dir}:{os.environ['PATH']}"))
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("has no pytest", r.stderr)
+        self.assertIn("ready/<name>", r.stderr)
+        self.assertNotIn("test runs passed", r.stdout)
+        self.assertEqual(_git(origin, "rev-parse", "main"), before)
 
     # R5:5.7-3: one process per test file, side by side; each exit code its own.
     def test_infra_test_files_run_side_by_side(self) -> None:
