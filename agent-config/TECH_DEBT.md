@@ -3266,14 +3266,14 @@
 
 ### TD-475
 
-**P3 · platform 规则循环 · 步骤证据每个步骤、每 15 秒一轮都整条重放落地流**
+**P3 · platform 规则循环 · `agentrt-facts-rules` 一遍要 13 到 17 秒，而它每 15 秒跑一遍，等于一直在跑**
 
-- **状态**：未开始（2026-11-01，复核 630 第 4 条，R5 模块进度那轮记）。
-- **证据**：`api/internal/agentrt/store/facts.go:393-397` 每评估一个步骤新建一个 `stepFacts`；`stepevidence.go:132-188` 的 `landing()` 只在这一个步骤内缓存重放（`:169` `LandingState`），`:86` 每个步骤再整条重放 B5 的 `StgReleaseState`；`landing/protocol.go:750-758` `LatestOperation` 每个已接受任务扫一遍全部操作。同一仓库有多个带规则的未完成步骤时，每 15 秒一轮重复同样的工作（已完成且无 standing 条件的步骤会跳过，`facts.go:393-396`）。
-- **影响**：规则循环的耗时和数据库读随步骤数乘以落地流长度增长；与 TD-476 同一类。
-- **修法**：一轮 Rules 内共享事务一致的重放结果（按流加最后序号缓存）；按任务给最新操作建索引。
-- **防线**：controller 基准或一轮耗时指标，设上限。
-- **验收**：基准：20 个同仓库步骤的一轮只重放每条流一次。
+- **状态**：未开始。2026-11-01 记的起因（步骤证据每个步骤整条重放落地流和 B5 的记录，复核 630 第 4 条）已随 platform `393fe6a2` 删掉（`stepevidence.go` 整个文件没了，2026-11-14 上 PROD）。删掉之后只从 16 到 17 秒降到 13 秒上下，剩下的时间花在哪还没量，所以这条留着、内容换成现在的事实（2026-11-14，业务理顺线记）。
+- **证据**：PROD workers 的日志，`agentrt controller detail="agentrt-facts-rules: pass took …"`（`api/internal/agentrt/controller/slowpass.go:11` 一遍超过 10 秒才记）。发布前（Loki，2026-11-14 18:09–18:13 UTC）连续 12 遍在 15.2 到 17.7 秒；发布后（`platform-workers-5f7b97c6cf-p8wlr`，18:22–18:23 UTC）5 遍在 13.0 到 16.1 秒。这一遍里有六件事（`controller.go` 的 `Start`：Facts、PlanDecisions、IssueCards、ackUsedAnswersDue、Activate、Rules），日志只有总时间，分不出是哪一件。间隔是 15 秒（`controller.go:434`）。STG 没有这条日志（STG 的计划小）。没有 `pg_stat_statements`，`agent_reader` 也看不到运行时角色的在跑语句，所以没能从数据库这边量。
+- **影响**：workers 对运行时库几乎持续有一个读事务在跑；计划的步骤状态、计划决定、规则生效都晚一遍以上。和 TD-476 同一类（读的代价随历史增长）。
+- **修法**：先量再定。给这一遍的六件事各记一次耗时（现在只有总数），在 PROD 规模的数据上看哪件占大头；大概率是 Facts 对每个带规则的未完成步骤各算一次时重复读同样的记录，那就一遍内共享读结果。库层第 3 刀删掉派活内核和计划视图里任务那一半之后重量一次，可能自己就降下来。
+- **防线**：这一遍的耗时出成指标并设上限告警（现在只有日志）；没有指标之前，没有可行的防线。
+- **验收**：PROD 上 `agentrt-facts-rules` 连续一小时没有一遍超过 5 秒。
 
 ### TD-473
 
