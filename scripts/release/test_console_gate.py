@@ -60,10 +60,6 @@ npm run build
 CANONICAL = """#!/usr/bin/env bash
 set -euo pipefail
 [ "${REUSE:-no}" != yes ] || exit 0
-if [ "${CONSOLE_SCOPE:-run}" = skip ]; then
-  echo "==> Console checks skipped: this commit changes only backend files that no Console test reads (task changes, result console-scope)"
-  exit 0
-fi
 ws="$(workspaces.source.path)"
 
 # CI-7: npm ci still builds node_modules from nothing, but takes the
@@ -127,20 +123,14 @@ WANTED_RUN_AFTER = ["clone", "clone-ui"]
 # same commit as the YAML. script is CANONICAL; everything else is exact.
 EXPECTED_CONSOLE = {
     "name": "test-console",
-    "params": [
-        {"name": "reuse", "value": "$(tasks.reuse.results.reuse)"},
-        # 2026-11-13: the one condition under which the step does not run its four
-        # commands. Only task changes sets it, and only to run or skip
-        # (scripts/cicd/test_platform_changes_console_scope.py).
-        {"name": "console-scope", "value": "$(tasks.changes.results.console-scope)"},
-    ],
+    "params": [{"name": "reuse", "value": "$(tasks.reuse.results.reuse)"}],
     "timeout": "20m0s",
     "runAfter": ["clone", "clone-ui"],
     "workspaces": [
         {"name": "source", "workspace": "source"},
     ],
     "taskSpec": {
-        "params": [{"name": "reuse"}, {"name": "console-scope"}],
+        "params": [{"name": "reuse"}],
         "workspaces": [
             {"name": "source"},
         ],
@@ -156,10 +146,7 @@ EXPECTED_CONSOLE = {
                     "requests": {"cpu": "4", "memory": "1Gi"},
                     "limits": {"cpu": "4", "memory": "4Gi"},
                 },
-                "env": [
-                    {"name": "REUSE", "value": "$(params.reuse)"},
-                    {"name": "CONSOLE_SCOPE", "value": "$(params.console-scope)"},
-                ],
+                "env": [{"name": "REUSE", "value": "$(params.reuse)"}],
                 "script": CANONICAL,
             },
         ],

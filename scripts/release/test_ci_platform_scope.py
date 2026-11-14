@@ -111,7 +111,7 @@ def test_test_api_takes_its_scope_from_changes():
     # A landing run with a base, or a run that asks for full, never narrows to console.
     assert 'if [ "${API_SCOPE:-full}" = "console" ] && [ -z "${LANDING_BASE:-}" ] && [ "${API_SCOPE_REQUEST:-}" != full ]; then' in api_script()
     changes = t["changes"]
-    assert [r["name"] for r in changes["taskSpec"]["results"]] == ["api-scope", "why", "console-scope", "console-why"]
+    assert [r["name"] for r in changes["taskSpec"]["results"]] == ["api-scope", "why"]
     assert "workspaces" not in changes and "when" not in changes and "onError" not in changes
     step = changes["taskSpec"]["steps"][0]
     secrets = {e["valueFrom"]["secretKeyRef"]["name"] for e in step["env"] if "valueFrom" in e}
@@ -172,10 +172,7 @@ def run_changes(tmp_path: Path, origin: Path, revision: str, url: str = GITEA_UR
     for name in ("api-scope", "why"):
         (results / name).unlink(missing_ok=True)
     script = (changes_script().replace("$(results.api-scope.path)", str(results / "api-scope"))
-              .replace("$(results.why.path)", str(results / "why"))
-              # console-scope has its own tests: scripts/cicd/test_platform_changes_console_scope.py.
-              .replace("$(results.console-scope.path)", str(results / "console-scope"))
-              .replace("$(results.console-why.path)", str(results / "console-why")))
+              .replace("$(results.why.path)", str(results / "why")))
     path = tmp_path / "changes.sh"
     path.write_text(script)
     bin_dir = tmp_path / "bin"

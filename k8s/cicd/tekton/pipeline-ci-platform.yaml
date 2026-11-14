@@ -45,11 +45,6 @@ spec:
       value: $(tasks.test-api.results.api-scope-why)
     - name: tested-by
       value: $(tasks.reuse.results.tested-by)
-    # Whether test-console ran its checks or skipped them, and why (task changes).
-    - name: console-scope
-      value: $(tasks.changes.results.console-scope)
-    - name: console-scope-why
-      value: $(tasks.changes.results.console-why)
   params:
     - name: revision
       type: string
@@ -220,17 +215,12 @@ spec:
       params:
         - name: reuse
           value: $(tasks.reuse.results.reuse)
-        # skip when the commit changes only backend files no Console test reads
-        # (task-ci-platform-changes.yaml, Owner 2026-11-13); anything else is run.
-        - name: console-scope
-          value: $(tasks.changes.results.console-scope)
       workspaces:
         - name: source
           workspace: source
       taskSpec:
         params:
           - name: reuse
-          - name: console-scope
         workspaces:
           - name: source
         # CI-7: npm's download cache, shared by every run on every node
@@ -263,16 +253,10 @@ spec:
             env:
               - name: REUSE
                 value: $(params.reuse)
-              - name: CONSOLE_SCOPE
-                value: $(params.console-scope)
             script: |
               #!/usr/bin/env bash
               set -euo pipefail
               [ "${REUSE:-no}" != yes ] || exit 0
-              if [ "${CONSOLE_SCOPE:-run}" = skip ]; then
-                echo "==> Console checks skipped: this commit changes only backend files that no Console test reads (task changes, result console-scope)"
-                exit 0
-              fi
               ws="$(workspaces.source.path)"
 
               # CI-7: npm ci still builds node_modules from nothing, but takes the
