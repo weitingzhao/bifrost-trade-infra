@@ -120,13 +120,19 @@ else
   say "kept the existing seed"
 fi
 
-# as_runner <expect: refused|allowed> <description> <kubectl args...>
+# as_runner <expect: refused|allowed> <description> [refusal message] <kubectl args...>
 as_runner() {
   local expect="$1" what="$2"; shift 2
-  local out rc=0
+  local out rc=0 message=''
+  if [[ "$expect" == refused ]]; then message="$1"; shift; fi
   out="$(k --as="$RUNNER" "$@" --dry-run=server 2>&1)" || rc=$?
   if [[ "$expect" == refused ]]; then
-    [[ $rc -ne 0 && "$out" == *"ValidatingAdmissionPolicy"* ]] && { printf '  refused, as it must be: %s\n' "$what"; return 0; }
+    # #543: require the exact validation, not RBAC, absence or CEL failure.
+    if [[ $rc -ne 0 && "$out" == *"ValidatingAdmissionPolicy 'bifrost-owner-exec-no-trade'"* \
+        && "$out" == *"denied request"* && "$out" == *"$message"* ]] \
+        && ! printf '%s' "$out" | grep -qiE 'resulted in error|no such key|notfound|alreadyexists|already exists|not found|cannot (patch|create|delete) resource|failed to evaluate'; then
+      printf '  refused, as it must be: %s\n' "$what"; return 0
+    fi
     printf '  NOT refused by the policy: %s\n    %s\n' "$what" "$out"; return 1
   fi
   [[ $rc -eq 0 ]] && { printf '  allowed, as it must be: %s\n' "$what"; return 0; }
@@ -134,38 +140,33 @@ as_runner() {
 }
 
 say "4/7 keep the runner's identity out of Trade"
+trade_message='owner-exec may not write, delete or exec in the Trade namespaces (D10; Owner 2026-11-13)'
+deployment_message='owner-exec may not touch a Deployment named daemon, its scale included (D10)'
+data_message='owner-exec may not write, delete, exec into or port-forward redis-ib or the IB gateway (D10)'
 k apply --dry-run=server -f "$WORK/2-no-trade.yaml" >/dev/null || die "the no-trade policy failed dry-run. Created so far: namespace, identity, network policy, seed. The runner is NOT started."
 k apply -f "$WORK/2-no-trade.yaml"
 proved=no
 for wait in 2 4 6 8 10; do   # a new policy takes a few seconds to be enforced
   sleep "$wait"
-  if as_runner refused "create in bifrost-prod" -n bifrost-prod create configmap owner-exec-probe >/dev/null 2>&1; then proved=yes; break; fi
+  if as_runner refused "create in bifrost-prod" "$trade_message" -n bifrost-prod create configmap owner-exec-probe >/dev/null 2>&1; then proved=yes; break; fi
 done
 [[ "$proved" == yes ]] || die "the no-trade policy is not being enforced after 30 seconds. The runner is NOT started. Remove with: kubectl delete -f k8s/owner-exec/admission.yaml"
 fail=0
-as_runner refused "create in bifrost-prod"            -n bifrost-prod create configmap owner-exec-probe || fail=1
-as_runner refused "create in bifrost-stg"             -n bifrost-stg  create configmap owner-exec-probe || fail=1
-as_runner refused "create in bifrost-dev"             -n bifrost-dev  create configmap owner-exec-probe || fail=1
-as_runner refused "scale Deployment daemon"           -n bifrost-stg  scale deployment daemon --replicas=0 || fail=1
-as_runner refused "create a Deployment named daemon"  -n default create deployment daemon --image=registry.k8s.io/pause:3.9 || fail=1
-as_runner refused "write redis-ib in data"            -n data create configmap redis-ib-owner-exec-probe || fail=1
-as_runner refused "write ib-gateway in data"          -n data create configmap ib-gateway-owner-exec-probe || fail=1
+as_runner refused "create in bifrost-prod" "$trade_message" -n bifrost-prod create configmap owner-exec-probe || fail=1
+as_runner refused "create in bifrost-stg" "$trade_message" -n bifrost-stg create configmap owner-exec-probe || fail=1
+as_runner refused "create in bifrost-dev" "$trade_message" -n bifrost-dev create configmap owner-exec-probe || fail=1
+# This request also hits the namespace validation; require its first message.
+as_runner refused "scale Deployment daemon" "$trade_message" -n bifrost-stg scale deployment daemon --replicas=0 || fail=1
+as_runner refused "create a Deployment named daemon" "$deployment_message" -n default create deployment daemon --image=registry.k8s.io/pause:3.9 || fail=1
+as_runner refused "write redis-ib in data" "$data_message" -n data create configmap redis-ib-owner-exec-probe || fail=1
+as_runner refused "write ib-gateway in data" "$data_message" -n data create configmap ib-gateway-owner-exec-probe || fail=1
 as_runner allowed "an ordinary write elsewhere (positive control)" -n default create configmap owner-exec-probe || fail=1
 # #537; coordinator 2026-11-14 tightened scope; compute-13 review.
 # All probes are server dry-runs as RUNNER, with a per-validation message.
 # Require this rule's message, not RBAC, NotFound, or a CEL evaluation error.
 cluster_refusal() {
   local what="$1" message="$2"; shift 2
-  local out rc=0
-  out="$(k --as="$RUNNER" "$@" --dry-run=server 2>&1)" || rc=$?
-  if [[ $rc -ne 0 && "$out" == *"ValidatingAdmissionPolicy"* \
-      && "$out" == *"bifrost-owner-exec-no-trade"* \
-      && "$out" == *"$message"* ]]; then
-    printf '  refused by the cluster-scope rule: %s\n' "$what"
-    return 0
-  fi
-  printf '  NOT refused by the cluster-scope rule: %s\n    %s\n' "$what" "$out"
-  return 1
+  as_runner refused "$what" "$message" "$@"
 }
 probe="bifrost-owner-exec-probe-$(date +%s)-$$"
 scope_message='owner-exec cluster scope permits only PriorityClass CREATE/DELETE or Node UPDATE without subresources'
@@ -175,7 +176,7 @@ batch_message='owner-exec Node bifrost.io/batch may only be added or removed wit
 # distinct from all five real classes, non-default CREATE must pass.
 as_runner allowed "create PriorityClass" create priorityclass "$probe" --value=1 --global-default=false || fail=1
 # Coordinator 11-14 tightened scope / compute-13: reject other names.
-cluster_refusal "create PriorityClass without prefix" 'owner-exec PriorityClass name must start with bifrost-' create priorityclass "outside-$probe" --value=1 --global-default=false || fail=1
+cluster_refusal "create PriorityClass without prefix" 'owner-exec PriorityClass name must start with bifrost- and operation must be CREATE or DELETE' create priorityclass "outside-$probe" --value=1 --global-default=false || fail=1
 # Coordinator 11-14 tightened scope / compute-13: global default is forbidden.
 cluster_refusal "create global-default PriorityClass" 'owner-exec PriorityClass CREATE must not set globalDefault to true' create priorityclass "$probe" --value=1 --global-default=true || fail=1
 # Coordinator 11-14 tightened scope / compute-13: select a Node without batch,
@@ -207,8 +208,10 @@ cluster_refusal "set Node batch to other value" "$batch_message" label node "$no
 cluster_refusal "annotate Node" 'owner-exec Node metadata other than labels must remain unchanged' annotate node "$node" "bifrost.io/$probe=probe" --resource-version="$node_rv" || fail=1
 # Coordinator 11-14 tightened scope / compute-13: spec.taints still forbidden.
 cluster_refusal "taint Node" 'owner-exec Node spec must remain unchanged' taint node "$node" "bifrost.io/owner-exec-probe=$probe:NoSchedule" --overwrite || fail=1
-# Coordinator 11-14 tightened scope / compute-13: Namespace still forbidden.
+# #543 v3: Namespace has request.namespace=name, but is cluster-scoped.
+# Require validation 4; Trade Namespace writes return validation 1 instead.
 cluster_refusal "create Namespace" "$scope_message" create namespace "$probe" || fail=1
+as_runner refused "write Trade Namespace object" "$trade_message" annotate namespace bifrost-stg "bifrost.io/$probe=probe" --overwrite || fail=1
 # Coordinator 11-14 tightened scope / compute-13: DELETE needs a real PV; absence is NOT a pass.
 pv="$(k get persistentvolumes -o jsonpath='{.items[0].metadata.name}')"
 if [[ -n "$pv" ]]; then

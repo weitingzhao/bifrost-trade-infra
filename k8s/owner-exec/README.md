@@ -89,29 +89,61 @@ This is source reasoning, not a captured live admission request.
 Kubernetes exempts admission policies and their bindings from these checks;
 the runner's existing RBAC still lets it patch/update its own policy. This is
 the known, accepted risk of the current design, not fixed here. To allow a new
-cluster-scoped kind later, change this policy and its probes, review and merge
-the repository change in Gitea, then update the policy through the same reviewed
-execution-card path. Do not broaden RBAC or re-enroll to bypass this process.
+cluster-scoped kind later, change this policy and its probes and submit the
+repository change through the landing channel on a ready/ branch. If the
+channel refuses it, record the refusal and rule location for the coordinator;
+do not bypass it or turn it into an Owner merge in Gitea. Live policy updates
+use an execution card approved by the Owner with an authenticator code.
+Do not broaden RBAC or re-enroll to bypass this process.
 
 Step 4 of enrollment tests these boundaries with server dry-runs. It discovers
 an existing Node without the batch label and an existing PV; missing fixtures fail verification rather than treating
 NotFound as a policy refusal. The new cluster refusal probes require both the
-no-trade policy's name and the particular validation's rejection message. Existing Trade
-probes keep their original checks. If verification fails, the newly applied
+no-trade policy's name, denied-request text and the full validation message;
+RBAC, NotFound, duplicate-object and CEL errors do not count. Existing Trade
+probes now use those same checks. If verification fails, the newly applied
 policy remains in place, and a runner from an earlier enrollment keeps running.
 Re-enrollment keeps the seed when the Owner presses Enter at its prompt, but
 step 6 still restarts the runner. There is no delete/recreate policy gap.
 If step 6 fails it removes the namespace guard binding, leaving that protection
-absent. Policy-only upgrades therefore use an execution card after the Gitea
-merge, not a rerun of enrollment. Step 4 stays synchronized for future enrollments.
+absent. Policy-only upgrades therefore use an execution card, not a rerun of
+enrollment. Repository reconciliation goes through the landing channel.
+Step 4 stays synchronized for future enrollments.
 
 The two label-map traversals are linear in the number of labels. Kubernetes
 v1.35 defines a per-expression cost limit of 1,000,000 and a policy runtime
 budget of 10,000,000 in
 [CEL configuration](https://github.com/kubernetes/kubernetes/blob/v1.35.0/staging/src/k8s.io/apiserver/pkg/apis/cel/config.go).
-No offline CEL evaluation or server test has been performed for this revision;
-actual typing/cost and admission results must be checked by the execution card's
-server dry-runs. YAML rendering alone does not prove policy acceptance.
+Execution card #543 verified v3 with 17 server dry-runs on November 14 (below).
+This does not exhaustively measure CEL cost or every possible request.
+YAML rendering alone does not prove policy acceptance.
+
+## Namespace object correction: #541 and #543
+
+#541 applied v2, but creating a Namespace was incorrectly allowed: the API
+sets request.namespace to the Namespace's own name, so variables.namespaced
+was true even for this cluster-scoped object. The card's self-check detected
+the failure and automatically restored the old policy. v3 changes only
+spec.validations[3].expression: the namespaced bypass explicitly excludes the
+core group's namespaces resource. A Trade Namespace object still returns
+validation 1's message; an ordinary Namespace returns validation 4's message.
+
+#543 executed on 2026-11-14 at 18:28:12.534–18:28:16.667 UTC, exit 0:
+COUNTS pass=17 fail=0 untested=0; RESULT=PASS; FINAL_SPEC=new;
+ACTIVE=new-probe; ROLLBACK=not-needed; NO_PV=0. Its 17 cases cover Namespace
+creation, a Trade Namespace annotation, ClusterRole annotation, the protected
+Deployment, the protected data prefix, a Trade ConfigMap, PV deletion, an
+ordinary ConfigMap, three PriorityClass cases and six Node cases.
+Step 4 includes those 17 cases and retains four existing extra probes
+(the other two Trade namespaces, Deployment scale, and the gateway prefix).
+All behavioral probes use server dry-run and persist nothing. This repository
+change does not run enrollment or repeat those server requests.
+
+The expression strings match the live policy exactly. Multiline expressions
+use literal YAML blocks to preserve their newlines through kustomize; this
+changes serialization only, not the other validation strings. The executor's
+ability to update the policy governing itself remains a known, accepted risk;
+this correction does not fix it.
 
 ## Namespace guard incident, 2026-11-14
 
@@ -141,7 +173,7 @@ its expression exactly into the repository; it restricts the guard to requests
 in bifrost-owner-exec and the Namespace object itself. The remaining spec and
 binding match live after API-default normalization. This directory is not
 managed by Argo, so merging does not change the cluster. The separate no-trade
-policy update follows its own execution card.
+policy was subsequently updated by execution card #543 as recorded above.
 
 Guard optional request.namespace and request.name with has() before reading
 them, and include a cluster-scoped request in every new policy's probes.

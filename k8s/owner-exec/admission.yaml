@@ -52,17 +52,15 @@ spec:
     # #537; coordinator 2026-11-14 tightened scope; compute-13 review.
     # Every added validation bypasses namespaced requests. PATCH is UPDATE.
     # Kubernetes exempts admission policies/bindings from policy evaluation.
-    - expression: >-
-        variables.namespaced
-        || ((!has(request.subResource) || request.subResource == '')
+    - expression: |-
+        (variables.namespaced && !(request.resource.group == '' && request.resource.resource == 'namespaces')) || ((!has(request.subResource) || request.subResource == '')
           && ((variables.priorityClass && request.operation in ['CREATE', 'DELETE'])
             || variables.nodeUpdate))
       message: owner-exec cluster scope permits only PriorityClass CREATE/DELETE or Node UPDATE without subresources
     # CREATE uses object: request.name may be absent. DELETE has no object;
     # oldObject is the persisted object supplied by admission on DELETE.
-    - expression: >-
-        variables.namespaced || !variables.priorityClass
-        || (request.operation == 'CREATE'
+    - expression: |-
+        variables.namespaced || !variables.priorityClass || (request.operation == 'CREATE'
           ? (object != null && has(object.metadata) && has(object.metadata.name)
             && object.metadata.name.startsWith('bifrost-'))
           : (request.operation == 'DELETE' && oldObject != null
@@ -73,14 +71,14 @@ spec:
         variables.namespaced || !variables.priorityClass || request.operation != 'CREATE'
         || (object != null && (!has(object.globalDefault) || object.globalDefault == false))
       message: owner-exec PriorityClass CREATE must not set globalDefault to true
-    - expression: >-
+    - expression: |-
         !variables.nodeUpdate || (has(object.spec) && has(oldObject.spec)
           && object.spec == oldObject.spec)
       message: owner-exec Node spec must remain unchanged
     # Compare optional user metadata explicitly, guarding both sides. Server
     # bookkeeping (managedFields, resourceVersion, generation, uid,
     # creationTimestamp) is not compared; see README for upstream handling.
-    - expression: >-
+    - expression: |-
         !variables.nodeUpdate || (
           has(object.metadata.name) == has(oldObject.metadata.name)
           && (!has(object.metadata.name) || object.metadata.name == oldObject.metadata.name)
@@ -101,7 +99,7 @@ spec:
           && has(object.metadata.selfLink) == has(oldObject.metadata.selfLink)
           && (!has(object.metadata.selfLink) || object.metadata.selfLink == oldObject.metadata.selfLink))
       message: owner-exec Node metadata other than labels must remain unchanged
-    - expression: >-
+    - expression: |-
         !variables.nodeUpdate || (
           variables.oldLabels.all(k, k == 'bifrost.io/batch'
             || (k in variables.newLabels && variables.newLabels[k] == variables.oldLabels[k]))
@@ -110,7 +108,7 @@ spec:
       message: owner-exec Node labels other than bifrost.io/batch must remain unchanged
     # Also reject an existing non-deny value, even when removing it. No
     # transition between two existing values is allowed. No-op deny is safe.
-    - expression: >-
+    - expression: |-
         !variables.nodeUpdate || (
           (!('bifrost.io/batch' in variables.oldLabels) || variables.oldLabels['bifrost.io/batch'] == 'deny')
           && (!('bifrost.io/batch' in variables.newLabels) || variables.newLabels['bifrost.io/batch'] == 'deny'))
