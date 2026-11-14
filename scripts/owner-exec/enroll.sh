@@ -232,8 +232,26 @@ k apply --dry-run=server -f "$WORK/4-namespace-guard.yaml" >/dev/null || die "th
 k apply -f "$WORK/4-namespace-guard.yaml"
 sleep 10
 guard_ok=yes
+# 11-14 incident / #540 / coordinator 2026-11-14: the existing Argo CD
+# identity must reach admission for an unrelated cluster-scoped write.
+# Its ClusterRoleBinding grants */*/*; CRD and ServiceAccount must exist.
+# Success (rc=0), not merely absence of the policy name, proves acceptance:
+# RBAC Forbidden, NotFound, conflicts and other admission failures all fail.
+guard_actor=system:serviceaccount:cicd:argocd-application-controller
+if out="$(k --as="$guard_actor" annotate crd applications.argoproj.io \
+    "bifrost.io/owner-exec-probe=$probe" --overwrite --dry-run=server 2>&1)"; then
+  printf '  allowed, as it must be: Argo CD annotating its CRD (server dry-run)\n'
+else
+  guard_ok=no
+  printf '  NOT allowed: cluster-scoped admission probe\n    %s\n' "$out"
+fi
+# 11-14 incident / #540 / coordinator 2026-11-14: reuse the existing
+# ConfigMap negative control, but require this policy and its denial message.
+# A bare RBAC Forbidden or CEL evaluation error is not a successful probe.
 out="$(k --as=system:serviceaccount:cicd:argocd-application-controller -n "$NS" create configmap owner-exec-probe --dry-run=server 2>&1)" && guard_ok=no
-[[ "$out" == *"ValidatingAdmissionPolicy"* ]] || guard_ok=no
+[[ "$out" == *"ValidatingAdmissionPolicy"* \
+    && "$out" == *"bifrost-owner-exec-namespace"* \
+    && "$out" == *"only the Owner, owner-exec itself and the cluster's own controllers may change namespace bifrost-owner-exec"* ]] || guard_ok=no
 if [[ "$guard_ok" == yes ]]; then
   printf '  refused, as it must be: Argo CD writing into the namespace\n'
   k -n "$NS" rollout restart deploy/owner-exec >/dev/null

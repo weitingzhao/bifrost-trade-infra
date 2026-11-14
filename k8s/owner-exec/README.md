@@ -113,6 +113,48 @@ No offline CEL evaluation or server test has been performed for this revision;
 actual typing/cost and admission results must be checked by the execution card's
 server dry-runs. YAML rendering alone does not prove policy acceptance.
 
+## Namespace guard incident, 2026-11-14
+
+All times here are America/Chicago (CST, UTC-6). The policy and binding were
+created on November 13 at 10:41:44 (their live creationTimestamp). Until the
+repair on November 14 around 12:00, cluster-scoped writes by identities outside
+the policy's allowlist were rejected. This was not every identity: the Owner,
+runner and listed cluster controllers were exempt. Request #540 records that
+namespaceSelector did not exclude cluster-scoped resources, so those requests
+reached the namespace-only identity validation. The old second policy did not
+read request.namespace; the initial report attributing this incident to a
+missing-field evaluation error conflated it with the separate #537 issue.
+failurePolicy remains Fail; missing-field evaluation errors would also fail closed.
+
+According to the coordinator's incident account recorded in #540, Tekton's
+webhook could not write its renewed certificate's signing authority back to
+its cluster-scoped registration, and all pipeline creation stopped from
+November 14 at 11:43. That start time and the full outage extent were not
+independently established from historical webhook logs in this change.
+#540 ran at 12:00:12.083 and finished at 12:00:32.638 with exit 0, RESULT=PATCHED,
+an empty typeChecking result and zero matching denials in the last 15 seconds
+of webhook logs. These bound the repair; they are not an independently timed
+end-to-end pipeline recovery check.
+
+#540 first added the live in-the-namespace matchCondition. This commit copies
+its expression exactly into the repository; it restricts the guard to requests
+in bifrost-owner-exec and the Namespace object itself. The remaining spec and
+binding match live after API-default normalization. This directory is not
+managed by Argo, so merging does not change the cluster. The separate no-trade
+policy update follows its own execution card.
+
+Guard optional request.namespace and request.name with has() before reading
+them, and include a cluster-scoped request in every new policy's probes.
+Enrollment step 6 now server-dry-runs an annotation on the existing
+applications.argoproj.io CRD as system:serviceaccount:cicd:argocd-application-controller.
+Read-only inspection on November 14 confirmed that account, CRD, and its
+ClusterRoleBinding to a ClusterRole granting all API groups/resources/verbs.
+The positive control requires exit 0; RBAC Forbidden is a failure, not proof
+of admission acceptance. The existing same-identity ConfigMap creation probe
+inside bifrost-owner-exec is retained and tightened to require this policy's
+name and exact rejection message. Neither probe persists an object. These
+probes were not executed for this repository-only change.
+
 ## Not verified by an agent
 
 - Both admission policies: server dry-run needs an admin identity. `enroll.sh`

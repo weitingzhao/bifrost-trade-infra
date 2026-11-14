@@ -153,6 +153,10 @@ spec:
     namespaceSelector:
       matchLabels:
         kubernetes.io/metadata.name: bifrost-owner-exec
+  matchConditions:
+    - name: in-the-namespace
+      expression: >-
+        (has(request.namespace) && request.namespace == 'bifrost-owner-exec') || (request.resource.group == '' && request.resource.resource == 'namespaces' && has(request.name) && request.name == 'bifrost-owner-exec')
   validations:
     - expression: >-
         request.userInfo.username == 'system:serviceaccount:bifrost-owner-exec:owner-exec'
