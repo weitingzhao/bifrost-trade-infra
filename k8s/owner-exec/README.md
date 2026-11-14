@@ -53,6 +53,24 @@ goes at Trade directly, however it is worded. It does not stop:
   platform-api redacts token shapes from stored output; an encoded token
   would pass.
 
+For cluster-scoped writes, the no-trade policy permits only PriorityClass
+CREATE/DELETE (any name) and Node UPDATE with unchanged spec, without a
+subresource. Node metadata changes include annotations, finalizers and owner
+references, not just labels; the normal API validation still applies. Taints,
+cordon and nodes/status are not permitted. Other cluster-scoped writes are
+denied where Kubernetes evaluates this policy. Kubernetes exempts admission
+policies and their bindings from these checks: the runner's existing RBAC still
+lets it patch/update its own policy. This change does not close that hole.
+
+Step 4 of enrollment tests these boundaries with server dry-runs. It discovers
+an existing Node and PV; a missing PV fails verification rather than treating
+NotFound as a policy refusal. The new cluster refusal probes require both the
+no-trade policy's name and its cluster-scope rejection message. Existing Trade
+probes keep their original checks. If verification fails, the newly applied
+policy remains in place, and a runner from an earlier enrollment keeps running.
+Re-enrollment keeps the seed when the Owner presses Enter at its prompt, but
+step 6 still restarts the runner. There is no delete/recreate policy gap.
+
 ## Not verified by an agent
 
 - Both admission policies: server dry-run needs an admin identity. `enroll.sh`

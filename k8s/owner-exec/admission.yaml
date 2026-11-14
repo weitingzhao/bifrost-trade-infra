@@ -28,12 +28,28 @@ spec:
     - name: is-owner-exec
       expression: request.userInfo.username == 'system:serviceaccount:bifrost-owner-exec:owner-exec'
   validations:
-    - expression: "!(request.namespace in ['bifrost-prod', 'bifrost-stg', 'bifrost-dev'])"
+    - expression: "!(has(request.namespace) && request.namespace in ['bifrost-prod', 'bifrost-stg', 'bifrost-dev'])"
       message: owner-exec may not write, delete or exec in the Trade namespaces (D10; Owner 2026-11-13)
     - expression: "!(request.resource.group == 'apps' && request.resource.resource == 'deployments' && request.name == 'daemon')"
       message: owner-exec may not touch a Deployment named daemon, its scale included (D10)
-    - expression: "!(request.namespace == 'data' && (request.name.startsWith('redis-ib') || request.name.startsWith('ib-gateway')))"
+    - expression: "!(has(request.namespace) && request.namespace == 'data' && (request.name.startsWith('redis-ib') || request.name.startsWith('ib-gateway')))"
       message: owner-exec may not write, delete, exec into or port-forward redis-ib or the IB gateway (D10)
+    # #537; coordinator 2026-11-14: absent/empty namespace is cluster scope.
+    # PATCH is admission UPDATE. No subresources, including nodes/status.
+    # This permits metadata changes beyond labels; it does not constrain names
+    # of PriorityClasses. Admission policies/bindings are exempt in Kubernetes.
+    - expression: >-
+        (has(request.namespace) && request.namespace != '')
+        || ((!has(request.subResource) || request.subResource == '')
+          && ((request.resource.group == 'scheduling.k8s.io'
+              && request.resource.resource == 'priorityclasses'
+              && request.operation in ['CREATE', 'DELETE'])
+            || (request.resource.group == '' && request.resource.resource == 'nodes'
+              && request.operation == 'UPDATE'
+              && object != null && oldObject != null
+              && has(object.spec) && has(oldObject.spec)
+              && object.spec == oldObject.spec)))
+      message: owner-exec may not modify this kind of cluster-scoped object; only PriorityClass CREATE/DELETE and Node UPDATE with unchanged spec are allowed
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding

@@ -151,6 +151,43 @@ as_runner refused "create a Deployment named daemon"  -n default create deployme
 as_runner refused "write redis-ib in data"            -n data create configmap redis-ib-owner-exec-probe || fail=1
 as_runner refused "write ib-gateway in data"          -n data create configmap ib-gateway-owner-exec-probe || fail=1
 as_runner allowed "an ordinary write elsewhere (positive control)" -n default create configmap owner-exec-probe || fail=1
+# #537; coordinator 2026-11-14: all probes are server dry-runs as RUNNER.
+# Require this rule's message, not RBAC, NotFound, or a CEL evaluation error.
+cluster_refusal() {
+  local what="$1"; shift
+  local out rc=0
+  out="$(k --as="$RUNNER" "$@" --dry-run=server 2>&1)" || rc=$?
+  if [[ $rc -ne 0 && "$out" == *"ValidatingAdmissionPolicy"* \
+      && "$out" == *"bifrost-owner-exec-no-trade"* \
+      && "$out" == *"owner-exec may not modify this kind of cluster-scoped object"* ]]; then
+    printf '  refused by the cluster-scope rule: %s\n' "$what"
+    return 0
+  fi
+  printf '  NOT refused by the cluster-scope rule: %s\n    %s\n' "$what" "$out"
+  return 1
+}
+probe="owner-exec-probe-$(date +%s)-$$"
+# #537: creating a non-default PriorityClass must reach admission and pass.
+as_runner allowed "create PriorityClass" create priorityclass "$probe" --value=1 --global-default=false || fail=1
+# Coordinator 2026-11-14: discover an existing Node, never assume its name.
+node="$(k get nodes -o jsonpath='{.items[0].metadata.name}')"
+[[ -n "$node" ]] || die "no Node available for admission probes; the new policy remains applied"
+as_runner allowed "label Node" label node "$node" "bifrost.io/owner-exec-probe=$probe" --overwrite || fail=1
+# Coordinator 2026-11-14: same Node, but spec.taints must be refused.
+cluster_refusal "taint Node" taint node "$node" "bifrost.io/owner-exec-probe=$probe:NoSchedule" --overwrite || fail=1
+# Coordinator 2026-11-14: Namespace CREATE must be refused at admission.
+cluster_refusal "create Namespace" create namespace "$probe" || fail=1
+# Coordinator 2026-11-14: DELETE needs a real PV; absence is NOT a pass.
+pv="$(k get persistentvolumes -o jsonpath='{.items[0].metadata.name}')"
+if [[ -n "$pv" ]]; then
+  cluster_refusal "delete existing PV" delete persistentvolume "$pv" --wait=false || fail=1
+else
+  printf '  NOT tested: no existing PV for admission DELETE probe\n'
+  fail=1
+fi
+# Coordinator 2026-11-14: step 2 ensures this role exists. Metadata-only patch
+# retains rules the runner already holds, avoiding RBAC escalation rejection.
+cluster_refusal "patch existing ClusterRole" annotate clusterrole bifrost-owner-exec "bifrost.io/owner-exec-probe=$probe" --overwrite || fail=1
 [[ $fail -eq 0 ]] || die "the no-trade policy does not behave as written (see above). The runner is NOT started."
 
 say "5/7 the runner"
