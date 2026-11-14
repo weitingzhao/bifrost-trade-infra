@@ -8,6 +8,13 @@
 # it cannot read or of more than 2000 files, any failure. It writes full before
 # anything else and always exits 0, so it never fails a run. No workspace: it clones
 # into its own container (blobless).
+# run-modules (2026-11-14, declaration standard §2): which modules of the repository's own
+# declaration have to be verified again. This task does not decide it and knows no module:
+# it asks the platform (GET /api/v1/units/scope), which compares the keys the two commits'
+# declarations give, and answers everything ("*") unless the base has a passing full CI in
+# the evidence ledger. The result is "*" (everything), or the names between spaces
+# (" api repo "). "*" before anything else and on any doubt: no answer, an answer cut
+# short, a line this task does not read, a commit with no declaration, nothing left out.
 apiVersion: tekton.dev/v1
 kind: Task
 metadata:
@@ -22,11 +29,18 @@ spec:
       type: string
     - name: revision
       type: string
+    - name: platform-url
+      type: string
+      default: http://platform-api.bifrost-platform-prod.svc.cluster.local:8780
   results:
     - name: api-scope
       description: full, or console when the Go code is main's and only console or Markdown changed
     - name: why
       description: One line on how api-scope was chosen
+    - name: run-modules
+      description: '"*" (every module runs), or the declared modules that run, each between spaces'
+    - name: scope-why
+      description: One line on how run-modules was chosen
   steps:
     - name: diff
       image: alpine/git:2.45.2
@@ -52,6 +66,8 @@ spec:
           value: $(params.repo-url)
         - name: REVISION
           value: $(params.revision)
+        - name: PLATFORM_URL
+          value: $(params.platform-url)
       script: |
         #!/bin/sh
         set -u
@@ -59,6 +75,10 @@ spec:
         why_file="$(results.why.path)"
         printf 'full' > "$scope_file"
         printf 'not decided' > "$why_file"
+        modules_file="$(results.run-modules.path)"
+        modules_why_file="$(results.scope-why.path)"
+        printf '*' > "$modules_file"
+        printf 'not asked: the changes against main were not read' > "$modules_why_file"
         answer() {
           printf '%s' "$1" > "$scope_file"
           printf '%s' "$2" | cut -c1-300 | tr -d '\n' > "$why_file"
@@ -112,6 +132,43 @@ spec:
           full "cannot read the changes against main"
         echo "changes of $rev against main (merge base $base):"
         tr '\0' '\n' < "$work/raw" | awk 'NR % 2 == 0' | head -50
+        # Which modules run, asked of the platform. Nothing here fails the step or changes
+        # api-scope below.
+        modules() {
+          printf '%s' "$1" > "$modules_file"
+          printf '%s' "$2" | cut -c1-300 | tr -d '\n' > "$modules_why_file"
+          echo "run-modules: $1 ($2)"
+        }
+        ask_scope() {
+          platform="${PLATFORM_URL:-}"
+          printf '%s' "$platform" | grep -Eq '^http://platform-api\.[a-z0-9-]+\.svc\.cluster\.local:8780$' ||
+            { modules '*' "the platform address is not one this task asks"; return 0; }
+          name="${url##*/}"
+          name="${name%.git}"
+          # shellcheck disable=SC2086
+          $limit wget -q -T 100 -O "$work/scope" \
+            "$platform/api/v1/units/scope?repo=$name&commit=$rev&base=$base&format=text" 2>/dev/null ||
+            { modules '*' "the platform gave no scope"; return 0; }
+          # "declared yes|no", then "run <module>" or "same <module>" a line, then "end".
+          answer_line="$(awk '
+            NR == 1 { if ($0 == "declared no") none = 1; else if ($0 != "declared yes") bad = 1; next }
+            ended { bad = 1; next }
+            $0 == "end" { ended = 1; next }
+            /^(run|same) [A-Za-z0-9][A-Za-z0-9._-]*$/ { n++; if ($1 == "run") run = run " " $2; else same = same " " $2; next }
+            { bad = 1 }
+            END {
+              if (bad || !ended) print "* the answer is not one this task reads"
+              else if (none) print "* the commit has no declaration: the project is one block"
+              else if (n == 0 || same == "") print "* the platform says every module runs"
+              else print run " |not run, their keys are the base'"'"'s:" same
+            }' "$work/scope" 2>/dev/null)" || answer_line="* the answer could not be read"
+          case "$answer_line" in
+            '* '*) modules '*' "${answer_line#\* }" ;;
+            *'|'*) modules "${answer_line%%|*}" "${answer_line#*|}" ;;
+            *) modules '*' "the answer could not be read" ;;
+          esac
+        }
+        ask_scope
         # Records alternate: ":<old mode> <new mode> <old> <new> <status>", then the path.
         verdict="$(tr '\0' '\n' < "$work/raw" | awk -v max=2000 '
           BEGIN { n = 0; meta = 1; bad = ""; shown = 0; list = "" }

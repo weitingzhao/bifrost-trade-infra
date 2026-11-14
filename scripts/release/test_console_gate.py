@@ -60,6 +60,10 @@ npm run build
 CANONICAL = """#!/usr/bin/env bash
 set -euo pipefail
 [ "${REUSE:-no}" != yes ] || exit 0
+case "${RUN_MODULES:-*}" in
+  "*" | *" ${MODULE} "*) ;;
+  *) echo "==> ${MODULE}: not among the modules that run (${RUN_MODULES}); its keys are the base's, whose CI passed"; exit 0 ;;
+esac
 ws="$(workspaces.source.path)"
 
 # CI-7: npm ci still builds node_modules from nothing, but takes the
@@ -123,14 +127,15 @@ WANTED_RUN_AFTER = ["clone", "clone-ui"]
 # same commit as the YAML. script is CANONICAL; everything else is exact.
 EXPECTED_CONSOLE = {
     "name": "test-console",
-    "params": [{"name": "reuse", "value": "$(tasks.reuse.results.reuse)"}],
+    "params": [{"name": "reuse", "value": "$(tasks.reuse.results.reuse)"},
+               {"name": "run-modules", "value": "$(tasks.changes.results.run-modules)"}],
     "timeout": "20m0s",
     "runAfter": ["clone", "clone-ui"],
     "workspaces": [
         {"name": "source", "workspace": "source"},
     ],
     "taskSpec": {
-        "params": [{"name": "reuse"}],
+        "params": [{"name": "reuse"}, {"name": "run-modules"}],
         "workspaces": [
             {"name": "source"},
         ],
@@ -146,7 +151,9 @@ EXPECTED_CONSOLE = {
                     "requests": {"cpu": "4", "memory": "1Gi"},
                     "limits": {"cpu": "4", "memory": "4Gi"},
                 },
-                "env": [{"name": "REUSE", "value": "$(params.reuse)"}],
+                "env": [{"name": "REUSE", "value": "$(params.reuse)"},
+                        {"name": "RUN_MODULES", "value": "$(params.run-modules)"},
+                        {"name": "MODULE", "value": "console"}],
                 "script": CANONICAL,
             },
         ],

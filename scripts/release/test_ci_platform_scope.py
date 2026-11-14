@@ -111,7 +111,7 @@ def test_test_api_takes_its_scope_from_changes():
     # A landing run with a base, or a run that asks for full, never narrows to console.
     assert 'if [ "${API_SCOPE:-full}" = "console" ] && [ -z "${LANDING_BASE:-}" ] && [ "${API_SCOPE_REQUEST:-}" != full ]; then' in api_script()
     changes = t["changes"]
-    assert [r["name"] for r in changes["taskSpec"]["results"]] == ["api-scope", "why"]
+    assert [r["name"] for r in changes["taskSpec"]["results"]] == ["api-scope", "why", "run-modules", "scope-why"]
     assert "workspaces" not in changes and "when" not in changes and "onError" not in changes
     step = changes["taskSpec"]["steps"][0]
     secrets = {e["valueFrom"]["secretKeyRef"]["name"] for e in step["env"] if "valueFrom" in e}
@@ -122,6 +122,8 @@ def test_test_api_takes_its_scope_from_changes():
     lines = [l.strip() for l in script.splitlines()]
     first_git = next(i for i, l in enumerate(lines) if "git_read clone" in l)
     assert lines.index("printf 'full' > \"$scope_file\"") < first_git
+    # Everything runs until the platform has said otherwise.
+    assert lines.index("printf '*' > \"$modules_file\"") < first_git
 
 
 # --- task changes, run as written ------------------------------------------
@@ -166,13 +168,21 @@ def branch(work: Path, name: str, change) -> str:
     return sha
 
 
-def run_changes(tmp_path: Path, origin: Path, revision: str, url: str = GITEA_URL, credential: bool = True):
+PLATFORM_URL = "http://platform-api.bifrost-platform-prod.svc.cluster.local:8780"
+
+
+def run_changes(tmp_path: Path, origin: Path, revision: str, url: str = GITEA_URL, credential: bool = True,
+                platform_says: str | None = None, platform_url: str = PLATFORM_URL):
+    """platform_says is the body the platform's scope route answers with; None is no answer."""
     results = tmp_path / "results"
     results.mkdir(exist_ok=True)
-    for name in ("api-scope", "why"):
+    for name in ("api-scope", "why", "run-modules", "scope-why"):
         (results / name).unlink(missing_ok=True)
     script = (changes_script().replace("$(results.api-scope.path)", str(results / "api-scope"))
-              .replace("$(results.why.path)", str(results / "why")))
+              .replace("$(results.why.path)", str(results / "why"))
+              .replace("$(results.run-modules.path)", str(results / "run-modules"))
+              .replace("$(results.scope-why.path)", str(results / "scope-why")))
+    assert "$(results." not in script
     path = tmp_path / "changes.sh"
     path.write_text(script)
     bin_dir = tmp_path / "bin"
@@ -184,10 +194,20 @@ def run_changes(tmp_path: Path, origin: Path, revision: str, url: str = GITEA_UR
         f'exec "{REAL_GIT}" "$@"\n')
     # busybox's timeout, as the task's image has it: SECS PROG ARGS.
     (bin_dir / "timeout").write_text(f'#!/bin/sh\necho "$1" >> "{tmp_path}/timeout-calls"\nshift\nexec "$@"\n')
-    for f in ("git", "timeout"):
+    # The platform's scope route: wget writes the answer to the file after -O, or fails.
+    (tmp_path / "wget-calls").unlink(missing_ok=True)
+    if platform_says is None:
+        (bin_dir / "wget").write_text(f'#!/bin/sh\necho "$*" >> "{tmp_path}/wget-calls"\nexit 1\n')
+    else:
+        (tmp_path / "platform-answer").write_text(platform_says)
+        (bin_dir / "wget").write_text(
+            f'#!/bin/sh\necho "$*" >> "{tmp_path}/wget-calls"\n'
+            'while [ $# -gt 0 ]; do [ "$1" = -O ] && out="$2"; shift; done\n'
+            f'cat "{tmp_path}/platform-answer" > "$out"\n')
+    for f in ("git", "timeout", "wget"):
         (bin_dir / f).chmod(0o755)
     env = {"PATH": f"{bin_dir}:{os.environ['PATH']}", "HOME": str(tmp_path), "TMPDIR": str(tmp_path),
-           "REPO_URL": url, "REVISION": revision}
+           "REPO_URL": url, "REVISION": revision, "PLATFORM_URL": platform_url}
     if credential:
         env.update(GIT_USERNAME="reader", GIT_PASSWORD=PASSWORD)
     r = subprocess.run([SHELL, str(path)], env=env, capture_output=True, text=True, timeout=120)
@@ -197,7 +217,85 @@ def run_changes(tmp_path: Path, origin: Path, revision: str, url: str = GITEA_UR
     scope, why = (results / "api-scope").read_text(), (results / "why").read_text()
     # One line: busybox's cut ends what it prints with a newline, macOS's does not always.
     assert "\n" not in why and 0 < len(why) <= 300, repr(why)
+    modules, modules_why = (results / "run-modules").read_text(), (results / "scope-why").read_text()
+    assert "\n" not in modules and "\n" not in modules_why and modules and 0 < len(modules_why) <= 300, (modules, modules_why)
+    run_changes.modules = (modules, modules_why)
     return scope, why, out
+
+
+# --- run-modules: which modules run is the platform's answer, read off the declaration --------
+#
+# Origin of every case below: the Owner's rule of 2026-11-13 that CI holds no knowledge of how
+# a project is divided (a version of this task that spelled "api/" was written and reverted
+# that night, 562f9538), and the declaration standard's fall-backs (its section 4): whatever
+# cannot be told runs everything. The module names here are not the platform's on purpose.
+
+def scope_of(tmp_path, platform, says, **kw):
+    origin, work = platform
+    sha = branch(work, "scope", write("console/src/pages/Page.tsx"))
+    run_changes(tmp_path, origin, sha, platform_says=says, **kw)
+    return (*run_changes.modules, sha)
+
+
+def test_the_modules_that_run_are_the_ones_the_platform_names(tmp_path, platform):
+    modules, why, sha = scope_of(tmp_path, platform, "declared yes\nrun svc\nsame web\nrun repo\nend\n")
+    assert modules == " svc repo " and why == "not run, their keys are the base's: web"
+    origin, work = platform
+    base = git(work, "rev-parse", "main")
+    (call,) = (tmp_path / "wget-calls").read_text().splitlines()
+    assert f"{PLATFORM_URL}/api/v1/units/scope?repo=bifrost-platform&commit={sha}&base={base}&format=text" in call
+
+
+@pytest.mark.parametrize("says, why", [
+    # Every module runs: nothing to leave out.
+    ("declared yes\nrun svc\nrun web\nend\n", "the platform says every module runs"),
+    # No declaration: the project is one block (acceptance sentence 1).
+    ("declared no\nend\n", "the commit has no declaration: the project is one block"),
+    # An answer cut short must not read as "the modules after the cut do not run".
+    ("declared yes\nrun svc\nsame web\n", "the answer is not one this task reads"),
+    ("declared yes\nsame web\n", "the answer is not one this task reads"),
+    # Anything after "end", an unknown word, a name with a space, an error document, nothing.
+    ("declared yes\nsame web\nend\nsame svc\n", "the answer is not one this task reads"),
+    ("declared yes\nskip web\nend\n", "the answer is not one this task reads"),
+    ("declared yes\nsame web app\nend\n", "the answer is not one this task reads"),
+    ('{"error":"gitea: no such commit"}\n', "the answer is not one this task reads"),
+    ("", "the answer is not one this task reads"),
+    (None, "the platform gave no scope"),
+], ids=["all-run", "no-declaration", "cut-short", "cut-short-2", "after-end", "unknown-word", "space-in-name", "error-document", "empty", "no-answer"])
+def test_any_doubt_about_the_answer_runs_every_module(tmp_path, platform, says, why):
+    assert scope_of(tmp_path, platform, says)[:2] == ("*", why)
+
+
+def test_only_a_platform_inside_the_cluster_is_asked(tmp_path, platform):
+    modules, why, _ = scope_of(tmp_path, platform, "declared yes\nsame web\nrun svc\nend\n", platform_url="http://example.com:8780")
+    assert (modules, why) == ("*", "the platform address is not one this task asks")
+    assert not (tmp_path / "wget-calls").exists()
+
+
+def test_a_commit_on_main_asks_nothing_and_runs_every_module(tmp_path, platform):
+    origin, work = platform
+    run_changes(tmp_path, origin, git(work, "rev-parse", "main"), platform_says="declared yes\nsame web\nrun svc\nend\n")
+    assert run_changes.modules[0] == "*" and not (tmp_path / "wget-calls").exists()
+
+
+def test_the_console_task_runs_unless_its_module_is_left_out():
+    # The step's own line, run as written: "*" and a list with the module run; a list without it does not.
+    line = next(t for t in yaml.safe_load(PIPELINE.read_text())["spec"]["tasks"] if t["name"] == "test-console")
+    script = line["taskSpec"]["steps"][0]["script"]
+    start, end = script.index('case "${RUN_MODULES:-*}" in'), script.index("esac") + 4
+    guard = script[start:end] + "\necho ran\n"
+    env = {e["name"]: e.get("value") for e in line["taskSpec"]["steps"][0]["env"]}
+    assert env["RUN_MODULES"] == "$(params.run-modules)" and env["MODULE"]
+    def ran(value):
+        e = {"PATH": os.environ["PATH"], "MODULE": env["MODULE"]}
+        if value is not None:
+            e["RUN_MODULES"] = value
+        r = subprocess.run(["bash", "-euo", "pipefail", "-c", guard], env=e, capture_output=True, text=True, timeout=20)
+        assert r.returncode == 0, r.stderr
+        return r.stdout.strip().endswith("ran")
+    module = env["MODULE"]
+    assert ran("*") and ran(None) and ran(f" other {module} ") and ran(f" {module} ")
+    assert not ran(" other ") and not ran(f" x{module} ") and not ran(f" {module}x other ")
 
 
 def write(rel: str, text: str = "changed\n"):

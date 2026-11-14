@@ -215,12 +215,18 @@ spec:
       params:
         - name: reuse
           value: $(tasks.reuse.results.reuse)
+        # Which modules of the repository's declaration run (task changes asks the
+        # platform). The task still starts and succeeds when its module is not among
+        # them, so the run's reason stays Succeeded; the base's run stands for it.
+        - name: run-modules
+          value: $(tasks.changes.results.run-modules)
       workspaces:
         - name: source
           workspace: source
       taskSpec:
         params:
           - name: reuse
+          - name: run-modules
         workspaces:
           - name: source
         # CI-7: npm's download cache, shared by every run on every node
@@ -253,10 +259,19 @@ spec:
             env:
               - name: REUSE
                 value: $(params.reuse)
+              - name: RUN_MODULES
+                value: $(params.run-modules)
+              # The module of the declaration this task verifies.
+              - name: MODULE
+                value: console
             script: |
               #!/usr/bin/env bash
               set -euo pipefail
               [ "${REUSE:-no}" != yes ] || exit 0
+              case "${RUN_MODULES:-*}" in
+                "*" | *" ${MODULE} "*) ;;
+                *) echo "==> ${MODULE}: not among the modules that run (${RUN_MODULES}); its keys are the base's, whose CI passed"; exit 0 ;;
+              esac
               ws="$(workspaces.source.path)"
 
               # CI-7: npm ci still builds node_modules from nothing, but takes the
