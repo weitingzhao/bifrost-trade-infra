@@ -69,7 +69,8 @@ def report(problems, name, registry_revision):
     out = [f"{len(problems)} file(s) of {name} do not match the registry of document consumers",
            f"({P['REPO']} {P['REGISTRY']} at {registry_revision[:12]}).",
            f"Landed as it is, this commit gets every landing of {P['REPO']} refused (consumer_changed) until the registry follows.",
-           "The registry is a hard floor: its rows are changed by the Owner, before this commit lands. What each row needs:", ""]
+           "A row whose hits alone change can land through the lane with the new value (doc_consumers.py, registry_change); land that",
+           "first, then this commit. A new row, or a row whose class or reason changes, is still read by a person. What each row needs:", ""]
     for p in problems:
         out.append(f"FAIL {p['what']} {p['file']}")
         if "was" in p:

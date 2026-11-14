@@ -77,7 +77,7 @@ def test_the_line_changed_on_2026_11_14_is_reported_with_the_value_the_row_needs
     # The value this prints is the one the real registry row was given that day (a897dd87).
     assert now == "sha256:816c0f58b77c40a81bb5f8dc178e357b69447a80ffdb3088a725290838b6d436"
     assert f"FAIL consumer_changed {PAGE}" in r.stderr and f"hits now:       {now}" in r.stderr
-    assert "line 1: return { you: entry === 'command'" in r.stderr and "hard floor" in r.stderr
+    assert "line 1: return { you: entry === 'command'" in r.stderr and "registry_change" in r.stderr
 
 
 def test_every_difference_is_listed_not_only_the_first(repos):
