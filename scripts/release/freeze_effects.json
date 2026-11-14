@@ -38,6 +38,11 @@
     },
     {
       "pipeline": "bifrost-ci-platform",
+      "task": "consumers",
+      "taskspec_sha256": "95521db99f57819cadcda66907e732e3c40e0f8916871aaa6851b65405c3521f"
+    },
+    {
+      "pipeline": "bifrost-ci-platform",
       "task": "check-spine",
       "taskspec_sha256": "a9685ae367ebfca5697bfe3cb25171730c91e8493c919f10ec19babe8a8dd30c"
     },

@@ -354,6 +354,57 @@ spec:
               fi
 
               echo "==> Spine catalog check passed"
+    # Whether this commit changes a line that bifrost-trade-infra's registry of document
+    # consumers fingerprints in this repository (scripts/landing/consumers_of_repo.py, from
+    # the infra checkout beside it). Without it the change was seen only by the next landing
+    # of bifrost-trade-infra, refused for everyone (2026-10-31, 11-01, 11-02, 11-14). It
+    # reads; the registry check itself stays in ci-infra. An infra checkout from before the
+    # script has nothing to run.
+    - name: consumers
+      runAfter: [clone, clone-infra]
+      params:
+        - name: reuse
+          value: $(tasks.reuse.results.reuse)
+      workspaces:
+        - name: source
+          workspace: source
+      taskSpec:
+        params:
+          - name: reuse
+        workspaces:
+          - name: source
+        steps:
+          - name: registry-rows
+            image: 192.168.10.73:30500/bifrost-ci-infra-tools@sha256:4ff505208b6cd977e36b7fb29c0f9faa4824a4ed9f4beb6e2f1ffc94b591a23e
+            computeResources:
+              requests:
+                cpu: 100m
+                memory: 128Mi
+              limits:
+                cpu: "1"
+                memory: 512Mi
+            env:
+              - name: REUSE
+                value: $(params.reuse)
+              # The workspace's checkouts belong to the clone tasks' user.
+              - name: GIT_CONFIG_COUNT
+                value: "1"
+              - name: GIT_CONFIG_KEY_0
+                value: safe.directory
+              - name: GIT_CONFIG_VALUE_0
+                value: "*"
+            script: |
+              #!/bin/sh
+              set -eu
+              [ "${REUSE:-no}" != yes ] || exit 0
+              ws="$(workspaces.source.path)"
+              check="${ws}/bifrost-trade-infra/scripts/landing/consumers_of_repo.py"
+              if [ ! -f "${check}" ]; then
+                echo "consumers_of_repo.py is not in this infra checkout: nothing to run"
+                exit 0
+              fi
+              exec python3 -I "${check}" --registry-repo "${ws}/bifrost-trade-infra" \
+                --name bifrost-platform --candidate "${ws}/bifrost-platform"
     - name: code-health
       runAfter: [clone, clone-infra]
       taskRef:
