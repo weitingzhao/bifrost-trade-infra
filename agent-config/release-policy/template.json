@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "about": "Release-policy template (W-42). release.sh policy sign fills policy_id, signed_at and expires_at, merges paths.json, and signs the result. allow names Tekton pipelines; anything not listed waits for the Owner. Every condition must hold for platform-api to approve a tier-C release without the Owner. Owner 10-08: no rolling cap; reminders 14d, 3d and 1d before expiry.",
+  "about": "Release-policy template (W-42). release.sh policy sign fills policy_id, signed_at and expires_at, merges paths.json, and signs the result. allow names Tekton pipelines; anything not listed waits for the Owner. Every condition must hold for platform-api to approve a tier-C release without the Owner. trust_anchor_reviewed (Owner 2026-11-14, ci-speed/owner-off-the-loop-rules.md class 3): a no_trust_anchor_change hit in a reviewable_repos repository is covered when a session that authored none of the commits recorded a passed review of exactly that commit naming every trust-anchor file of the diff (record_release_review); trust_anchor_ignore_tests leaves _test.go and testdata out of what must be reviewed. apply (class 4): an apply_manifest plan is covered when every object is one of these kinds in these namespaces, already exists with an Apply entry of field_manager (so the same path at an earlier commit of main is the way back), and neither its path nor any object is excluded; everything else waits for the Owner. Owner 10-08: no rolling cap; reminders 14d, 3d and 1d before expiry.",
   "signed_by": "owner",
   "valid_days": 90,
   "allow": [
@@ -21,7 +21,43 @@
     "no_ddl": true,
     "additive_ddl": false,
     "no_d10_paths": true,
-    "no_trust_anchor_change": true
+    "no_trust_anchor_change": true,
+    "trust_anchor_reviewed": true,
+    "trust_anchor_ignore_tests": true
+  },
+  "reviewable_repos": [
+    "bifrost-platform"
+  ],
+  "apply": {
+    "namespaces": [
+      "cicd"
+    ],
+    "kinds": [
+      "Pipeline",
+      "Task",
+      "TriggerTemplate",
+      "TriggerBinding",
+      "EventListener"
+    ],
+    "field_manager": "bifrost-applier",
+    "require_previous_generation": true,
+    "exclude_paths": [
+      "k8s/cicd/release-policy/**",
+      "k8s/cicd/tekton/task-release-window.yaml",
+      "k8s/cicd/tekton/apply-manifest/**",
+      "k8s/cicd/tekton/pipeline-deliver-prod.yaml",
+      "k8s/cicd/tekton/pipeline-deliver-platform-prod.yaml"
+    ],
+    "exclude_objects": [
+      "Pipeline/bifrost-deliver-prod",
+      "Pipeline/bifrost-deliver-platform-prod",
+      "Pipeline/bifrost-apply-manifest",
+      "Task/bifrost-release-window",
+      "ConfigMap/bifrost-release-policy",
+      "ConfigMap/bifrost-release-freeze",
+      "ConfigMap/bifrost-actuation-policy",
+      "ConfigMap/bifrost-apply-manifest-check"
+    ]
   },
   "limits": {
     "rolling_24h": "none",
