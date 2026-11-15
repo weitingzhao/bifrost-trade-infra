@@ -199,7 +199,8 @@ deliver-stg / prod / platform / platform-prod 没有这一步，窗口靠起 run
   `release.sh window --clear` 提交审批，由 Owner 决定。
 - **一次发布只由一个会话执行**：窗口在 `release.sh` 运行期间由它持有（平台起的 run 由平台持有）；别的会话不并行发同一批，也不替它续跑。
   哪些流水线受窗口约束以代码为准：`bifrost-platform/api/internal/delivery/release_window.go` 的 `windowPipelines`。
-- **推 main 只用 `bifrost-trade-infra/scripts/release/push-main.sh <checkout> [<commit>]`**（TD-341）：它查窗口，在这个提交的干净 checkout 上跑和 CI 同一份 code-health 扫描，过了才推，只接受快进；推之前再查一次窗口。直接 `git push` 到 main、以及看不出推到哪个分支的 `git push`（不带 refspec、只写 HEAD、目标里有变量）由 `preflight.js` 拦截。go test 与 lint 照旧在推之前自己跑。
+- **Agent 进 infra 和 platform 的 main 走 `ready/<名字>`**（2026-11-13 起，`bifrost-trade-infra/docs/RELEASE.md`「怎么进 main」）：从最新的 main 牵分支，推到 `ready/<名字>`（refspec 写全），CI 在集群里跑，绿了自动进 main。这一步不读发布窗口，所以先推、进了 main 之后再持窗口。
+- **别的仓库和 Owner 手推用 `bifrost-trade-infra/scripts/release/push-main.sh <checkout> [<commit>]`**（TD-341）：它查窗口（窗口开着一律不推，不分持有者），在这个提交的干净 checkout 上跑 CI 里的 code-health 扫描（CI 有这一步的仓库才扫，infra 没有），过了才推，只接受快进；推之前再查一次窗口。直接 `git push` 到 main、以及看不出推到哪个分支的 `git push`（不带 refspec、只写 HEAD、目标里有变量）由 `preflight.js` 拦截。go test 与 lint 照旧在推之前自己跑。
 - 细则见 `bifrost-trade-infra/docs/RELEASE.md`「发布窗口」。
 
 > 事故：2026-09-27 两个会话同时发 core 0.24.0；2026-09-28 插件 0.61.0 的 registry tag 被另一会话覆盖。
@@ -216,8 +217,8 @@ release.sh、`start_pipeline_run`、`gitops_sync_app`，不再被 auto mode 拦�
   下面的 STG 范围和 platform PROD 那一条除外。
 - **STG 的发版和清单改动由 Agent 做，不用问（Owner 2026-10-14「STG 发布 A」）**。只限 STG 两个环境（`bifrost-stg`、`bifrost-platform-stg`）：
   起 `bifrost-deliver-platform`、`bifrost-deliver-stg` 或 `release.sh stg`；改 `k8s/overlays/stg/**`、`k8s/overlays/platform-stg/**`
-  （提交里只有这两个目录的文件），用 `push-main.sh` 推 infra，再 `gitops_sync_app` 对应的 STG 应用；以及让这次发布或清单改动生效所需的
-  `rollout_restart_deployment`。三个前提：该提交的 `ci-*` 是 Succeeded（不用 `--allow-red`）；先持窗口，一次一个会话；
+  （提交里只有这两个目录的文件），推 `ready/<名字>` 进 infra 的 main（这一步不用窗口），进了之后持窗口，再 `gitops_sync_app` 对应的 STG 应用；以及让这次发布或清单改动生效所需的
+  `rollout_restart_deployment`。三个前提：该提交的 `ci-*` 是 Succeeded（不用 `--allow-red`）；起 run 或同步之前先持窗口，一次一个会话；
   发完自己核对（Pod 跑的提交、启动日志），在线程里报结果。不在范围内、照旧要 Owner：`daemon-scale-zero.patch.yaml`（D10）、
   Secret 对象和它的数据、RBAC / ServiceAccount / NetworkPolicy、对 `bifrost_stg` 的 DDL / DML、任何 PROD / `data` / `cicd` / `monitoring` 的写入。
 - **走平台审批单的 PROD 发版：Owner 在 Console 上批这张单就是批准（Owner 2026-10-11）**。不用再先在线程里点头，同一件事不在两处确认。
