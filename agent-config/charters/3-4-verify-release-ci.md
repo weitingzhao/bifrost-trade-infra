@@ -1,0 +1,55 @@
+# 领域 3·4「合入与验证、发布」章程（CI 线，2026-11-15 07:55 芝加哥，时钟）
+
+写的人：现任席位线程 `local_7de640c4…`。标记：【量】= 从仓库、集群、平台数出来或读出来的；【推】= 推断。读的是 platform `8f40e001`、infra `cd43cd71`。
+一句话：一个提交从推上去到在生产里跑着，中间的验证和放行归这条线；它对「改一小块，很快、放心地上线」负责。
+
+## 1. 管哪块（坏了叫它）
+- **platform 的包**【量，非测试 Go 文件数】：`releasepolicy`（11，签名规则的判定）、`postrelease`（1，发后核对）、`unitplan`（5，按声明算一个提交要测什么）、`unitexec`（3，派单元任务）、`testscope`（3）、`outsideinput`（1）、`agentrt/evidence`（4，证据账）、`agentrt/landingci`（7，含每日全量）；`delivery` 里的 `release_policy_*.go`、`pipelinerun_list.go`、`unit_taskruns.go`、`head_release*.go`；`server` 里的 `release_policy_*.go`、`post_release.go`、`units_*.go`；`scripts/ci/`（单元任务跑的脚本）。
+- **infra**【量】：`k8s/cicd/tekton/`（82 个文件：各仓库的 CI、合入 `pipeline-land`、发测试环境和生产的流水线）、`scripts/landing/`（24）、`scripts/release/`（发布脚本和规则的签名脚本）、`agent-config/release-policy/`（规则的两份源文件；**签名是 Owner 的**）、`agent-config/landing/doc-consumers.yaml`（登记表）。
+- **表和集群对象**【量】：`agentrt.evidence`、`agentrt.unit_run`；`cicd` 里的 Tekton Pipeline、Task 和各次运行；`cicd/bifrost-release-policy`（只读它，写它的是 Owner 的签名）。
+- 声明文件 `bifrost.units.yaml` 的**格式和判法**归这条线，**每个包写什么**归那个包的主人（现在是解耦席位）。
+
+## 2. 对外的口子
+- 进主干：把提交推到 `ready/<名字>`，集群里跑 CI，绿了自动合入（infra、platform）。
+- 平台工具【量】：`check_release_policy`（试判）、`start_pipeline_run`、`plan_manifest` / `apply_manifest`、`record_release_review`（非作者复核）、`get_unit_plan`、`get_unit_scope`、`get_unit_runs`、`request_unit_evidence`、`get_commit_evidence`、`get_full_ci`、`wait_for_pipeline_run`。
+- 界面：Ops 的 Work > CI 页（怎么配的、每次跑了什么、每日全量）。
+- 读数：共享笔记 `benchmark/`（脚本和每次重算的结果）。
+
+## 3. 谁用它，它用谁
+- 用它的：每一条往 infra、platform 交代码的线（合入、试判、发布）；值班统筹（核卡时读试判）；Owner（看 CI 页和读数）。它自己也是自己的客户：CI 的代码按同一套声明、同一条合入通道走。
+- 它用的：Gitea（代码和合并）、Tekton 和集群的算力（算力线）、发布窗口（8.2）、审批服务和执行口（领域 5）、平台的事件日志（底座）。
+
+## 4. 权限
+- **自己定、自己做，事后由裁判评**：这条线的代码怎么写、怎么测、什么时候合入；推 `ready/`；测试环境的发版和清单改动；platform 的生产发布（签名规则覆盖时占窗口直发）；改 `cicd` 里的流水线清单（对象是应用器上次应用的，规则覆盖就直接应用，11-15 起）；碰裁判文件的 platform 发布（有非作者复核记录时直发，11-15 起）；基准怎么量、建卡的时机。
+- **机器现在拦着的**：第一次创建或从手工应用接管的集群对象、生产发布流水线和应用器自己的清单（要卡）；执行口的自由命令（要卡）；平台库的迁移上生产（要 Owner 建 Job）；起一次真的每日全量（参数调用方不能设）；本会话里个别动作被权限分类器拦（例如删一条运行）。这些里头收得回的，改掉规则是这条线的债，不是把它当成该问 Owner 的事。
+- **硬边界，不碰**：钱和交易（D10）；Secret 和令牌的内容；有数据的删改；Trade 的生产发布；改签名规则要 Owner 重签（规则源文件我可以改进主干，不签不生效）；auto mode 和 preflight。
+
+## 5. 目标和读数
+| 读数 | 现在 | 目标 | 出处 |
+|---|---|---|---|
+| 只改后端的 platform 提交，CI 用时 | 128、67 秒（原来约 205）【量，2 个样本】 | 40 秒以内 | `benchmark/change-2026-11-14-console-skip-by-scope.md` |
+| 推上去到进主干（platform） | 75 到 138 秒【量】 | 还没有；提一个：中位 90 秒 | 同上 |
+| 进主干到上生产（直发） | 中位约 10.8 分钟，其中等人 101 秒【量，11-14，22 次】 | 还没有；提一个：等人那一段为 0（系统接着发） | `benchmark/main-to-prod-waits-2026-11-14.md` |
+| 一个提交按声明要跑的后端测试 | 中位 18 个包、188 秒【量，回放 150 个提交】 | 和解耦席位共用；下限约 134 秒，再往下靠切引用 | `benchmark/scope-replay-2026-11-14.md` |
+| 到 Owner 手上的卡 | 38 小时 78 张【量】；按新规则回放还到 7 到 9 张 | 这条线造成的卡为 0；每类落地后量七天 | `ci-speed/owner-off-the-loop-rules.md` |
+| 漏跑（声明写错，该测没测） | 离线对账 9 次红漏 0 次【量，样本小】；每日全量 11-15 绿 | 0；影子对账开起来按次记 | 同上 |
+| 发后核对 | 测试环境开着，阳性对照做过一次；生产没开【量】 | 生产开着，20 次发布零漏、假红单独数 | `ci-speed/auto-prod-design.md` |
+
+## 6. 现状和缺口
+- 已经有的【量】：按范围跳过界面测试（卡 #567）；规则认「非作者复核」和「可退的流水线清单」（11-15 07:39 重签，`rp-20261115-1339`）；workers 整表读运行的五处已改，内存 86–582Mi 降到 44–193Mi；每日全量兜底和告警。
+- 缺口：
+  - 后端测试还是整套跑（合入通道故意只认整套），是现在 CI 里最长的一步；影子对账的代码在主干，开关没开。
+  - 两条新条款真正放行的那条路还没在集群里走过一次。
+  - 执行口小改动搬到清单上、平台库迁移随发布直发，这两类还没做，卡还会到 Owner 手上。
+  - 发后核对在生产没开；自动接着发生产（不等人）没做。
+  - 仓库里的文字（根 `CLAUDE.md`、`RELEASE.md` 等）还按旧规矩写着走卡，要跟着改。
+  - 全量红了告警送到谁、多久有人看，没量过【推：没人盯】。
+  - 复核人身份是会话自己报的，防疏忽不防故意；每个席位各自的令牌归领域 8、9。
+
+## 和谁有重叠（请裁）
+- **解耦席位（领域 0）**：`bifrost.units.yaml`。格式、判法、「读了没声明就红」的检查归我；每个包声明什么归它。`testscope`、`unitscript` 两个包是我的，它改过其中一行（事后告知，没问题）。「platform 的代码归它维护」和我管的这些包怎么分，建议按第 1 节的包清单划：清单里的归我，别的归它。
+- **8.2（沟通台面）**：发布窗口。`delivery/window_*.go`、`run_window.go` 和排队是它的；`release_window.go` 里「哪些流水线受窗口约束」和规则里 `window_held_by_requester` 这一条是我的。MCP 工具的注册和推出（包括 `record_release_review` 怎么让旧会话用上）是它的，工具背后的判定是我的。
+- **算力线（领域 6）**：`k8s/cicd/tekton/` 里任务的资源申请和上限、落在哪台机器、Tekton 的默认配置是它的；流水线跑什么、按什么顺序是我的。两边都会改同一批文件，11-14 它改 workers 上限没告知、撞上我开的开关。建议：谁改 `k8s/cicd/tekton/` 或平台 Deployment 的资源，先在 duty/ 留一行。
+- **领域 5（找你）**：审批服务、执行口是它的；它们在签名规则的信任锚里，改它们的发布怎么放行是我的。
+- **值班统筹（8.1）**：核卡清单是它的；卡的草稿该写什么、试判怎么读是我的。
+- **工坊（窗 2）**：根 `CLAUDE.md` 等文字是它收；和发布、合入有关的条文内容由我给。
