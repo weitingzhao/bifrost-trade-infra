@@ -28,6 +28,7 @@ configMapGenerator:
       disableNameSuffixHash: true
 
 patches:
+  - path: resident-capacity.patch.yaml
   - target:
       group: apps
       version: v1
