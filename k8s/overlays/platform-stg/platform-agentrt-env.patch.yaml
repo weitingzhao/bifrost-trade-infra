@@ -27,6 +27,13 @@
 # environment (the default is the PROD pipeline). It is on here first so the
 # check meets a real failed start before PROD turns it on. Off: remove the two
 # variables and sync.
+# UNIT_SCOPE_SHADOW (main coordinator 2026-11-14: backend skip by package goes
+# shadow first): on makes the workers log, for each finished CI run of the
+# platform repository, which units the declaration says would have run and
+# whether a failing package was among those it would have skipped ("unit
+# scope shadow" in the workers' log). Nothing is skipped. Watched after the
+# sync: the workers' memory (it computes two plans for a run). Off: remove
+# the variable and sync.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -73,6 +80,8 @@ spec:
               value: observe
             - name: POST_RELEASE_PIPELINE
               value: bifrost-deliver-platform
+            - name: UNIT_SCOPE_SHADOW
+              value: "on"
             - name: AGENTRT_ENV
               value: stg
             - name: AGENTRT_REDIS_ADDR
