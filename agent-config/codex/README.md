@@ -78,7 +78,7 @@ trusted_hash = "sha256:54ead03e5d5092a3d63f264a99879a710eb716396910dee4542061b0b
 
 | 设置 | 取值 | 理由 / 影响 |
 |------|------|------------|
-| 沙箱 | `workspace-write` | 只能写当前目录和 `/tmp`；**默认不联网**，所以 Codex 不能 `git push`、不能调平台 API。`.git` 在沙箱里是只读的，`git commit` 要走审批 |
+| 沙箱 | `workspace-write` | 只能写当前目录、`/tmp` 和启动时另加的目录。Codex 自己的默认是不联网；本机的配置把网络打开了（2026-11-14 的运行日志头：`network access enabled`），所以它能推 `ready/` 分支、能只读看集群。平台工具由 MCP 进程调，不经沙箱 |
 | 审批 | `on-request` | 越过沙箱的命令要问人（交互式）；`codex exec` 非交互，越界的命令直接失败 |
 | 受信任目录 | `/stocks`（Owner 10-10 定）、`~/agent-work` | 受信任才加载项目级配置。Codex 在 `/stocks` 下启动时，沙箱可写的范围是整个共享 checkout |
 | 闸门 | 全部工具都过 `codex-pretooluse.js` | 与 Claude、Cursor 同一份 `preflight.js` |
@@ -86,8 +86,10 @@ trusted_hash = "sha256:54ead03e5d5092a3d63f264a99879a710eb716396910dee4542061b0b
 ## Codex 自己的规矩
 
 - 改代码在 `~/agent-work/` 下的 worktree 里做，不改 `/stocks` 下的共享 checkout（STEP0-PLAN S0-15）。
-- 推送和发版仍走各仓库的规则（`CLAUDE.md` §5）；沙箱默认不联网，推送要么由人执行，要么在审批里放行那一条命令。
-- Gitea 用户和平台令牌随 S0-4c 再给。在那之前 Codex 只当「实现」的候选，岗位等基准通过后再放开。
+- 推送和发版走和 Claude 席位同一套规则（`CLAUDE.md` §5）：进 infra 和 platform 的 main 推 `ready/<名字>`；STG 的发版和清单改动按「STG 发布 A」自己做、自己核对；PROD 按那一节的条件。不直接推 main。
+- Codex 可以坐席位：拿目标和边界，自己从改代码走到上线（2026-11-14 起）。它不拿任何令牌：平台工具的令牌由 MCP 进程自己读，发布脚本从共享 checkout 的路径调（克隆里没有它要的 `.env`）。
+- 平台工具要认出是谁在写：启动时在环境里给一个以 `codex-` 开头、按席位固定的会话号，并让配置把它转发给平台 MCP（`mcp_servers.<名字>.env_vars`）。没有会话号时平台拒绝一切写入。
+- 命令用登录 shell 跑时，先找到的 `python3` 是 Homebrew 的，没有 pytest（2026-11-14 实测）。席位配置里关掉登录 shell 并把 PATH 写明；本机测试缺东西时不装软件，停下报告。
 
 ## 安装（新机器，或重装 App 之后）
 
