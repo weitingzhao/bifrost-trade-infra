@@ -8,9 +8,10 @@
 #   5. 硬边界 hook（preflight.js）已接到 Claude PreToolUse，会话心跳钩子也接上；本机装了 codex 时查 Codex 闸门
 #   6. 各 repo 本地 HEAD 相对 origin/main 的新鲜度（Agent 认知是否过期）
 #   7. 家目录路径棘轮：各仓库 origin/main 不新增写死的 /Users/<name>/（基线内放行）
+#   8. Owner 定的法（agent-config/OWNER_LAW.md）：标「已落」的行，指的文件和那一句要在；旧说法不得还留在规则文件里
 #
 # 用法: bash scripts/check-governance-consistency.sh [--static-tree <候选工作区>]
-#   --static-tree 只跑 3、4 两节，只读候选树（ci-infra 的 parity-static 阶段）
+#   --static-tree 只跑 3、4、8 三节，只读候选树（ci-infra 的 parity-static 阶段）
 # 退出码: 0 = 一致 · 1 = 存在漂移
 
 set -uo pipefail
@@ -105,6 +106,44 @@ if spine.exists():
             if status == 'UNLOCKED' and 'BLOCKED' in t:
                 fails.append(f"{rel(f)} 仍写 D10 BLOCKED，但 spine 已 UNLOCKED — 需同步解冻文档")
         print(f"  spine D10 = {status}")
+
+# ─────────── 8. Owner 定的法落进了规则文件 ───────────
+# 出处：2026-11-14 夜，各线照仓库里的旧文字递了十来张收得回的卡；Owner 定过的方向只在统筹的记忆里，
+# 规则文件没改（Owner：「仓库里的规则文件没改，那就是 bug」）。登记表的写法见 OWNER_LAW.md 开头。
+infra = ROOT / 'bifrost-trade-infra'
+law = infra / 'agent-config/OWNER_LAW.md'
+if law.exists():
+    RULE_FILES = ([infra / 'agent-config/CLAUDE.md', infra / 'agent-config/OWNER_EXEC.md',
+                   infra / 'agent-config/AGENT_MODES.md', infra / 'docs/RELEASE.md']
+                  + sorted(infra.glob('agent-config/claude/skills/*/*.md')))
+    rule_text = {p: p.read_text() for p in RULE_FILES if p.exists()}
+    landed = 0
+    for n, line in enumerate(law.read_text().splitlines(), 1):
+        cells = [c.strip() for c in line.split('|')[1:-1]] if line.startswith('|') else []
+        if len(cells) != 7 or not cells[5].startswith('已落'):
+            continue
+        landed += 1
+        where = re.findall(r'`([^`]+)`((?:「[^」]+」)+)', cells[3])
+        if not where:
+            fails.append(f"OWNER_LAW.md:{n} #{cells[0]} 标了已落，「落在哪」却没有 `文件`「那一句」")
+        for path, quotes in where:
+            target = infra / path
+            if not target.is_file():
+                fails.append(f"OWNER_LAW.md:{n} #{cells[0]} 指的文件不存在：{path}")
+                continue
+            text = target.read_text()
+            for quote in re.findall(r'「([^」]+)」', quotes):
+                if quote not in text:
+                    fails.append(f"OWNER_LAW.md:{n} #{cells[0]} 在 {path} 里找不到这一句：{quote}")
+        for old in re.findall(r'「([^」]+)」', cells[6]):
+            for p, text in rule_text.items():
+                if old in text:
+                    fails.append(f"{p.relative_to(infra)} 里还留着已被 OWNER_LAW.md #{cells[0]} 取代的旧说法：{old}")
+    if not landed:
+        fails.append("OWNER_LAW.md 里一行「已落」都读不出来（表的列数变了？）")
+    print(f"  OWNER_LAW.md：已落 {landed} 行")
+elif not STATIC:
+    fails.append("缺少 bifrost-trade-infra/agent-config/OWNER_LAW.md")
 
 if STATIC:
     for failure in fails:

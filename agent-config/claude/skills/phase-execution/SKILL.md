@@ -43,31 +43,16 @@ Build Desk（Briefing / In Flight / Delivery、`/api/v1/programs`、`config/prog
    - 标记当前 Phase 为 ✅
    - 填写完成日期
    - 记录实际改动摘要
-9. **输出 Phase 完成报告**，结构如下：
+9. **交单**（Owner 2026-11-12、11-13、11-14）：只在交结果时写，要短；过程里不在对话里报进展。写这六样：
 
 ```
-## Phase N 完成报告
-
-### 涉及文件
-- repo/path/file.py (新增 / 修改 / 删除)
-
-### 公开 API 变更
-- 新增 op: xxx（协议 v1）
-- 函数签名变化: xxx
-
-### Breaking Changes
-- 无 / 列出需要下游同步的变更
-
-### 验证结果
-- `make test` → 23 passed
-- `make lint` → clean
-
-### 建议的 E2E 验证
-- 命令 1
-- 命令 2
-
-### 后续注意
-- 下游 repo 需要 xxx
+## Phase N 交单
+- 做成了什么：一两句；公开接口变了、下游要跟的写在这里
+- 证据：跑了什么、结果（`make test` → 23 passed）
+- 在 Ops 上怎么看：哪一页、看什么；没有就写没有
+- 没验什么
+- 花费：token、时间
+- 做完之后的话：哪里顺、哪里卡、被什么拦了、建议加什么删什么
 ```
 
 10. **不自动开始下一个 Phase**，等 Owner 说「继续」或给出新指令。
@@ -77,11 +62,14 @@ Build Desk（Briefing / In Flight / Delivery、`/api/v1/programs`、`config/prog
 当 Owner 已确认 **batch mode**（说「批量执行」或「执行」且上下文为 delivery program batch run — 见 `.claude/skills/batch-execution/OWNER_COMMANDS.md`）时：
 
 - **允许自动推进**到下一个 Phase，无需每 Phase 等待「继续」
-- **仅在以下情况暂停**并报告 Owner：
-  - 该 Phase 的验证命令在 **2 次重试后仍失败**
+- **只在这几种情况停下**并报告 Owner（Owner 2026-11-14：给拐杖，不给桎梏）：
+  - 会越过安全边界（`CLAUDE.md` §3 和六类始终是 Owner 的事）
+  - 收不回
+  - 要 Owner 动手
+  - 被权限分类器或闸门拦了
   - 遇到架构级决策（rule 5）
-  - program 文档的验收标准未覆盖的新需求
   - Owner 明确说「停」/「pause」
+- 其余的失败自己查、自己修、接着走，交单里写一句
 - Batch 全部 Phase 完成后仍须输出 **Batch Execution Report**（见 batch-execution SKILL）并走 Global QA
 - Owner 要求逐 Phase 签收的 Phase：batch 模式下若 Owner 未预授权，在验证通过后暂停，等 Owner 在对话里确认；签收记进 program 文档
 

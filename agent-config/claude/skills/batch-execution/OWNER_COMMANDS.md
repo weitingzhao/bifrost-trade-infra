@@ -20,7 +20,7 @@ Owner confirms batch mode when saying **「批量执行」** or **「执行」**
 
 In batch mode:
 - Agent **auto-advances** between phases (phase-execution rule 10 exception)
-- Pauses only on: verify failure after 2 retries, architecture decision, uncovered requirement, or explicit **停**
+- Pauses only on: a safety boundary, something that cannot be taken back, something the Owner must do by hand, a refusal by the classifier or a guard, an architecture decision, or explicit **停**
 
 ## Sign-off authority
 

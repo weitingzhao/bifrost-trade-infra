@@ -5,6 +5,9 @@ UI 字符串与代码标识符使用 **English**；代码注释中英不限；�
 
 > **事实基线：[`AGENT_FACTS.md`](AGENT_FACTS.md)** — repo 清单、端口表、已退役实体、运行环境、权威源链。
 > 本文件只讲**规则**，不重复事实。两者冲突时以 `AGENT_FACTS.md` 为准，并修正本文件。
+>
+> **Owner 定过的方向一条一行登记在 [`OWNER_LAW.md`](bifrost-trade-infra/agent-config/OWNER_LAW.md)**：哪天、落在哪一节、机器上由什么强制、落了没有。
+> 没登记的不算定。那里标「未落」的，本文件还是旧文字：照本文件办，别抢跑。
 
 ---
 
@@ -61,6 +64,8 @@ Ops Platform（火箭）与 Trade（载荷）必须先稳定；研究与分析�
 
 ### 禁止（所有模式）
 
+交易和钱相关的围栏没立好之前，这一块不排进任何波次，往更严改也不排（Owner 2026-11-13）。
+
 - 为实盘自动交易扩容 `daemon` Deployment（STG 必须保持 `replicas: 0`）
 - 移除或绕过 `k8s/overlays/{stg/daemon-scale-zero,prod/daemon-observe-safe}.patch.yaml`
 - 在没有新的 Owner 批准 program 的情况下，把 S08 daemon execution / 实盘 `place_order` 接到 Gateway RPC
@@ -83,16 +88,22 @@ Ops Platform（火箭）与 Trade（载荷）必须先稳定；研究与分析�
 
 `~/.kube/bifrost-k3s.yaml` 是只读身份 `bifrost-agent`。不要用 kubectl 写集群。对照：
 
-| 原来的 kubectl | 平台动作 |
-|---|---|
-| apply | `plan_manifest` / `apply_manifest` |
-| create job --from | `create_job_from_cronjob` |
-| 删 Job | `delete_finished_jobs` |
-| 删 Pod | `delete_pod` |
-| rollout restart | `rollout_restart_deployment` |
-| 临时 Pod | `run_probe_pod` |
-| 起 run | `start_pipeline_run` |
-| 其余写 | `owner_run_command` |
+| 原来的 kubectl | 平台动作 | 级别 |
+|---|---|---|
+| apply | `plan_manifest` / `apply_manifest` | plan 是 B；apply 按清单里级别最高的命名空间定，起点 C |
+| create job --from | `create_job_from_cronjob` | B；PROD 业务命名空间和 `data` 是 C |
+| 删 Job | `delete_finished_jobs` | B |
+| 删 Pod | `delete_pod` | B |
+| rollout restart | `rollout_restart_deployment` | B；`data` 和两个 PROD 命名空间是 C |
+| 扩缩 | `scale_deployment` | C；给 `daemon` 加副本是 X（D10），提不了 |
+| 临时 Pod | `run_probe_pod` | B；`data` 是 C |
+| 起 run | `start_pipeline_run` | B；PROD 流水线是 C |
+| 同步 / 回滚 Argo 应用 | `gitops_sync_app` / `gitops_rollback_app` | B；PROD 应用是 C |
+| 删已结束的 run | `delete_pipeline_run` | B |
+| 其余写 | `owner_run_command` | D |
+
+B 级直接调；C、D 级出卡（签名规则覆盖的 C 级发布直接发，见 §5）。发布或改动没生效时，先用上面 B 级的动作自己修，不等人告诉怎么办（Owner 2026-11-14）。
+级别 2026-11-14 按 `bifrost-platform/api/internal/actions/catalog.go` 核过；对不上时以 `GET /api/v1/actions` 为准，并改这张表。
 
 查库用 `agent_reader`。`kubectl exec` 与 `kubectl port-forward` 能用在哪里见 `AGENT_FACTS.md` §8c（以 `k8s/agent-access` 的 RBAC 为准）。
 
@@ -130,7 +141,9 @@ Ops Platform（火箭）与 Trade（载荷）必须先稳定；研究与分析�
 - 开工前读 spine + 对应 SKILL.md；Owner 已定的方案不重新提议
 - **架构级决策不擅自做**（新 RPC / 新外部依赖 / 改公开接口 / 新增表或列）→ 列 2–3 个选项 + 推荐，等 Owner 确认
 - 最小化变更范围
-- 完成后输出结构化 Phase 报告；**不自动开始下一个 Phase**（除非 Owner 已确认「批量执行」→ `.claude/skills/batch-execution/`）
+- 交单要短（Owner 2026-11-12、11-13、11-14）：只在交结果时写一段，过程里不报进展；对话里只说要 Owner 做的事，进展写进台账。
+  写什么见 phase-execution：做成了什么、证据、在 Ops 上怎么看、没验什么、花费、做完之后的话
+- **不自动开始下一个 Phase**（除非 Owner 已确认「批量执行」→ `.claude/skills/batch-execution/`）
 - 集群写操作用 §3 的对照（`plan_manifest` / `apply_manifest`、`create_job_from_cronjob`、`delete_finished_jobs`、`delete_pod`、`rollout_restart_deployment`、`run_probe_pod`、`start_pipeline_run`，其余 `owner_run_command`）。不要 `kubectl apply` / `create` / `delete`。查库用 `agent_reader`。
 
 数据库设计标准见 **`.claude/skills/database-design/`**（新增/修改 PostgreSQL 表时触发）。
@@ -207,7 +220,15 @@ deliver-stg / prod / platform / platform-prod 没有这一步，窗口靠起 run
 
 **人工审批唯一入口（Owner 2026-10-26，Work 609）**：凡需要人批准的请求（C/D 级审批、Owner 签收），无论目标环境是什么，一律在 PROD 平台（`ops.bifrost.lan`）建单并批准；把这类请求放到其他环境平台的设计在评审时直接拒绝。跨环境执行通道未建成时，不能以目标环境本地建单代替。
 
+**Owner 睡觉时不建单（Owner 2026-11-03、11-10）**：单子会推到他手机上。以他亲口说「去睡了」为准，不按钟点猜；他没说之前，该批的直接发。
+他睡着时不调 `request_action`、`ask_owner`、`request_owner`：把要建的单备好，接着做不用单的活。
+
+**要 Owner 动手的事，手机上要办得完（Owner 2026-11-13）**：怎么建执行卡、哪几件现阶段还只能在他电脑上办，只写在 `OWNER_EXEC.md`。
+别处的文档和那一页对不上时，以那一页为准；不要默默给他派一条终端命令。
+
 ### 放行规则只省「复制到终端」（Owner 2026-10-05）
+
+**不管下面怎么放行，这六类始终是 Owner 的**：交易和钱（§3）、口令和 Secret、有数据的删改、Trade 的 PROD 发布、改签名规则和信任根本身、auto mode 规则。
 
 用户级 `permissions` 里有一组发布类放行规则（payload `.claude/auto-mode/release-permissions.json`）：
 release.sh、`start_pipeline_run`、`gitops_sync_app`，不再被 auto mode 拦下（kubectl 写类与 research pin 推送的放行 2026-11-11 撤掉：Agent 的集群身份只读，推 main 由 preflight 拦，那些放行执行不了）。
@@ -223,7 +244,7 @@ release.sh、`start_pipeline_run`、`gitops_sync_app`，不再被 auto mode 拦�
   Secret 对象和它的数据、RBAC / ServiceAccount / NetworkPolicy、对 `bifrost_stg` 的 DDL / DML、任何 PROD / `data` / `cicd` / `monitoring` 的写入。
 - **走平台审批单的 PROD 发版：Owner 在 Console 上批这张单就是批准（Owner 2026-10-11）**。不用再先在线程里点头，同一件事不在两处确认。
   建单（`request_action`）前三条都要成立，缺一条就不建：该提交的 `ci-*` 是 Succeeded；STG 跑的是同一个提交并且已核对；
-  同一仓库没有另一张未结的发布单。理由第一段写批了会发生什么，并写明哪些检查没做（例如没有独立复核）。
+  同一仓库没有另一张未结的发布单。理由只写几行：批了会发生什么、出错怎么撤、哪些没验；细节给文件路径。
   只限由 Owner 在 Console 上批准的单（C / D 级）；从 shell 直接执行的发版和 PROD DDL 仍按上一条。
 - **platform 的 PROD 在签名规则覆盖时由 Agent 直接发（Owner 2026-11-12）**。只限 `bifrost-deliver-platform-prod`。三条前提不变（该提交的 `ci-*` 是 Succeeded；
   STG 跑的是同一个提交并且已核对；同一仓库没有另一张未结的发布单），先持窗口并一直持到 PROD 核对完，直接调 `start_pipeline_run`（`who` 等于窗口持有者）。
@@ -240,6 +261,7 @@ release.sh、`start_pipeline_run`、`gitops_sync_app`，不再被 auto mode 拦�
 - **修完就删**：修复上线、对应防线到位后，删掉那一条；提交信息写上对应的防线。历史留在 git 里，台账里不留。
 - **防线**登记在同目录的 `RATCHETS.md`。每关掉一项债，要么加一条或扩大一条防线，要么写明为什么没有可行的防线。
 - 记忆只记判断和教训，不记债的状态。
+- **新测试用例旁边写一句出处（Owner 2026-11-13）**：哪天、哪次事故或哪条被证实的发现、错在哪；登记防线时带同一句。阳性对照写明是哪条用例的对照。说不出出处的不加。
 
 ---
 
@@ -289,6 +311,7 @@ MCP：Claude `.mcp.json` 把平台 server 指到 PROD VIP `http://192.168.10.100
   分类器禁止 Agent 改写自己的 auto mode 规则，Agent 只准备 payload 并报告，不绕过。是否生效以 `claude auto-mode config` 为准。
 - **会话启动位置**：一律在工作区根 `/stocks`（Claude Desktop 的 `Trade. System` / `Ops - Plugin` 两组均如此）；
   在子 repo 目录启动的会话没有 preflight hook 与共享记忆（auto mode 规则在用户级，处处都有）。
+- **席位按领域归类和命名（Owner 2026-11-14）**：领域表还在起步，暂时在统筹的共享笔记 `brain/company-map.md`，定稿后搬进 `agent-config/`；这里不抄一份。
 - **IB 账户号不是秘密**：登录只在两台 Win11 TWS 里，系统只经 IB API socket 取数；
   不得进仓库的是 `.env`、Secret YAML、dump、kubeconfig 与账户**内容**（12 个 repo 全部 PUBLIC）。
 

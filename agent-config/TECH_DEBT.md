@@ -328,8 +328,45 @@
 | [TD-574](#td-574) | P2 | cicd | 仓库根 Go 模块无法构建模块级计划 | 不用批 |
 | [TD-575](#td-575) | P3 | cicd | 单元任务续派每轮仍重算年轻提交的计划 | 不用批 |
 | [TD-576](#td-576) | P2 | release policy | 重签发布规则仍要求 Owner 回到有签名钥匙的电脑，手机无法完成 | 方案未定 |
+| [TD-578](#td-578) | P2 | owner-exec | 还有几件事 Owner 只能在电脑上办：Mac 上的执行口没做、一次性库步骤、装进集群的自举清单、应用 auto mode 规则 | 不用批 |
+| [TD-579](#td-579) | P1 | governance | Owner 定的法还有 8 条没落进规则文件（`OWNER_LAW.md` 标「未落」的行） | 其中 5 条要你重签发布规则 |
 
 ## 条目
+
+### TD-579
+
+**P1 · governance · Owner 定的法还有 8 条没落进规则文件**
+
+- **状态**：在做（2026-11-15 落了 11 条；剩下的见下）。
+- **Claim**：`agent-config/OWNER_LAW.md` 里标「未落」的行，规则文件还是旧文字。Agent 只读仓库时，会照旧文字办（递收得回的卡、等 Owner 点头）。
+- **证据**：2026-11-14 夜各线照 `agent-config/CLAUDE.md` §5 的旧文字递了十来张卡（#557–#567），Owner 几秒一张地批；盘点在统筹共享笔记 `brain/direction-vs-repo-gaps-2026-11-14.md`。
+- **剩下的**：
+  - #1、#2、#5、#7、#9：会改变「什么要 Owner 批」。文字和签名的发布规则要说同一件事、一起落、Owner 重签一次。规则稿在统筹共享笔记 `ci-speed/owner-off-the-loop-rules.md`（第六节是文字改动表），改后原文在 `brain/law-into-repo-group-b.md`。#9 的文字要等只增改库的允许清单打开之后才能改，否则文字比机器宽。
+  - #15：先把更多仓库接进落地流水线，文字跟着改。
+  - #17：Codex 经不经过 preflight，`AGENTS.md` 和 2026-11-13 的实测两处说法对不上，先核现状。
+  - #14，以及 #12 的后一半（Owner 不在时不做会弹权限框的步骤）：出处是统筹的话，不是 Owner 的；要不要写成规矩待他定。
+  - #6 的另一半：`CLAUDE.md` §2 和 `AGENT_MODES.md` 按模式划的「禁止」改不改成「默认范围」，待定。
+  - #19 的另一半：platform 仓库 `CLAUDE.md` 里过时的描述（`mcp/` 写成「未来」等）。
+  - #20 的另一半：案例本放进仓库哪里，待 Owner 定。
+- **修法**：每落一条，把 `OWNER_LAW.md` 那一行改成「已落」，写上「落在哪」和被取代的旧说法。全部落完删这一条。
+- **防线**：`RATCHETS.md`「Owner 定的法落进规则文件后不能退回去」（治理一致性检查第 8 节）。它只管已落的行；「未落」的行靠这一条债盯着。
+- **验收**：`agent-config/OWNER_LAW.md` 的登记表里没有状态以「未落」开头的行，且 `bash scripts/check-governance-consistency.sh` exit 0。
+
+### TD-578
+
+**P2 · owner-exec · 还有几件事 Owner 只能在电脑上办**
+
+- **状态**：未开始。
+- **Claim**：Owner 2026-11-13 定的法是要他动手的事手机上都办得完。`agent-config/OWNER_EXEC.md`「还有哪些情况要他回电脑」第 2、6、7、9 条现在办不到。
+- **证据**：
+  - 第 2 条：在他 Mac 上执行的那一种执行口没做（`OWNER_EXEC.md` 自己写明）。
+  - 第 6 条：`docs/RELEASE.md`「一次性 DB 步骤」，PROD 的 before 步骤每行 `commit:` 出一张执行卡，批完后命令仍由他在电脑上跑；`scripts/release/db-steps.d/README.md` 写的也是 "for the Owner to run in their own terminal"。
+  - 第 7 条：`docs/RELEASE.md`「Owner 应用这道检查时」和冻结检查的 Task（两处写明不走 apply 流水线）。
+  - 第 9 条：`agent-config/claude/auto-mode/apply-auto-mode.sh` 写的是他本机用户级的设置文件。
+- **没验证的**：第 6、7 条能不能改成一张自带内容的执行卡（清单或命令用 heredoc 带在卡里，由集群里的执行口跑）。执行口够不着数据库的网络，`kubectl exec` 进 `data` 里的 Postgres 过不过准入策略没试；带整份 Task 的命令有多长、收不收没量。
+- **修法方向**：先量第 6、7 条在执行口里跑不跑得了，跑得了就只改文字和卡的写法；跑不了再定做 Mac 上的执行口还是给这几件各做一个平台动作。第 9 条和签名（TD-576）一样要他的机器，放一起想。迁移 Job 见 TD-524。
+- **防线**：`OWNER_EXEC.md` 那一节是全仓库唯一的清单；别处写「Owner 自己的终端跑」之类的旧说法由治理一致性检查第 8 节拦（`OWNER_LAW.md` #3）。
+- **验收**：清单里第 2、6、7、9 条各自删掉，或写明为什么留着。
 
 ### TD-577
 

@@ -46,7 +46,7 @@ scripts/release/release.sh dev                          # make dev-sync-backend-
    请求本身的 `revision` 仍是 `main`（每个仓库都有），6 个 SHA 放在 `params` 里。
 4. **一次性 DB 步骤**：`db-steps.d/` 里对本环境 `when: before` 且未完成的步骤 → 打印给 Owner 的命令并**停下**（exit 3）。
    PROD 的 before 步骤会为每一行 `commit:` 提交 `owner_run_command` 审批（reason 是步骤 id），打印审批 id；
-   Owner 批准后自己跑 `scripts/owner/owner-run.sh <id>`。脚本永远不对 stg / prod / golden_source 跑 `psql`。
+   Owner 批准后，这条命令现在还要他在电脑上跑执行脚本（`agent-config/OWNER_EXEC.md`「还有哪些情况要他回电脑」第 6 条，是缺陷）。脚本永远不对 stg / prod / golden_source 跑 `psql`。
    格式见 `scripts/release/db-steps.d/README.md`。
 5. **before 快照** → `${BIFROST_RELEASE_DIR:-/tmp/claude-501/release}/<date>/<env>-<HHMMSS>/`。
    角色矩阵走 `psql`（`PGHOST=192.168.10.73` `PGPORT=30432` `PGUSER=agent_reader`，口令在 `~/.pgpass`）。
@@ -127,7 +127,7 @@ kubectl -n cicd patch application bifrost-platform-prod --type merge -p '{"spec"
 
 ### Owner 应用这道检查时（一次）
 
-次序：含 check-source 身份接线的 platform 已在 PROD → 试跑一正一反 → 应用。三条命令都在 infra 主线的检出目录里、Owner 自己的终端跑；没有平台发布在途、没有未结的 PROD 发布单时再做。
+次序：含 check-source 身份接线的 platform 已在 PROD → 试跑一正一反 → 应用。三条命令都在 infra 主线的检出目录里、现在还要在 Owner 的电脑上跑（`agent-config/OWNER_EXEC.md`「还有哪些情况要他回电脑」第 7 条，是缺陷）；没有平台发布在途、没有未结的 PROD 发布单时再做。
 
 摘要核对第 3 片另须先确认第 1 片的两个 kaniko Task 已应用（声明 digest result 并写 --digest-file），再应用 PROD Role 的只读权限 → 支持 STG/PROD 的核对 Task → 对 PROD 只核对试跑一正一反 → PROD Pipeline。试跑用 `python3 scripts/release/platform_digest_verify_trial.py <api-digest> <console-digest> --namespace bifrost-platform-prod`；默认仍为 STG，只接受两个完整名字，不重启、不记录 Application。若先应用 PROD Pipeline 而 kaniko Task 仍是旧版，构建没有 digest 结果，下游结果引用不能满足，run 会失败，不能算发布成功；构建可能已推镜像。新 Task 或 Role 未就绪同样不能应用流水线。撤回第 3 片：先把 PROD Pipeline 恢复成 `0e3d33b` 的文件（与 `79c8088` 逐字节相同）：`git show 0e3d33b:k8s/cicd/tekton/pipeline-deliver-platform-prod.yaml | kubectl apply -f -`。不是下面第 3 条的 `27e4467`——那一条连 check-source 一起撤掉。之后再处理共享核对 Task 和新增权限；STG 或 PROD 的流水线仍引用核对 Task 时保留它和两处只读权限。
 
@@ -312,7 +312,7 @@ PROD / platform-prod / research 的发布（级别 C）等 Owner 批，STG 与�
 |------|------|------|
 | 策略 | ConfigMap `cicd/bifrost-release-policy`（`policy.yaml` 规范 JSON + `policy.sig`） | `PUT /api/v1/release-policy`（`release.sh policy sign`） |
 | 冻结 | ConfigMap `cicd/bifrost-release-freeze` | `POST …/freeze`（操作员；没有信任锚则拒绝）、`POST …/unfreeze`（Owner 签名） |
-| 信任根 | platform 编译进去的 `releasepolicy.OwnerKeyFingerprint`（`api/internal/releasepolicy/anchor.go`） | 改它是信任根变更，Owner 手动发 PROD |
+| 信任根 | platform 编译进去的 `releasepolicy.OwnerKeyFingerprint`（`api/internal/releasepolicy/anchor.go`） | 改它是信任根变更，Owner 手动发 PROD（只能在他电脑上办，TD-576） |
 | 模板与路径表 | `agent-config/release-policy/template.json`、`paths.json` | 改它们在下一次签名时生效 |
 
 - **签名**：`release.sh policy sign [--days N]` 用 `~/.ssh/bifrost_release_owner`（`BIFROST_RELEASE_KEY` 可改）
@@ -398,7 +398,7 @@ kubectl --kubeconfig <admin-kubeconfig> -n bifrost-platform-stg patch configmap 
 上线不靠流水线豁免。对象缺失或畸形时检查会拒绝，坏掉的对象不能靠 `bifrost-apply-manifest` 修，因为这条流水线自己也被同一道检查挡住。谁做哪一步：
 
 1. 不动冻结对象。今天的 `frozen: "false"` 已经能过检查。
-2. Owner 自己 `kubectl apply -f k8s/cicd/tekton/task-release-freeze-check.yaml`。这一个文件里是 Task 和装着程序的 ConfigMap。不走 `bifrost-apply-manifest`。
+2. Owner `kubectl apply -f k8s/cicd/tekton/task-release-freeze-check.yaml`（现在还要在他的电脑上办，`agent-config/OWNER_EXEC.md` 那张清单第 7 条）。这一个文件里是 Task 和装着程序的 ConfigMap。不走 `bifrost-apply-manifest`。
 3. 然后十一条会推镜像或滚动的 Pipeline，按文件逐个 apply。
 4. 最后才是 `bifrost-apply-manifest`。`freeze-check` 是根，`run`（里面的 `kubectl apply`）在它之后。
 
@@ -420,7 +420,7 @@ kubectl --kubeconfig <admin-kubeconfig> -n bifrost-platform-stg patch configmap 
 **冻结对象缺失或畸形**：新检查读不到合法的对象就拒绝全部流水线，这是期望的状态，不用抢着解除。恢复只用两条现成的、有测试的命令，不手写对象，不用 `kubectl` 编辑或重建。这两步要信任锚已经编进正在跑的 platform-api；没有锚时 `freeze` 被拒绝，见「The release owner key」。对象已经是冻结、签名又解不开时，走「Lifting a freeze without a signature (break-glass)」，不要再冻一次：
 
 1. `scripts/release/release.sh freeze --reason "<写明是恢复时建的冻结>"`。平台的写入在对象缺失时创建它、在对象存在时整体替换 `data`（`bifrost-platform/api/internal/delivery/release_policy_facts.go` 的 `WriteConfigMap`；`Freeze` 对原有内容没有前置条件），所以不管原来是缺失还是畸形，写完都是一个合法的「已冻结」对象。用 `release.sh policy status` 确认显示已冻结。
-2. Owner 运行 `scripts/release/release.sh unfreeze`，对这一次冻结签名解冻。写完是合法的「已解冻」对象，流水线恢复放行。
+2. Owner 运行 `scripts/release/release.sh unfreeze`，对这一次冻结签名解冻（签名钥匙在他电脑上，手机办不了，TD-576）。写完是合法的「已解冻」对象，流水线恢复放行。
 
 **不去推断它原来是不是冻结的**（复核 45）：旧的 `policy status` 输出没有保证被留着，平台的审计只保留最近 500 条，也不一定对得上最新那次冻结。上面两步对「原来冻结」和「原来没冻结」是同一个做法：先冻结，再由 Owner 签名解冻；原来确实该冻结的，就停在第 1 步不解冻。多冻一次的代价是一次签名。
 
@@ -428,7 +428,7 @@ kubectl --kubeconfig <admin-kubeconfig> -n bifrost-platform-stg patch configmap 
 
 **还没换上新检查的流水线**（安装中断在半路，见上一节）：旧的 release-window 任务把缺失的对象读成没冻结。所以对象缺失期间，不要启动任何还没换上新检查的流水线，直到第 1 步写回对象。
 
-冻结检查的 Task 或程序 ConfigMap 坏了：Owner 自己再 apply 这两个对象所在的那一个文件，不走 apply 流水线：
+冻结检查的 Task 或程序 ConfigMap 坏了：Owner 再 apply 这两个对象所在的那一个文件（同上第 7 条），不走 apply 流水线：
 
 ```bash
 kubectl apply -f k8s/cicd/tekton/task-release-freeze-check.yaml

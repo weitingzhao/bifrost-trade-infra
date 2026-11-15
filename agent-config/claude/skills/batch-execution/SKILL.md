@@ -37,39 +37,34 @@ Owner says **「批量执行」** once → Agent orchestrates all remaining phas
 
 ## Execute Loop
 
-For each pending phase (sequential unless the program doc says phases are independent — default sequential):
+Work goes by **block, not by step** (Owner 2026-11-14): a block is a piece one agent can take from code to
+live on its own. The orchestrator cuts the pending phases into blocks; phases that only make sense together are
+one block. One agent does a whole block (write, test, land, release, check) and is judged on the result.
+Blocks run in order unless the program doc says they are independent.
 
-```
-┌─────────────┐     ┌──────────────┐     ┌─────────────┐     ┌────────────────┐
-│ Subagent    │ ──► │ Phase work   │ ──► │ Verify      │ ──► │ Program doc +  │
-│             │     │ (scope only) │     │ (2 retries) │     │ phase report   │
-└─────────────┘     └──────────────┘     └─────────────┘     └────────────────┘
-```
+### Per-block steps
 
-### Per-phase steps
-
-1. **Launch a subagent via the `Agent` tool** — `subagent_type` = the Bifrost mode agent matching the phase
-   (`bifrost-product` / `bifrost-ops` / `bifrost-promote` / `bifrost-research`, defined in `.claude/agents/`),
-   falling back to `general-purpose`. Pass:
-   - The phase goal, scope and acceptance from the program doc
-   - The program skill path
-   - Scope constraint: current phase only
-2. **Self-check** when the subagent returns:
-   - Run the phase's verify command (if the program doc names one)
-   - On failure: retry phase work up to **2 times**; then **PAUSE** and report to Owner
+1. **Launch one subagent per block via the `Agent` tool** — `subagent_type` = the Bifrost mode agent matching
+   the block (`bifrost-product` / `bifrost-ops` / `bifrost-promote` / `bifrost-research`, defined in
+   `.claude/agents/`), falling back to `general-purpose`. Pass the goal, the boundaries and what to hand back
+   (from the program doc), and the program skill path. Do not pass steps.
+2. **Check the result** when the subagent returns: run the verify command of each phase in the block (if the
+   program doc names one). A failure goes back to the same agent to fix; pause only on a stop condition below.
 3. **Record progress** in the program doc (phase ✅, date, change summary — phase-execution rule 8) and in the
    in-chat Phase report. There is no Console or MCP progress API: Build Desk (`/api/v1/programs`,
    `report_phase_progress`, `create_session`) was deleted on 2026-10-06.
 4. **Owner sign-off**: phases the Owner signs off pause after verify passes unless the Owner pre-authorized the
    batch; the Owner confirms in the conversation and the sign-off is written into the program doc.
-5. **Auto-advance** to next phase unless stop condition (see below).
+5. **Auto-advance** to the next block unless stop condition (see below).
 
 ### Stop conditions (pause batch)
 
-- Verify failed after 2 retries
+- Crossing a safety boundary, something that cannot be taken back, something the Owner must do by hand, or a
+  refusal by the permission classifier or a guard (Owner 2026-11-14; the same list as phase-execution)
 - Architecture-level decision needed (new RPC, schema, dependency — see phase-execution rule 5)
-- Uncovered requirement not in the program doc's acceptance criteria
 - Owner interrupt
+
+Any other failure the agent diagnoses and fixes itself, and says so in one line of the report.
 
 ## Global QA (after all phases)
 
@@ -92,7 +87,7 @@ Output after Global QA (also structure for Owner 验收):
 
 ### Summary
 - Phases executed: N / M
-- Verify failures (retried): ...
+- Failures the agents fixed themselves: ...
 - Stop conditions hit: none | ...
 
 ### Per-phase results
@@ -107,16 +102,19 @@ Output after Global QA (also structure for Owner 验收):
 ### Verification
 - Commands run + results
 
-### E2E suggestions
-- ...
+### Where to see it in Ops
+- page, what to look at; "nothing" if there is nothing
 
-### Follow-ups
-- ...
+### Cost
+- tokens, time
+
+### From the agents who did it
+- what was smooth, what blocked, what to add or delete
 ```
 
 ## Discipline
 
-- Minimize scope per phase — no drive-by refactors
+- Minimize scope per block — no drive-by refactors
 - UI strings English; Owner chat 中文
 - Do not enable live trading (D10)
 - Keep the program doc current — it is the only progress record
