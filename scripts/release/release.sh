@@ -10,6 +10,7 @@
 #   release.sh db-done <env> <step-id>           record that the Owner ran a step
 #   release.sh policy status                     the signed release policy and the freeze, as platform-api sees them
 #   release.sh policy sign [--days N] [--key f]  Owner: render, sign (ssh-keygen -Y sign) and install a policy
+#   release.sh policy stage [--days N]           Anyone: render and keep the text as a candidate for a signing card (TD-576)
 #   release.sh freeze --reason <text>            refuse every release until the Owner unfreezes (needs a trust anchor)
 #   release.sh unfreeze [--key f]                Owner: sign and lift the current freeze
 #
@@ -664,6 +665,38 @@ print(json.dumps({"policy_yaml":open(sys.argv[1]).read(),"policy_sig":open(sys.a
   printf '%s' "${PLATFORM_BODY}" | policy_print
 }
 
+# Stage: render the policy and hand the text to platform-api as a candidate.
+# Nothing changes what is in force. Prints the sha256 and writes the command
+# for the card the Owner approves from his phone (agent-config/OWNER_EXEC.md).
+policy_stage() {
+  local days="" dir id sha body got
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --days) days="${2:?--days needs a number}"; shift 2 ;;
+      *) rel_die "unknown argument: $1" ;;
+    esac
+  done
+  mkdir -p "${RELEASE_HOME}/policy"
+  dir="$(mktemp -d "${RELEASE_HOME}/policy/staged.XXXXXX")"
+  python3 "${RELEASE_DIR}/release_policy.py" render --template "${POLICY_DIR}/template.json" \
+    --paths "${POLICY_DIR}/paths.json" ${days:+--days "${days}"} --out "${dir}/policy.yaml" | tee "${dir}/render.txt"
+  id="$(awk '$1 == "policy_id" { print $2 }' "${dir}/render.txt")"
+  [[ -n "${id}" ]] || rel_die "render printed no policy_id"
+  sha="$(python3 -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "${dir}/policy.yaml")"
+  body="$(python3 -c 'import json,sys
+print(json.dumps({"policy_yaml":open(sys.argv[1]).read()}))' "${dir}/policy.yaml")"
+  platform_send PUT /api/v1/release-policy/candidate "${body}" operator >/dev/null \
+    || rel_die "platform-api did not keep the candidate ${id} (rendered text kept in ${dir})" 1
+  got="$(printf '%s' "${PLATFORM_BODY}" | python3 -c 'import json,sys
+print(((json.loads(sys.stdin.read() or "{}").get("candidate")) or {}).get("sha256", ""))')"
+  [[ "${got}" == "${sha}" ]] || rel_die "platform-api holds candidate sha256 ${got:-none}, the rendered text is ${sha}" 1
+  python3 "${RELEASE_DIR}/release_policy.py" card --sha256 "${sha}" > "${dir}/card-command.txt"
+  echo "candidate ${id}"
+  echo "sha256    ${sha}"
+  echo "text      ${dir}/policy.yaml"
+  echo "command   ${dir}/card-command.txt  (params.command of the owner_run_command card)"
+}
+
 policy_install() {
   local dir="${1:?usage: $0 policy install <dir with policy.yaml and policy.sig>}" body
   [[ -f "${dir}/policy.yaml" && -f "${dir}/policy.sig" ]] || rel_die "need ${dir}/policy.yaml and ${dir}/policy.sig"
@@ -681,8 +714,9 @@ cmd_policy() {
       platform_send GET /api/v1/release-policy "" viewer >/dev/null || rel_die "could not read the release policy" 1
       printf '%s' "${PLATFORM_BODY}" | policy_print ;;
     sign) policy_sign "$@" ;;
+    stage) policy_stage "$@" ;;
     install) policy_install "$@" ;;
-    *) rel_die "usage: $0 policy status | sign [--days N] [--key <path>] | install <dir>" ;;
+    *) rel_die "usage: $0 policy status | sign [--days N] [--key <path>] | stage [--days N] | install <dir>" ;;
   esac
 }
 
