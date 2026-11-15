@@ -327,8 +327,7 @@
 | [TD-573](#td-573) | P2 | cicd | 运行名只取计划号前 8 位，碰撞后任务派不出去 | 不用批 |
 | [TD-574](#td-574) | P2 | cicd | 仓库根 Go 模块无法构建模块级计划 | 不用批 |
 | [TD-575](#td-575) | P3 | cicd | 单元任务续派每轮仍重算年轻提交的计划 | 不用批 |
-| [TD-576](#td-576) | P2 | release policy | 重签发布规则仍要求 Owner 回到有签名钥匙的电脑，手机无法完成 | 方案未定 |
-| [TD-578](#td-578) | P2 | owner-exec | 还有几件事 Owner 只能在电脑上办：Mac 上的执行口没做、一次性库步骤、装进集群的自举清单、应用 auto mode 规则 | 不用批 |
+| [TD-578](#td-578) | P2 | owner-exec | 还有几件事 Owner 只能在电脑上办：Mac 上的执行口没做、解冻的签名、一次性库步骤、装进集群的自举清单、应用 auto mode 规则 | 不用批 |
 | [TD-579](#td-579) | P1 | governance | Owner 定的法还有 8 条没落进规则文件（`OWNER_LAW.md` 标「未落」的行） | 其中 5 条要你重签发布规则 |
 
 ## 条目
@@ -357,16 +356,16 @@
 **P2 · owner-exec · 还有几件事 Owner 只能在电脑上办**
 
 - **状态**：未开始。
-- **Claim**：Owner 2026-11-13 定的法是要他动手的事手机上都办得完。`agent-config/OWNER_EXEC.md`「还有哪些情况要他回电脑」第 2、6、7、9 条现在办不到。
+- **Claim**：Owner 2026-11-13 定的法是要他动手的事手机上都办得完。`agent-config/OWNER_EXEC.md`「还有哪些情况要他回电脑」第 2、3（解冻）、6、7、9 条现在办不到。
 - **证据**：
   - 第 2 条：在他 Mac 上执行的那一种执行口没做（`OWNER_EXEC.md` 自己写明）。
   - 第 6 条：`docs/RELEASE.md`「一次性 DB 步骤」，PROD 的 before 步骤每行 `commit:` 出一张执行卡，批完后命令仍由他在电脑上跑；`scripts/release/db-steps.d/README.md` 写的也是 "for the Owner to run in their own terminal"。
   - 第 7 条：`docs/RELEASE.md`「Owner 应用这道检查时」和冻结检查的 Task（两处写明不走 apply 流水线）。
   - 第 9 条：`agent-config/claude/auto-mode/apply-auto-mode.sh` 写的是他本机用户级的设置文件。
 - **没验证的**：第 6、7 条能不能改成一张自带内容的执行卡（清单或命令用 heredoc 带在卡里，由集群里的执行口跑）。执行口够不着数据库的网络，`kubectl exec` 进 `data` 里的 Postgres 过不过准入策略没试；带整份 Task 的命令有多长、收不收没量。
-- **修法方向**：先量第 6、7 条在执行口里跑不跑得了，跑得了就只改文字和卡的写法；跑不了再定做 Mac 上的执行口还是给这几件各做一个平台动作。第 9 条和签名（TD-576）一样要他的机器，放一起想。迁移 Job 见 TD-524。
+- **修法方向**：先量第 6、7 条在执行口里跑不跑得了，跑得了就只改文字和卡的写法；跑不了再定做 Mac 上的执行口还是给这几件各做一个平台动作。第 9 条要他的机器。第 3 条只剩解冻：平台已认集群里第二把钥匙签的解冻，缺一张带解冻文字的执行卡的做法（解冻文字很短、不含 D10 路径，可以直接写在命令里；装上要写 `cicd/bifrost-release-freeze`，没试过）。迁移 Job 见 TD-524。
 - **防线**：`OWNER_EXEC.md` 那一节是全仓库唯一的清单；别处写「Owner 自己的终端跑」之类的旧说法由治理一致性检查第 8 节拦（`OWNER_LAW.md` #3）。
-- **验收**：清单里第 2、6、7、9 条各自删掉，或写明为什么留着。
+- **验收**：清单里第 2、3、6、7、9 条各自删掉，或写明为什么留着。
 
 ### TD-577
 
@@ -380,18 +379,6 @@
 - **修法方向**：钩子识别 Codex 自己的会话变量（例如 `CODEX_THREAD_ID`）及派活时的 `RUN_KEY`，拿不到明确写 none，不借用父会话号；平台在调用边界分别保存认证身份与调用方声明身份，并与外部工作登记的会话关联。先不选具体做法，不在本次修债。
 - **防线 / 验收**：后续在 `agent-config/scripts/git-hooks/lineage_test.sh` 加一例：环境同时有父会话变量和 Codex 变量时，尾注不得写成父会话号；缺少自身身份时验证明确 none。本次尚未实施该防线。
 - **出处**：共享笔记 `codex/reports/rule-package-draft-part6.md`「身份目前不足以可靠区分 Agent 与线程」及各样本「谁发起」栏；同目录 `codex/reports/audit-min-step.md`「C. “谁发起”的严格边界」。完整位置为 `~/Library/Application Support/Claude/side-session-notes/local_accccb4e-410c-4b5f-9f1b-b54c6915dc9a/codex/reports/` 下这两份报告。
-
-### TD-576
-
-**P2 · release policy · 重签发布规则仍要求 Owner 回到有签名钥匙的电脑，手机无法完成**
-
-- **状态**：未开始；统筹 2026-11-13 定只记债。
-- **Claim**：改签名的发布规则只能在有签名钥匙的电脑上完成，当前手机不能完成整条签署链；凡需要重签规则的决定，都会把 Owner 拉回电脑前。
-- **证据**：infra `scripts/release/release.sh:638–665` 的 policy sign 调用 `release_policy.py` 渲染，随后在 :655 调用 SSHSIG 签署并在 :662 安装；`scripts/release/release_policy.py:38–57,75–80` 合并模板和路径表、生成时间字段并输出确定的 JSON 字节。platform `api/internal/releasepolicy/sshsig.go:30–89,121–132` 验签名域、消息签名与公钥指纹；`anchor.go:14` 定义编译信任锚；`policy.go:155–200` 调用验签及检查版本/时间；`write.go:31–60` 安装前验证。现有代码没有“手机输码等于给规则签名”的功能；`api/internal/ownerexec/server.go:80–184` 是命令摘要、身份、一次性码、批准与领取执行链，没有生成发布规则签名的步骤。Owner 级执行口在这条现有流程中只能帮着安装已经签好的文件，不能把验证码变成 SSH 签名。签好后的补安装入口为 infra `scripts/release/release.sh:667–673`。
-- **影响**：按统筹本次决定，今天三件事因此搁着：窗口条款重签、两条加入信任锚、18 项受保护文件里的限制清理。
-- **修法方向**：未定。草稿 E.2 的三个选项标题：E1 保留 SSH，手机只确认安装已签包；E2 手机输码，平台／独立执行口把确认当新的签署方式；E3 手机持有非对称凭据，独立验签摘要。不在本次选择方案。
-- **防线 / 验收**：方案未定，尚无实施防线；后续方案须验证手机确认绑定待签规则的精确内容，并区分签署与安装。本次仅登记问题，不实现或改变授权链。
-- **出处**：共享笔记 `codex/reports/rule-package-draft.md` E.1–E.2；本轮按 infra/platform main 上述文件复核。没有调查实际钥匙位置或设备状态，电脑依赖是本次任务给定的运行前提。
 
 ### TD-570
 

@@ -437,3 +437,14 @@
 
 - `scripts/gitea/check-local-credential-identity.py --admin weitingzhao` 只取 Keychain/Git 账户元数据，禁止取密码；逐 checkout 检查实际 fetch/push URL，完整 helper 链保留配置来源并处理空值重置；admin 命中拒绝，未知 helper/来源/查询异常不报绿。当前管理员列表与主机别名完整性由 Owner 核对，不靠硬编码单用户推断全部 admin。
 - `scripts/gitea/test_local_credential_identity.py`：admin 命中、非 admin、store→osxkeychain 链、路径专属 username、空值重置、include 来源、未知来源、fetch/push URL 重写和查询异常；断言没有 password 读取参数或 credential fill。尚未完成真实 Mac 与历史血缘验收，TD-440 保留在做。
+
+### 重签发布策略不用回到放钥匙的电脑（TD-576，2026-11-15）
+
+出处：2026-11-15 规则第二版备好后只差签名，Owner 在外面，签名钥匙在他 Mac 上，整件事停住；他说「流程在，授权有，为什么不行」。
+错在把「钥匙放在哪」当成了「必须回电脑」的理由：输码批准的卡已经证明同一件事。
+
+- platform `api/internal/releasepolicy`：`TestAPolicySignedByEitherListedKeyIsValid`（两把列入的钥匙都认；阳性对照：没列入的钥匙被拒）、
+  `TestClusterSignerFingerprintIsEmptyOrAWholeSHA256`、`TestStageKeepsACandidateBesideThePolicyInForce`（存待签稿不改变生效的规则；过期、未来、早于现行版、不放行任何流水线的稿被拒）。
+- infra `scripts/release/test_policy_card.py`：卡的命令只带 sha256、先核对再读钥匙、不含任何 D10 路径（阳性对照：规则全文含）、不打印秘密、不起后台进程、不是 64 位十六进制的 sha 被拒。
+- `scripts/release/test_release_policy_cli.py::test_release_sh_judges_no_policy_itself` 原有：`release.sh` 自己不碰规则对象，所以卡的命令模板放在 `release_policy.py`。
+- 覆盖不到的：卡的理由写得对不对（规则改了哪几条）靠建卡的席位；集群里那把钥匙的 Secret 能被集群系统组件和备份读到；解冻还没有这条路（TD-578）。

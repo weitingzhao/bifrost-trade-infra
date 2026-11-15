@@ -27,7 +27,7 @@ Owner 定过的方向，一条一行。**没登记的不算定**：主统筹每�
 |---|---|---|---|---|---|---|
 | 1 | 2026-11-14 | 能不能自己做，看有没有后悔药，不看由谁批 | `agent-config/CLAUDE.md` §5（新节，待写） | 签名的发布规则（待重签） | 未落：会改变什么要他批，等发布规则稿和他重签（TD-579） | — |
 | 2 | 2026-11-14 | 你自己去执行，为什么需要我来批；先找不用卡的路 | `agent-config/CLAUDE.md` §5 放行规则；`docs/RELEASE.md` 发布策略 | 签名规则的 `allow`、`check_release_policy` | 未落：同上（TD-579） | — |
-| 3 | 2026-11-13 | 要他动手的事，手机上要办得完；回电脑前是系统的失败 | `agent-config/OWNER_EXEC.md`「这一节是全仓库唯一的清单」；`agent-config/CLAUDE.md`「要 Owner 动手的事，手机上要办得完」 | 只有文字（执行口是能力，不是强制） | 已落。还只能在电脑上办的几件登记在那张清单里，是缺陷（TD-524、TD-576、TD-578） | 「Owner 批准后自己跑」「Owner 自己的终端跑」「Owner 自己 `kubectl apply」「Owner 自己再 apply」 |
+| 3 | 2026-11-13 | 要他动手的事，手机上要办得完；回电脑前是系统的失败 | `agent-config/OWNER_EXEC.md`「这一节是全仓库唯一的清单」；`agent-config/CLAUDE.md`「要 Owner 动手的事，手机上要办得完」 | 只有文字（执行口是能力，不是强制） | 已落。还只能在电脑上办的几件登记在那张清单里，是缺陷（TD-524、TD-578） | 「Owner 批准后自己跑」「Owner 自己的终端跑」「Owner 自己 `kubectl apply」「Owner 自己再 apply」 |
 | 4 | 2026-11-14 | 给拐杖，不给桎梏；只在越边界、收不回、要他动手、被拦这几种情况停 | `agent-config/claude/skills/phase-execution/SKILL.md`「只在这几种情况停下」；`agent-config/claude/skills/batch-execution/SKILL.md`「Crossing a safety boundary」 | 只有文字 | 已落。「架构级决策」那一条还留着，随 #5 改 | 「2 次重试后仍失败」「Verify failed after 2 retries」「verify failure after 2 retries」「验收标准未覆盖的新需求」 |
 | 5 | 2026-11-14 | 代码库怎么建怎么维护归 Agent；收得回的不拿去问他 | `agent-config/CLAUDE.md` §5 要点；phase-execution rule 5、rule 10 | 只有文字 | 未落：会改变什么要他批（TD-579） | — |
 | 6 | 2026-11-14 | 活不按工序拆，一个 Agent 整件做到上线，只校验结果 | `agent-config/claude/skills/batch-execution/SKILL.md`「block, not by step」 | 只有文字 | 已落。`CLAUDE.md` §2 和 `AGENT_MODES.md` 里按模式划的范围没动，改不改待定（TD-579） | 「Scope constraint: current phase only」 |
@@ -54,5 +54,5 @@ Owner 定过的方向，一条一行。**没登记的不算定**：主统筹每�
 | H2 | — | 口令和 Secret 不入库、不读 | `agent-config/CLAUDE.md`「不得进仓库的是」「这六类始终是 Owner 的」 | `preflight.js`；CI 的 statics 段 | 已落 | — |
 | H3 | — | 有数据的删改要他 | `agent-config/CLAUDE.md`「跑 ddl-apply Job 前先」「这六类始终是 Owner 的」 | 签名规则的 `additive_ddl` | 已落。和 #9 的分界线未落 | — |
 | H4 | 2026-10-10 | Trade 的 PROD 发布由他批 | `agent-config/CLAUDE.md`「Trade 的 PROD（`bifrost-deliver-prod`）不在内」；`docs/RELEASE.md`「Trade 的 PROD 发布仍由 Owner 批」 | 签名规则的 `allow` 不含 `bifrost-deliver-prod` | 已落 | — |
-| H5 | — | 改签名规则和信任根本身要他 | `docs/RELEASE.md`「改它是信任根变更」 | 平台编译进去的指纹验签 | 已落。只能在他电脑上签，是缺陷（TD-576） | — |
+| H5 | — | 改签名规则和信任根本身要他 | `docs/RELEASE.md`「改它是信任根变更」 | 平台编译进去的指纹验签 | 已落。2026-11-15 起重签走一张他输码的执行卡（`OWNER_EXEC.md`「重签发布策略」）；改信任根本身仍是一张写明的发布卡 | — |
 | H6 | — | auto mode 规则由他应用，Agent 不自改 | `agent-config/CLAUDE.md`「分类器禁止 Agent 改写自己的 auto mode 规则」 | 权限分类器 | 已落 | — |

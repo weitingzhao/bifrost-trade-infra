@@ -87,7 +87,7 @@ kubectl get pods -A -l 'app.kubernetes.io/name in (platform-api,owner-exec)' -o 
 
 1. **集群或 Console 自己挂了**。执行程序在集群里，跟着没了。这时用卡上不带码的 Approve，加他终端里的执行脚本（老路一直保留）。
 2. **命令必须用到他那台 Mac 上的东西**：本机文件、本机的凭据、局域网里集群够不着的机器。在 Mac 上执行的那一种还没做（TD-578）。
-3. **重签发布策略、解冻**（`release.sh policy sign` / `unfreeze`）：签名用的钥匙在他的电脑上（TD-576）。
+3. **解冻**（`release.sh unfreeze`）：现在还只能用他电脑上那把钥匙签。集群里的第二把钥匙平台也认解冻的签名，但带解冻文字的执行卡还没做（TD-578）。重签发布策略已经不用回电脑，见下一节。
 4. **重放钥匙**：换手机、验证器丢了、或要升级执行程序自己的清单时，重跑 `scripts/owner-exec/enroll.sh`。执行程序换镜像不用回电脑，可以走一张它自己执行的卡。
 5. **交易相关的一切**。这扇门对它们是关着的，D10 解锁也不会自动打开。
 6. **一次性库步骤**（`scripts/release/db-steps.d/` 的 `commit:` 行）：卡批完后，命令现在还是他在电脑上跑。执行口能不能跑这类命令没验证过（TD-578）。
@@ -96,3 +96,24 @@ kubectl get pods -A -l 'app.kubernetes.io/name in (platform-api,owner-exec)' -o 
 9. **应用 auto mode 规则**（`apply-auto-mode.sh`）：写的是他本机的设置文件（TD-578）。
 
 碰到这张清单以外、却发现非他回电脑不可的事，当作系统的缺口报给统筹并登记进 `TECH_DEBT.md`，不要默默给他派一条终端命令。
+
+## 重签发布策略：一张执行卡（2026-11-15 起）
+
+Owner 2026-11-15：重签不该非回到放钥匙的电脑不可。输码批准的卡已经证明他同意的是那一份精确内容。
+
+平台认两把钥匙签的发布策略：他 Mac 上原来那把，和集群里 Secret `bifrost-owner-exec/release-policy-signer` 那把
+（`bifrost-platform` `api/internal/releasepolicy/anchor.go` 的 `ClusterSignerFingerprint`；卡 #572 生成，#573 编进生产）。
+集群里那把只有他输码批准的执行卡摸得到；Agent 和平台自己的身份都读不到那个命名空间的 Secret。
+
+改了 `agent-config/release-policy/` 的两份源文件并进了 main 之后：
+
+1. 在工作区根跑 `bifrost-trade-infra/scripts/release/release.sh policy stage`（先把那份检出快进到 main）。
+   它渲染规则、交给平台存成「待签稿」（不生效，`release.sh policy status` 照旧是原来那版），打印 `sha256`，并把卡的命令写进一个文件。
+2. 自己核对：集群里待签稿的 sha256 等于打印的那个；待签稿的内容是你要的那版。
+3. 建 `owner_run_command` 的卡，`params.command` 原样用那个文件的内容，不要手改。卡的理由第一段写「规则换成哪一版、相对现行版改了哪几条」，用白话，
+   并写上全文的 sha256；照常写「改了什么：」「批了以后谁因此能做什么新事：」两行、怎么撤、没验什么。
+4. 他输码之后，执行口核对 sha256（不对就停，什么都不改）、签名、自己验一遍、装上。你用 `release.sh policy status` 确认 `policy` 是新号、`valid True`。
+
+规则全文不写进命令：全文里列着 D10 的文件路径，带着它的命令会被判成禁区（tier X）。不要用编码绕。
+改「平台认哪把钥匙」本身（`anchor.go`）是立法：那一版发布的卡要用白话写清多了或少了哪把钥匙、在哪、谁能驱动、怎么撤。
+撤掉集群里那把：把 `ClusterSignerFingerprint` 改成空、发一版；它签的规则随即失效，用 Mac 那把重签。

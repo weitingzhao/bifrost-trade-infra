@@ -312,10 +312,11 @@ PROD / platform-prod / research 的发布（级别 C）等 Owner 批，STG 与�
 |------|------|------|
 | 策略 | ConfigMap `cicd/bifrost-release-policy`（`policy.yaml` 规范 JSON + `policy.sig`） | `PUT /api/v1/release-policy`（`release.sh policy sign`） |
 | 冻结 | ConfigMap `cicd/bifrost-release-freeze` | `POST …/freeze`（操作员；没有信任锚则拒绝）、`POST …/unfreeze`（Owner 签名） |
-| 信任根 | platform 编译进去的 `releasepolicy.OwnerKeyFingerprint`（`api/internal/releasepolicy/anchor.go`） | 改它是信任根变更，Owner 手动发 PROD（只能在他电脑上办，TD-576） |
+| 信任根 | platform 编译进去的 `releasepolicy.OwnerKeyFingerprint`（`api/internal/releasepolicy/anchor.go`） | 改它是信任根变更：那一版的发布卡写明多了或少了哪把钥匙，Owner 批。同一文件里的 `ClusterSignerFingerprint` 是集群里的第二把（2026-11-15），只签发布策略和解冻 |
 | 模板与路径表 | `agent-config/release-policy/template.json`、`paths.json` | 改它们在下一次签名时生效 |
 
 - **签名**：`release.sh policy sign [--days N]` 用 `~/.ssh/bifrost_release_owner`（`BIFROST_RELEASE_KEY` 可改）
+  不在那台电脑前时：`release.sh policy stage` 把规则存成待签稿，再由一张 Owner 输码的执行卡用集群里的第二把钥匙签并装上（`agent-config/OWNER_EXEC.md`「重签发布策略」）。
   `ssh-keygen -Y sign -n bifrost-release-policy`，再 PUT 给平台；平台按编译进去的指纹验签，拒绝过期的、
   早于已装策略的。签好的文件留在 `~/.bifrost-release/policy/<policy_id>/`，平台不在线时用 `policy install <dir>` 补装。默认 90 天。
 - **判定**（全部满足才不等人）：签名有效且未过期；未冻结；pipeline 在 `allow`；申请方持有发布窗口；
@@ -420,7 +421,7 @@ kubectl --kubeconfig <admin-kubeconfig> -n bifrost-platform-stg patch configmap 
 **冻结对象缺失或畸形**：新检查读不到合法的对象就拒绝全部流水线，这是期望的状态，不用抢着解除。恢复只用两条现成的、有测试的命令，不手写对象，不用 `kubectl` 编辑或重建。这两步要信任锚已经编进正在跑的 platform-api；没有锚时 `freeze` 被拒绝，见「The release owner key」。对象已经是冻结、签名又解不开时，走「Lifting a freeze without a signature (break-glass)」，不要再冻一次：
 
 1. `scripts/release/release.sh freeze --reason "<写明是恢复时建的冻结>"`。平台的写入在对象缺失时创建它、在对象存在时整体替换 `data`（`bifrost-platform/api/internal/delivery/release_policy_facts.go` 的 `WriteConfigMap`；`Freeze` 对原有内容没有前置条件），所以不管原来是缺失还是畸形，写完都是一个合法的「已冻结」对象。用 `release.sh policy status` 确认显示已冻结。
-2. Owner 运行 `scripts/release/release.sh unfreeze`，对这一次冻结签名解冻（签名钥匙在他电脑上，手机办不了，TD-576）。写完是合法的「已解冻」对象，流水线恢复放行。
+2. Owner 运行 `scripts/release/release.sh unfreeze`，对这一次冻结签名解冻（现在只能用他电脑上那把钥匙，手机办不了，TD-578）。写完是合法的「已解冻」对象，流水线恢复放行。
 
 **不去推断它原来是不是冻结的**（复核 45）：旧的 `policy status` 输出没有保证被留着，平台的审计只保留最近 500 条，也不一定对得上最新那次冻结。上面两步对「原来冻结」和「原来没冻结」是同一个做法：先冻结，再由 Owner 签名解冻；原来确实该冻结的，就停在第 1 步不解冻。多冻一次的代价是一次签名。
 
