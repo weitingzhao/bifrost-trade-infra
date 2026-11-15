@@ -24,6 +24,9 @@ DIGEST_RESULT = {
 }
 
 # Mainline bodies, before the digest result and --digest-file arg.
+# 2026-11-14: the api body's computeResources follow the task's (2 cores to 4:
+# 124 of the build's seconds were one go build on 2 cores). The equality still
+# holds every other line of the task to what it was.
 MAINLINE = {
     "api": """\
 # Kaniko build bifrost-platform-api from Gitea clone workspace.
@@ -66,11 +69,11 @@ spec:
         - --insecure-registry=registry.cicd.svc.cluster.local:5000
       computeResources:
         requests:
-          cpu: 250m
-          memory: 512Mi
+          cpu: "1"
+          memory: 1Gi
         limits:
-          cpu: "2"
-          memory: 2Gi
+          cpu: "4"
+          memory: 3Gi
 """,
     "console": """\
 # Kaniko build bifrost-platform-console (requires bifrost-ui sibling).

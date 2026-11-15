@@ -40,10 +40,15 @@ spec:
         - --insecure
         - --skip-tls-verify
         - --insecure-registry=registry.cicd.svc.cluster.local:5000
+      # 2026-11-14: of this step's 131 to 183 seconds, 124 were one go build
+      # compiling from nothing on 2 cores (timestamps of run
+      # bifrost-deliver-platform-1794703158), the longest stretch of a
+      # delivery to STG. Go sizes its build to the CPU limit; 4 follows the
+      # console build's. The request says what it uses for those two minutes.
       computeResources:
         requests:
-          cpu: 250m
-          memory: 512Mi
+          cpu: "1"
+          memory: 1Gi
         limits:
-          cpu: "2"
-          memory: 2Gi
+          cpu: "4"
+          memory: 3Gi
