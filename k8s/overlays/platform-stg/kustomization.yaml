@@ -28,6 +28,15 @@ configMapGenerator:
       disableNameSuffixHash: true
 
 patches:
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: platform-(api|console|workers)
+    patch: |-
+      - op: add
+        path: /spec/template/spec/priorityClassName
+        value: bifrost-default-nonpreempting
   - path: owner-exec.patch.yaml
   - path: platform-serviceaccount.patch.yaml
   - path: images-pull-always.patch.yaml
