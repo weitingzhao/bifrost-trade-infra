@@ -226,9 +226,12 @@ def test_land_is_inline_takes_the_pushed_commit_and_talks_to_gitea_only():
 # --- which CI runs count -------------------------------------------------------------
 
 
-def ci_run(state="True", scope="full", **params):
+def ci_run(state="True", scope="full", base_commit=None, **params):
+    """base_commit None: a run of the gate as it was before 2026-11-15, which names no base at all."""
     params = {"revision": SHA, **table()[PLATFORM]["ci"]["params"], **params}
     status = {"results": [{"name": "api-scope", "value": scope}]}
+    if base_commit is not None:
+        status["results"].append({"name": "base-commit", "value": base_commit})
     if state:
         status["conditions"] = [{"type": "Succeeded", "status": state}]
     return {"spec": {"pipelineRef": {"name": "bifrost-ci-platform"},
@@ -261,8 +264,52 @@ def test_a_green_run_of_another_commit_repository_or_an_increment_does_not_count
     assert verdict([ci_run(**other)]) == "wait"
 
 
-def test_an_incremental_scope_or_another_pipeline_does_not_count():
-    assert verdict([ci_run(scope="incremental")]) == "red"
+def test_an_incremental_run_counts_only_when_it_was_judged_against_main_as_it_is_now():
+    """Owner 2026-11-15: a backend-only landing's CI is 67–128 s and 49–111 s of it is the whole Go suite;
+    the landing gate takes main as its base like the infra gate. The backend step names the commit of
+    main it took as its base (base-commit), and the run counts while main is still that commit."""
+    assert table()[PLATFORM]["ci"] == {
+        "pipeline": "bifrost-ci-platform",
+        "params": {"base": "", "repo-url": "http://gitea.cicd.svc.cluster.local:3000/bifrost/bifrost-platform.git"},
+        "results": {"api-scope": ["full", "console", "incremental"]},
+        "base_result": "base-commit", "no_base": {"api-scope": ["full", "console"]}}
+    assert verdict([ci_run(scope="incremental", base_commit=MAIN)]) == "green"
+    assert verdict([ci_run(state="False", scope="incremental", base_commit=MAIN)]) == "red"
+    assert verdict([ci_run(state="Unknown", scope="incremental", base_commit=MAIN)]) == "wait"
+    # judged against another main: stale, whatever it ran and however it ended
+    for scope in ("incremental", "full", "console"):
+        assert verdict([ci_run(scope=scope, base_commit="e" * 40)]) == "stale", scope
+        assert verdict([ci_run(state="False", scope=scope, base_commit="e" * 40)]) == "stale", scope
+    assert verdict([ci_run(scope="incremental", base_commit="e" * 40), ci_run(scope="incremental", base_commit=MAIN)]) == "green"
+    # Positive control: an increment that names no base was judged against nothing this run can check.
+    for named in ("none", "", None):
+        assert verdict([ci_run(scope="incremental", base_commit=named)]) == "stale", named
+    # A run of every test needs no base: it says none (or, the gate before 2026-11-15, nothing);
+    # the console scope is measured from main by its own task and counts as it did.
+    for scope in ("full", "console"):
+        for named in ("none", "", None, MAIN):
+            assert verdict([ci_run(scope=scope, base_commit=named)]) == "green", (scope, named)
+    assert verdict([ci_run(state="False", base_commit="none")]) == "red"
+    # a scope the row does not list is red with a base and stale without one
+    assert verdict([ci_run(scope="partial", base_commit=MAIN)]) == "red"
+    assert verdict([ci_run(scope="partial", base_commit="none")]) == "stale"
+    # the increment since an earlier push to the branch (a base param) still does not count
+    assert verdict([ci_run(scope="incremental", base_commit=MAIN, base="d" * 40)]) == "wait"
+
+
+def test_no_base_is_the_rows_word_and_a_row_without_it_takes_no_run_that_names_none():
+    """The same origin (Owner 2026-11-15). The infra row has no no_base: its runs are as they were."""
+    assert "no_base" not in table()[INFRA]["ci"]
+    ci = dict(table()[INFRA]["ci"], results={"x": ["y"]})
+    judge = module()["verdict"]
+    run = infra_run(base="")
+    run["status"]["results"].append({"name": "x", "value": "y"})
+    assert judge([run], SHA, ci, MAIN) == "stale"
+    assert judge([run], SHA, dict(ci, no_base={"x": ["y"]}), MAIN) == "green"
+    assert judge([run], SHA, dict(ci, no_base={"x": ["z"]}), MAIN) == "stale"
+
+
+def test_another_pipeline_does_not_count():
     other = ci_run()
     other["spec"]["pipelineRef"]["name"] = "bifrost-ci-python"
     assert verdict([other]) == "wait"
@@ -300,7 +347,7 @@ def test_ci_wait_gives_a_starting_run_time_and_then_answers():
         return [] if len(seen) < 3 else [infra_run()]
 
     assert wait(SHA, ci, MAIN, runs=runs, pause=0) == "green" and seen == ["bifrost-ci-infra"] * 3
-    assert "no whole-suite CI run" in wait(SHA, ci, MAIN, runs=lambda n: [infra_run(state="False")], grace=-1, pause=0)
+    assert "no CI run of " + SHA + " that counts" in wait(SHA, ci, MAIN, runs=lambda n: [infra_run(state="False")], grace=-1, pause=0)
     assert wait(SHA, ci, MAIN, runs=lambda n: [infra_run(base="e" * 40)], grace=-1, pause=0) == "stale"
     assert "did not finish" in wait(SHA, ci, MAIN, runs=lambda n: [], limit=-1, pause=0)
 
@@ -833,7 +880,7 @@ def test_a_merge_gitea_accepted_but_does_not_show_is_not_reported_either_way():
 
 def test_a_red_or_late_ci_is_the_refusal():
     gitea = Gitea()
-    assert run_land(gitea, wait=lambda commit, ci, base: "refused: no whole-suite CI run") == ("", "refused: no whole-suite CI run")
+    assert run_land(gitea, wait=lambda commit, ci, base: "refused: no CI run that counts") == ("", "refused: no CI run that counts")
     assert gitea.merges() == []
 
 

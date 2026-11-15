@@ -69,6 +69,15 @@ spec:
             return results.get('tested-by', '').strip() != ''
 
 
+        def same_increment(params, results, base):
+            # Owner 2026-11-15: a run with no base whose commit is not on main takes main's head
+            # as its base and names it in base-commit (task-ci-platform-test-api.yaml). Its
+            # increment is the current run's only when the current run was handed that commit
+            # as its base (the push to main after the landing). A run with no base never
+            # reuses an increment: it finds its own base, or runs every test.
+            return base != '' and (params.get('base', '') or results.get('base-commit', '')) == base
+
+
         def select(runs, current, identities, repo, base):
             matches = []
             for run in runs:
@@ -83,7 +92,7 @@ spec:
                             or any(results.get(k) != v for k, v in identities.items())
                             or results.get('api-scope') not in ('full', 'console', 'incremental')
                             or any(k not in results for k in FIELDS)
-                            or (results['api-scope'] == 'incremental' and params.get('base', '') != base)):
+                            or (results['api-scope'] == 'incremental' and not same_increment(params, results, base))):
                         continue
                     matches.append(run)
                 except (KeyError, TypeError, ValueError):
@@ -124,6 +133,8 @@ spec:
                 shared.mkdir(parents=True, exist_ok=True)
                 for name in FIELDS:
                     (shared / name).write_text(results[name])
+                # Not in FIELDS: a run from before 2026-11-15 has none and is still an original.
+                (shared / 'base-commit').write_text(results.get('base-commit') or 'none')
 
 
         if __name__ == '__main__':

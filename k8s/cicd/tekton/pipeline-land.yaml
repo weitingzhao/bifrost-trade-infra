@@ -99,7 +99,17 @@ spec:
               #   ci.results      results it must report, each one of the listed values
               #   ci.base_result  the result that names the commit the run was judged against; it
               #                   must be main's head at the merge (a ready/ run of bifrost-ci-infra
-              #                   takes main as its base, task-ci-infra-clone.yaml)
+              #                   takes main as its base, task-ci-infra-clone.yaml; since 2026-11-15
+              #                   the backend step of bifrost-ci-platform does too)
+              #   ci.no_base      a run that names no base (its base_result is not a commit id: the
+              #                   word none, empty, or no such result) counts only when it reports
+              #                   these results, each one of the listed values: such a run was not
+              #                   judged against a commit (every test ran, or the console scope,
+              #                   which is measured from main by its own task). Without it a run
+              #                   must name its base.
+              # Owner 2026-11-15: a backend-only landing's CI is 67-128 s and 49-111 s of it is the
+              # whole Go suite; the landing gate takes main as its base like the infra gate. So an
+              # incremental run of bifrost-ci-platform counts, when the base it names is main's head.
               #   merger          the Secret in cicd that holds the merging account's token
               - name: LANDING_REPOS
                 value: |
@@ -111,7 +121,9 @@ spec:
                           "base": "",
                           "repo-url": "http://gitea.cicd.svc.cluster.local:3000/bifrost/bifrost-platform.git"
                         },
-                        "results": {"api-scope": ["full", "console"]}
+                        "results": {"api-scope": ["full", "console", "incremental"]},
+                        "base_result": "base-commit",
+                        "no_base": {"api-scope": ["full", "console"]}
                       },
                       "merger": "gitea-merger"
                     },
@@ -181,9 +193,10 @@ spec:
 
               def verdict(runs, commit, ci, base):
                   """'green', 'red', 'stale' or 'wait'. A run counts when it is the row's CI pipeline for
-                  this commit with the row's params (an empty base, say: the whole suite and not the
-                  increment since an earlier push). Where the row names base_result, a finished
-                  run that was judged against another commit than main as it is now is 'stale'."""
+                  this commit with the row's params (an empty base, say: not the increment since an
+                  earlier push). Where the row names base_result, a finished run that was judged
+                  against another commit than main as it is now is 'stale'; so is one that names no
+                  base, unless the row's no_base lists what it reports (a run of every test)."""
                   mine = []
                   for run in runs:
                       spec, status = run.get('spec', {}), run.get('status', {})
@@ -196,7 +209,9 @@ spec:
                       results = values(status.get('results'))
                       if state not in (['True'], ['False']):
                           mine.append('wait')
-                      elif ci.get('base_result') and results.get(ci['base_result']) != base:
+                      elif ci.get('base_result') and results.get(ci['base_result']) != base and not (
+                              ci.get('no_base') and not re.fullmatch(r'[0-9a-f]{40}', str(results.get(ci['base_result'])))
+                              and all(results.get(k) in allowed for k, allowed in ci['no_base'].items())):
                           mine.append('stale')
                       elif state == ['True'] and all(results.get(k) in allowed
                                                      for k, allowed in (ci.get('results') or {}).items()):
@@ -226,12 +241,12 @@ spec:
                   while True:
                       got = verdict(runs(ci['pipeline']), commit, ci, base)
                       if got == 'green':
-                          print('a whole-suite %s run of %s succeeded' % (ci['pipeline'], commit))
+                          print('a %s run of %s that counts succeeded' % (ci['pipeline'], commit))
                           return got
                       if got == 'stale' and time.time() > patience:
                           return got
                       if got == 'red' and time.time() > patience:
-                          return 'refused: no whole-suite CI run of %s succeeded' % commit
+                          return 'refused: no CI run of %s that counts succeeded' % commit
                       if time.time() > deadline:
                           return 'refused: CI for %s did not finish in %d minutes' % (commit, limit // 60)
                       time.sleep(pause)

@@ -43,6 +43,11 @@ spec:
       value: $(tasks.test-api.results.api-store-run)
     - name: api-scope-why
       value: $(tasks.test-api.results.api-scope-why)
+    # Owner 2026-11-15: main's head when test-api took it as the base of a commit
+    # that is not on main (a ready/ push); the word none otherwise. The landing counts
+    # an incremental run only while main is still this commit (pipeline-land.yaml).
+    - name: base-commit
+      value: $(tasks.test-api.results.base-commit)
     - name: tested-by
       value: $(tasks.reuse.results.tested-by)
   params:
@@ -165,10 +170,14 @@ spec:
       runAfter: [clone, clone-legacy]
       # R5:5.7-1: the scope task changes chose (Tekton runs this task after it, as it
       # reads its result). full runs go vet and every Go test, as before.
-      # A full run (main push, daily full, a landing run with no base) splits
+      # A full run (daily full, a run with no base) splits
       # in two side by side as before: this one is go vet and every package but
       # ./internal/agentrt/store, test-api-store below is that package alone.
       # An incremental landing run hands the whole selection to this one.
+      # Owner 2026-11-15: a backend-only landing's CI is 67-128 s and 49-111 s of
+      # it is the whole Go suite; the landing gate takes main as its base like the
+      # infra gate. landing-base=main: a run with no base whose commit is not on
+      # main (a ready/ push) tests what the commit changes against main's head.
       params:
         - name: reuse
           value: $(tasks.reuse.results.reuse)
@@ -178,6 +187,8 @@ spec:
           value: $(params.base)
         - name: api-scope-request
           value: $(params.api-scope-request)
+        - name: landing-base
+          value: main
         - name: part
           value: rest
       workspaces:
@@ -199,6 +210,8 @@ spec:
           value: $(params.base)
         - name: api-scope-request
           value: $(params.api-scope-request)
+        - name: landing-base
+          value: main
         - name: part
           value: store
       workspaces:

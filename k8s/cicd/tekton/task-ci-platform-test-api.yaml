@@ -27,12 +27,23 @@ spec:
     - name: api-scope-request
       type: string
       default: ""
+    # Owner 2026-11-15: `main` makes a run with no base judge a commit that is
+    # not on main against main's head (see the step). The pipeline passes it;
+    # anything else, and a run from before the pipeline did, is as it was.
+    - name: landing-base
+      type: string
+      default: ""
   results:
     - name: api-scope
     - name: failed-tests
     - name: api-packages
     - name: api-store-run
     - name: api-scope-why
+    # The commit of main this run was judged against when it took main's head
+    # as its base; the word none otherwise (pipeline-land.yaml reads it). Never
+    # empty: the platform's release reader takes a green run only when every
+    # result it does not list as optional is non-empty.
+    - name: base-commit
   workspaces:
     - name: source
   # The agent runtime's database and Redis tests (W-31 2.1) need a real
@@ -157,6 +168,10 @@ spec:
           value: $(results.api-store-run.path)
         - name: API_SCOPE_WHY_RESULT
           value: $(results.api-scope-why.path)
+        - name: LANDING_BASE_BRANCH
+          value: $(params.landing-base)
+        - name: BASE_COMMIT_RESULT
+          value: $(results.base-commit.path)
       volumeMounts:
         - name: build-cache
           mountPath: /ci-cache
@@ -174,6 +189,8 @@ spec:
         set -euo pipefail
         if [ "${REUSE:-no}" = yes ]; then
           cp "$(workspaces.source.path)/ci-api-results/"* /tekton/results/
+          # A reuse task from before 2026-11-15 hands over no base-commit.
+          [ -s "$BASE_COMMIT_RESULT" ] || printf none > "$BASE_COMMIT_RESULT"
           exit 0
         fi
         export BIFROST_GO_TEST_TIMEOUT=1800s
@@ -272,6 +289,62 @@ spec:
         for result in "$FAILED_TESTS_RESULT" "$API_PACKAGES_RESULT" "$API_STORE_RUN_RESULT" "$API_SCOPE_WHY_RESULT"; do
           : > "$result"
         done
+        printf none > "$BASE_COMMIT_RESULT"
+        git_read() {
+          GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0 \
+            GIT_CONFIG_COUNT=3 \
+            GIT_CONFIG_KEY_0=http.http://gitea.cicd.svc.cluster.local:3000/.extraHeader \
+            GIT_CONFIG_VALUE_0="Authorization: Basic $git_auth" \
+            GIT_CONFIG_KEY_1=http.followRedirects GIT_CONFIG_VALUE_1=false \
+            GIT_CONFIG_KEY_2=credential.helper GIT_CONFIG_VALUE_2= git "$@"
+        }
+        # Owner 2026-11-15: a backend-only landing's CI is 67-128 s and 49-111 s
+        # of it is the whole Go suite; the landing gate takes main as its base
+        # like the infra gate (task-ci-infra-clone.yaml). A run with no base
+        # whose commit is not on main (a ready/ push: trigger-trade-ci.yaml
+        # passes none) is judged against main's head as Gitea has it now, when
+        # that head is an ancestor of the commit: the endpoints the push to main
+        # will have. base-commit says so, and the landing counts the run only
+        # while main is still that commit (pipeline-land.yaml). A commit on main
+        # keeps having no base. A branch that is behind main runs every test:
+        # the landing rebases it and the new commit has its own run. So does
+        # anything that cannot be read. The base then goes the way a base from
+        # the params goes, below: the same checks, the same selector.
+        landing_base=""
+        base_why=""
+        if [ "${LANDING_BASE_BRANCH:-}" = main ] && [ -z "${LANDING_BASE:-}" ] && [ "${API_SCOPE_REQUEST:-}" != full ]; then
+          cd "${ws}/bifrost-platform"
+          tested="$(git rev-parse -q --verify 'HEAD^{commit}' 2>/dev/null || true)"
+          # Ancestry needs the history a bare-SHA shallow clone lacks; main is
+          # the one branch fetched with it.
+          deepen=""
+          if [ "$(git rev-parse --is-shallow-repository 2>/dev/null || true)" = true ]; then deepen=--unshallow; fi
+          main_head=""
+          if git_read fetch -q $deepen origin '+refs/heads/main:refs/remotes/origin/main' 2>/dev/null; then
+            main_head="$(git rev-parse -q --verify 'refs/remotes/origin/main^{commit}' 2>/dev/null || true)"
+          fi
+          if [[ ! "$tested" =~ ^[0-9a-f]{40}$ ]] || [[ ! "$main_head" =~ ^[0-9a-f]{40}$ ]] ||
+            [ "$(git rev-parse --is-shallow-repository 2>/dev/null || true)" != false ]; then
+            base_why="no base: main or the commit's history could not be read"
+          else
+            on_main=0
+            git merge-base --is-ancestor "$tested" "$main_head" 2>/dev/null || on_main=$?
+            ahead=0
+            git merge-base --is-ancestor "$main_head" "$tested" 2>/dev/null || ahead=$?
+            if [ "$on_main" = 0 ]; then
+              : # On main: no base, as before.
+            elif [ "$on_main" = 1 ] && [ "$ahead" = 0 ]; then
+              landing_base="$main_head"
+              printf '%s' "$landing_base" > "$BASE_COMMIT_RESULT"
+              echo "==> base: main's head ${landing_base} (the commit is not on main and sits on it)"
+            elif [ "$on_main" = 1 ] && [ "$ahead" = 1 ]; then
+              base_why="no base: the commit does not sit on main's head (${main_head:0:12})"
+            else
+              base_why="no base: the commit could not be compared with main"
+            fi
+          fi
+          cd "${ws}/bifrost-platform/api"
+        fi
 
         echo "==> go mod download"
         go mod download
@@ -440,25 +513,18 @@ spec:
         cd "${ws}/bifrost-platform"
         revision=""
         base="${LANDING_BASE:-}"
+        [ -n "$base" ] || base="$landing_base"
         why=""
         if [ "${API_SCOPE_REQUEST:-}" = full ]; then
           why="API_SCOPE_REQUEST=full"
         elif [ -z "$base" ]; then
-          why="no base (main push)"
+          why="${base_why:-no base (main push)}"
         elif [[ ! "$base" =~ ^[0-9a-f]{40}$ ]]; then
           why="invalid base"
         else
           # Only a run with a base reads the checkout's commit: a full run
           # needs none.
           revision="$(git rev-parse HEAD)"
-          git_read() {
-            GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0 \
-              GIT_CONFIG_COUNT=3 \
-              GIT_CONFIG_KEY_0=http.http://gitea.cicd.svc.cluster.local:3000/.extraHeader \
-              GIT_CONFIG_VALUE_0="Authorization: Basic $git_auth" \
-              GIT_CONFIG_KEY_1=http.followRedirects GIT_CONFIG_VALUE_1=false \
-              GIT_CONFIG_KEY_2=credential.helper GIT_CONFIG_VALUE_2= git "$@"
-          }
           # A bare-SHA shallow clone lacks the ancestry the selector needs.
           # Fetch failure is allowed: the selector explains an unreadable base.
           if [ "$(git rev-parse --is-shallow-repository)" = true ]; then
@@ -539,7 +605,7 @@ spec:
         # No results-from=sidecar-logs feature flag is configured in k8s/cicd.
         # Reserve 512 bytes for Tekton's JSON result names/framing as well.
         used=$(wc -c < "$API_SCOPE_RESULT")
-        for result in "$API_PACKAGES_RESULT" "$API_STORE_RUN_RESULT" "$API_SCOPE_WHY_RESULT"; do
+        for result in "$API_PACKAGES_RESULT" "$API_STORE_RUN_RESULT" "$API_SCOPE_WHY_RESULT" "$BASE_COMMIT_RESULT"; do
           used=$((used + $(wc -c < "$result")))
         done
         remaining=$((4096 - 512 - used))

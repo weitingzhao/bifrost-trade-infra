@@ -99,12 +99,15 @@ def test_test_api_takes_its_scope_from_changes():
     # R5:5.7-5: test-api is the rest of the packages and go vet, test-api-store the store
     # package alone; both take the scope changes chose and run after the same clones.
     api, store = t["test-api"], t["test-api-store"]
-    landing = [{"name": "base", "value": "$(params.base)"}, {"name": "api-scope-request", "value": "$(params.api-scope-request)"}]
+    # Owner 2026-11-15: a backend-only landing's CI is 67–128 s and 49–111 s of it is the whole Go suite;
+    # the landing gate takes main as its base like the infra gate. Both parts are told so (landing-base).
+    landing = [{"name": "base", "value": "$(params.base)"}, {"name": "api-scope-request", "value": "$(params.api-scope-request)"},
+               {"name": "landing-base", "value": "main"}]
     assert (api["params"], store["params"]) == ([{"name": "reuse", "value": "$(tasks.reuse.results.reuse)"}, scope, *landing, {"name": "part", "value": "rest"}],
                                                 [{"name": "reuse", "value": "$(tasks.reuse.results.reuse)"}, scope, *landing, {"name": "part", "value": "store"}])
     assert api["runAfter"] == store["runAfter"] == ["clone", "clone-legacy"] and api["taskSpec"] == store["taskSpec"]
     assert [(p["name"], p.get("default")) for p in api["taskSpec"]["params"]] == [
-        ("reuse", "no"), ("scope", "full"), ("part", "all"), ("base", ""), ("api-scope-request", "")]
+        ("reuse", "no"), ("scope", "full"), ("part", "all"), ("base", ""), ("api-scope-request", ""), ("landing-base", "")]
     env = {e["name"]: e.get("value") for e in api["taskSpec"]["steps"][0]["env"]}
     assert (env["API_SCOPE"], env["API_PART"]) == ("$(params.scope)", "$(params.part)")
     # Only the exact word console narrows the run; anything else is every test.
@@ -477,7 +480,8 @@ def run_api(tmp_path: Path, api: Path, scope: str, part: str = "all"):
     # check which packages a run tests, so every call runs them: no cached results.
     script = api_script().replace("$(workspaces.source.path)", str(tmp_path)).replace("/ci-cache", str(tmp_path / "ci-cache"))
     results = {name: str(tmp_path / ("result-" + name)) for name in
-               ("API_SCOPE_RESULT", "FAILED_TESTS_RESULT", "API_PACKAGES_RESULT", "API_STORE_RUN_RESULT", "API_SCOPE_WHY_RESULT")}
+               ("API_SCOPE_RESULT", "FAILED_TESTS_RESULT", "API_PACKAGES_RESULT", "API_STORE_RUN_RESULT", "API_SCOPE_WHY_RESULT",
+                "BASE_COMMIT_RESULT")}
     return subprocess.run(["bash"], input=script, cwd=api, env={**go_env(tmp_path), "GOFLAGS": "-count=1", "RAN_DIR": str(ran),
                           "API_SCOPE": scope, "API_PART": part, **results}, capture_output=True, text=True, timeout=300), ran
 
@@ -609,3 +613,178 @@ def test_auxiliary_the_self_check_passes_on_the_platform_checkout(tmp_path):
     r = subprocess.run(["go", "run", ".", str(root), *scope_packages(), "--", *known_reads()], cwd=check,
                        env=go_env(tmp_path), capture_output=True, text=True, timeout=300)
     assert r.returncode == 0, r.stdout + r.stderr
+
+
+# --- test-api takes main as the base of a commit that is not on main ---------
+#
+# Origin of every case below: Owner 2026-11-15: a backend-only landing's CI is 67–128 s and
+# 49–111 s of it is the whole Go suite; the landing gate takes main as its base like the infra
+# gate. They run test-api's own step with real git against a local origin (the checkout is made
+# the way the clone task makes it: a shallow fetch of the pushed commit) and a go that only
+# records its calls; the selector is a fixture on main that says which endpoints it was handed.
+
+SELECTOR = "scripts/ci/test_api_scoped.sh"
+SELECTOR_FIXTURE = """#!/bin/bash
+printf '%s %s' "$1" "$2" > "$SELECTOR_CALL"
+printf incremental > "$API_SCOPE_RESULT"
+printf 'scope=incremental\\npackages=m/a\\nstore_run=\\nwhy=fixture\\n'
+"""
+
+
+@pytest.fixture
+def landing(platform):
+    """The platform fixture with the selector on main; (origin, work, main's head)."""
+    origin, work = platform
+    (work / SELECTOR).parent.mkdir(parents=True)
+    (work / SELECTOR).write_text(SELECTOR_FIXTURE)
+    git(work, "add", SELECTOR)
+    git(work, "commit", "-q", "-m", "selector")
+    git(work, "push", "-q", "origin", "main")
+    return origin, work, git(work, "rev-parse", "main")
+
+
+def main_moves_on(work: Path) -> str:
+    (work / "README.md").write_text("main moved\n")
+    git(work, "commit", "-q", "-am", "main moves on")
+    git(work, "push", "-q", "origin", "main")
+    return git(work, "rev-parse", "main")
+
+
+def landing_run(tmp_path: Path, origin: Path, sha: str, unreachable: bool = False, **env) -> dict:
+    ws = tmp_path / "ws"
+    shutil.rmtree(ws, ignore_errors=True)
+    checkout = ws / "bifrost-platform"
+    checkout.mkdir(parents=True)
+    git(checkout, "init", "-q")
+    git(checkout, "remote", "add", "origin", f"file://{origin}")
+    git(checkout, "fetch", "-q", "--depth=1", "origin", sha)
+    git(checkout, "checkout", "-q", "--detach", "FETCH_HEAD")
+    assert git(checkout, "rev-parse", "--is-shallow-repository") == "true"
+    if unreachable:
+        git(checkout, "remote", "set-url", "origin", f"file://{tmp_path}/missing.git")
+    bins = tmp_path / "landing-bin"
+    bins.mkdir(exist_ok=True)
+    (bins / "go").write_text('#!/bin/bash\necho "go $*" >> "$GO_CALLS"\n'
+                             'if [ "$1" = list ]; then if [ "$2" = ./internal/agentrt/store ]; then echo m/store; '
+                             'else printf \'m/a\\nm/store\\n\'; fi; fi\nexit 0\n')
+    (bins / "go").chmod(0o755)
+    out = tmp_path / "landing-results"
+    shutil.rmtree(out, ignore_errors=True)
+    out.mkdir()
+    names = ("API_SCOPE", "FAILED_TESTS", "API_PACKAGES", "API_STORE_RUN", "API_SCOPE_WHY", "BASE_COMMIT")
+    script = api_script().replace("$(workspaces.source.path)", str(ws)).replace("/ci-cache", str(tmp_path / "ci-cache"))
+    assert "$(" + "params." not in script and "$(results." not in script
+    r = subprocess.run(["bash"], input=script, capture_output=True, text=True, timeout=120, env={
+        **os.environ, **GIT_ENV, "PATH": f"{bins}:{os.environ['PATH']}", "GO_CALLS": str(out / "go-calls"), "GOFLAGS": "",
+        "SELECTOR_CALL": str(out / "selector-call"), "CANDIDATE_RAN": str(out / "candidate-ran"),
+        "GIT_USERNAME": "reader", "GIT_PASSWORD": PASSWORD, "LANDING_BASE_BRANCH": "main",
+        **{n + "_RESULT": str(out / n) for n in names}, **env})
+    assert PASSWORD not in r.stdout + r.stderr
+    read = lambda name: (out / name).read_text() if (out / name).exists() else None  # noqa: E731
+    return {"code": r.returncode, "out": r.stdout + r.stderr, "scope": read("API_SCOPE"), "why": read("API_SCOPE_WHY"),
+            "base": read("BASE_COMMIT"), "selector": read("selector-call"), "go": read("go-calls") or ""}
+
+
+def whole_suite(got: dict) -> bool:
+    return (got["code"] == 0 and got["scope"] == "full" and got["selector"] is None and "go test ./... -timeout=" in got["go"]
+            and "go vet ./..." in got["go"])
+
+
+@pytest.mark.parametrize("commits", [1, 2])
+def test_a_ready_commit_on_mains_head_is_tested_against_main(tmp_path, landing, commits):
+    origin, work, main = landing
+    def change(w: Path) -> None:
+        write("api/internal/x/x.go", "package x\n// one\n")(w)
+        if commits == 2:
+            git(w, "add", "-A")
+            git(w, "commit", "-q", "-m", "first of two")
+            write("api/internal/x/y.go", "package x\n")(w)
+    sha = branch(work, "ready/lane", change)
+    got = landing_run(tmp_path, origin, sha)
+    assert got["code"] == 0, got["out"]
+    # The base is main's head and the selector, the one on main, is handed main and the commit.
+    assert (got["base"], got["scope"], got["why"], got["selector"]) == (main, "incremental", "fixture", f"{main} {sha}"), got["out"]
+    assert "go test ./..." not in got["go"] and "go vet ./..." in got["go"]
+    # Each part finds the same base: the two shares run side by side.
+    for part in ("store", "rest"):
+        assert landing_run(tmp_path, origin, sha, API_PART=part)["base"] == main
+
+
+def test_a_ready_commit_behind_main_runs_every_test_and_says_why(tmp_path, landing):
+    origin, work, _ = landing
+    sha = branch(work, "ready/lane", write("api/internal/x/x.go", "package x\n// one\n"))
+    moved = main_moves_on(work)
+    got = landing_run(tmp_path, origin, sha)
+    assert whole_suite(got), got["out"]
+    assert (got["base"], got["why"]) == ("none", f"no base: the commit does not sit on main's head ({moved[:12]})")
+
+
+def test_a_commit_on_main_has_no_base_as_before(tmp_path, landing):
+    origin, work, main = landing
+    older = git(work, "rev-parse", "main~1")
+    main_moves_on(work)
+    for sha in (git(work, "rev-parse", "main"), main, older):
+        got = landing_run(tmp_path, origin, sha)
+        assert whole_suite(got), got["out"]
+        assert (got["base"], got["why"]) == ("none", "no base (main push)"), sha
+
+
+def test_a_run_that_asks_for_everything_or_cannot_read_main_runs_every_test(tmp_path, landing):
+    origin, work, main = landing
+    sha = branch(work, "ready/lane", write("api/internal/x/x.go", "package x\n// one\n"))
+    # Positive control: this commit is one the step narrows.
+    assert landing_run(tmp_path, origin, sha)["scope"] == "incremental"
+    got = landing_run(tmp_path, origin, sha, API_SCOPE_REQUEST="full")
+    assert whole_suite(got) and (got["base"], got["why"]) == ("none", "API_SCOPE_REQUEST=full"), got["out"]
+    got = landing_run(tmp_path, origin, sha, unreachable=True)
+    assert whole_suite(got), got["out"]
+    assert (got["base"], got["why"]) == ("none", "no base: main or the commit's history could not be read")
+    # Only the pipeline's word turns it on: a run from a pipeline that does not pass it is as it was.
+    for word in ("", "Main", "ready/x"):
+        got = landing_run(tmp_path, origin, sha, LANDING_BASE_BRANCH=word)
+        assert whole_suite(got) and (got["base"], got["why"]) == ("none", "no base (main push)"), (word, got["out"])
+
+
+def test_a_base_from_the_params_is_used_as_it_was_and_names_no_base_commit(tmp_path, landing):
+    # The push to main after the landing (base = the commit main moved from): the lane does not read that run.
+    origin, work, main = landing
+    sha = branch(work, "ready/lane", write("api/internal/x/x.go", "package x\n// one\n"))
+    got = landing_run(tmp_path, origin, sha, LANDING_BASE=main)
+    assert (got["code"], got["base"], got["scope"], got["selector"]) == (0, "none", "incremental", f"{main} {sha}"), got["out"]
+
+
+def test_a_commit_that_changes_the_selector_is_not_judged_by_its_own_selector(tmp_path, landing):
+    # The selector must be main's (the platform: "must be executed from the trusted base checkout"). The
+    # path a base from the params takes compares it with the base's and runs every test when it differs;
+    # the base taken from main goes the same way.
+    origin, work, main = landing
+    sha = branch(work, "ready/lane", write(SELECTOR, '#!/bin/bash\n: > "$CANDIDATE_RAN"\nprintf incremental > "$API_SCOPE_RESULT"\n'
+                                                     "printf 'scope=incremental\\npackages=\\nstore_run=\\nwhy=mine\\n'\n"))
+    got = landing_run(tmp_path, origin, sha)
+    assert whole_suite(got), got["out"]
+    assert (got["base"], got["why"]) == (main, "selector changed")
+    assert not (tmp_path / "landing-results/candidate-ran").exists()
+
+
+def test_the_console_scope_names_the_base_too_and_stays_narrow_behind_main(tmp_path, landing):
+    origin, work, main = landing
+    sha = branch(work, "ready/lane", write("console/src/pages/A.tsx"))
+    got = landing_run(tmp_path, origin, sha, API_SCOPE="console")
+    assert (got["code"], got["scope"], got["base"], got["selector"]) == (0, "console", main, None), got["out"]
+    main_moves_on(work)
+    got = landing_run(tmp_path, origin, sha, API_SCOPE="console")
+    assert (got["code"], got["scope"], got["base"]) == (0, "console", "none"), got["out"]
+
+
+def test_the_run_names_its_base_in_a_result_the_landing_reads():
+    spec = yaml.safe_load(PIPELINE.read_text())["spec"]
+    assert {"name": "base-commit", "value": "$(tasks.test-api.results.base-commit)"} in spec["results"]
+    task = pipeline_tasks()["test-api"]["taskSpec"]
+    assert "base-commit" in [r["name"] for r in task["results"]]
+    env = {e["name"]: e.get("value") for e in task["steps"][0]["env"]}
+    assert (env["LANDING_BASE_BRANCH"], env["BASE_COMMIT_RESULT"]) == ("$(params.landing-base)", "$(results.base-commit.path)")
+    # Never empty: the platform's release reader refuses a green run with an empty result it does not list.
+    script = api_script()
+    assert 'printf none > "$BASE_COMMIT_RESULT"' in script and ': > "$BASE_COMMIT_RESULT"' not in script
+    land = (PIPELINE.parent / "pipeline-land.yaml").read_text()
+    assert '"base_result": "base-commit"' in land

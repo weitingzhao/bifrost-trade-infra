@@ -155,7 +155,7 @@ def test_vet_only_defect_stops_the_actual_ci_script(tmp_path):
     subprocess.run(["git", "init", "-q", str(api.parent)], check=True)
     subprocess.run(["git", "-C", str(api.parent), "-c", "user.name=Test", "-c",
                     "user.email=test@example.invalid", "commit", "--allow-empty", "-qm", "fixture"], check=True)
-    for name in ("API_SCOPE", "FAILED_TESTS", "API_PACKAGES", "API_STORE_RUN", "API_SCOPE_WHY"):
+    for name in ("API_SCOPE", "FAILED_TESTS", "API_PACKAGES", "API_STORE_RUN", "API_SCOPE_WHY", "BASE_COMMIT"):
         env[name + "_RESULT"] = str(tmp_path / name)
     spec = pipeline()
     task = next(t for t in spec["tasks"] if t["name"] == "test-api")
@@ -229,7 +229,7 @@ def test_api_scope_params_and_results():
             assert params[param] == '$(params.' + param + ')'
     results = {r['name']: r['value'] for r in spec['results']}
     declared = {r['name'] for r in task['taskSpec']['results']}
-    for name in ('api-scope', 'failed-tests', 'api-packages', 'api-store-run', 'api-scope-why'):
+    for name in ('api-scope', 'failed-tests', 'api-packages', 'api-store-run', 'api-scope-why', 'base-commit'):
         assert name in declared
         assert results[name] == '$(tasks.test-api.results.' + name + ')'
 
@@ -278,7 +278,7 @@ esac
     env = {**os.environ, 'PATH': str(bins) + ':' + os.environ['PATH'],
            'GIT_CALLS': str(tmp_path / 'git-calls'), 'GO_CALLS': str(tmp_path / 'go-calls'), 'API_PART': 'rest', 'GOFLAGS': ''}
     paths = {}
-    for name in ('API_SCOPE', 'FAILED_TESTS', 'API_PACKAGES', 'API_STORE_RUN', 'API_SCOPE_WHY'):
+    for name in ('API_SCOPE', 'FAILED_TESTS', 'API_PACKAGES', 'API_STORE_RUN', 'API_SCOPE_WHY', 'BASE_COMMIT'):
         paths[name] = tmp_path / name
         env[name + '_RESULT'] = str(paths[name])
     cases = [('', '', 'no base (main push)', 'full', 0, 0),
@@ -296,6 +296,8 @@ esac
                                   'SELECTOR_STATUS': '7'})
         assert paths['API_SCOPE'].read_text() == scope
         assert paths['API_SCOPE_WHY'].read_text() == why
+        # A base from the params is not main's head taken as the base: nothing to name.
+        assert paths['BASE_COMMIT'].read_text() == 'none'
         packages = paths['API_PACKAGES'].read_text()
         assert 'github.com/' not in packages
         assert sum(len(p.read_bytes()) for p in paths.values()) <= 4096 - 512

@@ -64,6 +64,50 @@ def test_incremental_matching_base():
     assert choose([run]) == run
 
 
+# Owner 2026-11-15: a backend-only landing's CI is 67–128 s and 49–111 s of it is the whole Go suite;
+# the landing gate takes main as its base like the infra gate. Such a run has no base param and names
+# main's head in base-commit, so which later run may stand on it is decided from that result.
+def derived(base_commit):
+    run = candidate()
+    run['spec']['params'][1]['value'] = ''
+    results = run['status']['results']
+    next(r for r in results if r['name'] == 'api-scope')['value'] = 'incremental'
+    results.append({'name': 'base-commit', 'value': base_commit})
+    return run
+
+
+def test_the_push_to_main_reuses_the_landing_runs_increment_from_the_same_base():
+    assert choose([derived('base')]) is not None
+    # Positive control: an increment from another main is not this run's.
+    assert choose([derived('other')]) is None and choose([derived('none')]) is None
+
+
+def test_a_run_with_no_base_never_reuses_an_increment():
+    # A second ready/ push of the same commit, a manual run, the daily full run: each has no base.
+    for run in (derived('base'), derived('none'), derived(''), candidate()):
+        next(r for r in run['status']['results'] if r['name'] == 'api-scope')['value'] = 'incremental'
+        assert M['select']([run], CURRENT, IDENTITIES, 'repo', '') is None
+    # Positive control: a whole-suite original is reused by a run with no base, as before.
+    whole = candidate()
+    whole['spec']['params'][1]['value'] = ''
+    assert M['select']([whole], CURRENT, IDENTITIES, 'repo', '') == whole
+
+
+def test_a_reused_run_hands_over_the_base_it_named(tmp_path, monkeypatch):
+    results = tmp_path / 'results'
+    results.mkdir()
+    shared = tmp_path / 'shared'
+    globals_ = M['main'].__globals__
+    real_path = Path
+    monkeypatch.setitem(globals_, 'Path', lambda p: results if p == '/tekton/results' else real_path(p))
+    monkeypatch.setitem(globals_, 'lookup', lambda *args: derived('base'))
+    for key, value in {'RUN': 'current', 'TREE': 'tree', 'UI': 'ui', 'INFRA': 'infra',
+                       'REPO': 'repo', 'BASE': 'base', 'RESULTS_DIR': str(shared)}.items():
+        monkeypatch.setenv(key, value)
+    M['main']()
+    assert (shared / 'base-commit').read_text() == 'base'
+
+
 def test_listing_error_is_miss():
     def read(path):
         if path.startswith('/'):
@@ -133,10 +177,12 @@ def test_reused_steps_return_before_work(tmp_path):
         for step in spec['steps']:
             script = step['script'].replace('$(workspaces.source.path)', str(tmp_path)).replace('/tekton/results/', str(results) + '/')
             result = subprocess.run(['bash', '-c', script], cwd=tmp_path,
-                                    env={**os.environ, 'REUSE': 'yes'}, capture_output=True, text=True)
+                                    env={**os.environ, 'REUSE': 'yes', 'BASE_COMMIT_RESULT': str(results / 'base-commit')},
+                                    capture_output=True, text=True)
             assert result.returncode == 0, (task['name'], result.stderr)
             assert not result.stdout
-    assert {p.name: p.read_text() for p in results.iterdir()} == {field: field for field in M['FIELDS']}
+    # base-commit: the task writes the word none when the reuse task handed nothing over (one from before 2026-11-15).
+    assert {p.name: p.read_text() for p in results.iterdir()} == {**{field: field for field in M['FIELDS']}, 'base-commit': 'none'}
 
 
 def test_admission_scopes_reader_to_reuse_task():
@@ -165,6 +211,6 @@ def test_result_emission(tmp_path, monkeypatch, hit):
     assert (results / 'tested-by').read_text() == ('original' if hit else '')
     if hit:
         expected = M['values'](candidate()['status']['results'])
-        assert {p.name: p.read_text() for p in shared.iterdir()} == {k: expected[k] for k in M['FIELDS']}
+        assert {p.name: p.read_text() for p in shared.iterdir()} == {**{k: expected[k] for k in M['FIELDS']}, 'base-commit': 'none'}
     else:
         assert not shared.exists()
