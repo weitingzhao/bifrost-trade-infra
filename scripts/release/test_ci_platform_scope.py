@@ -102,7 +102,7 @@ def test_test_api_takes_its_scope_from_changes():
     # Owner 2026-11-15: a backend-only landing's CI is 67–128 s and 49–111 s of it is the whole Go suite;
     # the landing gate takes main as its base like the infra gate. Both parts are told so (landing-base).
     landing = [{"name": "base", "value": "$(params.base)"}, {"name": "api-scope-request", "value": "$(params.api-scope-request)"},
-               {"name": "landing-base", "value": "main"}]
+               {"name": "landing-base", "value": ""}]  # off, 2026-11-15: see the pipeline
     assert (api["params"], store["params"]) == ([{"name": "reuse", "value": "$(tasks.reuse.results.reuse)"}, scope, *landing, {"name": "part", "value": "rest"}],
                                                 [{"name": "reuse", "value": "$(tasks.reuse.results.reuse)"}, scope, *landing, {"name": "part", "value": "store"}])
     assert api["runAfter"] == store["runAfter"] == ["clone", "clone-legacy"] and api["taskSpec"] == store["taskSpec"]

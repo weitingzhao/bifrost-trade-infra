@@ -187,8 +187,13 @@ spec:
           value: $(params.base)
         - name: api-scope-request
           value: $(params.api-scope-request)
+        # Off since 2026-11-15 14:20 Chicago: with main as the base a ready/ run is
+        # incremental, and the release side takes only a full pass as the CI verdict
+        # of a commit (platform server/evidence_gate.go ledgerCI): after two such
+        # landings main's head had no verdict and STG was not delivered. Set to main
+        # again only once the release side has a verdict for such a commit.
         - name: landing-base
-          value: main
+          value: ""
         - name: part
           value: rest
       workspaces:
@@ -210,8 +215,13 @@ spec:
           value: $(params.base)
         - name: api-scope-request
           value: $(params.api-scope-request)
+        # Off since 2026-11-15 14:20 Chicago: with main as the base a ready/ run is
+        # incremental, and the release side takes only a full pass as the CI verdict
+        # of a commit (platform server/evidence_gate.go ledgerCI): after two such
+        # landings main's head had no verdict and STG was not delivered. Set to main
+        # again only once the release side has a verdict for such a commit.
         - name: landing-base
-          value: main
+          value: ""
         - name: part
           value: store
       workspaces:
