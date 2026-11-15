@@ -38,25 +38,6 @@ patches:
       - op: add
         path: /spec/template/spec/priorityClassName
         value: bifrost-default-nonpreempting
-  # TEMPORARY (LANE-ci-w1, 2026-11-14, minutes): the positive control of the
-  # post-release check. The Console's liveness probe points at a port nothing
-  # listens on, so the kubelet restarts the container about every minute; the
-  # next platform release here must be judged failed on restarts. Removed in
-  # the commit that follows the reading (duty coordinator agreed the slot).
-  - target:
-      group: apps
-      version: v1
-      kind: Deployment
-      name: platform-console
-    patch: |-
-      - op: replace
-        path: /spec/template/spec/containers/0/livenessProbe
-        value:
-          tcpSocket:
-            port: 1
-          initialDelaySeconds: 45
-          periodSeconds: 5
-          failureThreshold: 1
   - path: owner-exec.patch.yaml
   - path: platform-serviceaccount.patch.yaml
   - path: images-pull-always.patch.yaml
