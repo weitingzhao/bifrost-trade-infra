@@ -47,6 +47,17 @@ def configmap_violations(value):
     return violations
 
 
+def build_task_spec(kind):
+    return yaml.safe_load((TEKTON / f"task-kaniko-platform-{kind}-stg.yaml").read_text())["spec"]
+
+
+def stage_script(kind):
+    """The copy of the Dockerfile out of the run's infra clone: the build Task's first step."""
+    step = build_task_spec(kind)["steps"][0]
+    assert step["name"] == "stage-dockerfile", step["name"]
+    return step["script"]
+
+
 class PlatformDockerfiles(unittest.TestCase):
     def test_no_configmap_dockerfiles_in_either_pipeline_or_referenced_tasks(self):
         task_specs = {}
@@ -68,7 +79,6 @@ class PlatformDockerfiles(unittest.TestCase):
         self.assertIn("clone-infra", tasks)
         clone = tasks["clone-infra"]
         self.assertEqual(clone["taskRef"], {"name": "bifrost-git-clone-gitea"})
-        self.assertEqual(clone["runAfter"], ["mirror-sync"])
         self.assertEqual({p["name"]: p["value"] for p in clone["params"]}, {
             "url": "$(params.giteaBase)/bifrost-trade-infra.git",
             "revision": "$(params.infraRevision)", "subdir": "bifrost-trade-infra",
@@ -76,29 +86,40 @@ class PlatformDockerfiles(unittest.TestCase):
         params = {p["name"]: p.get("default") for p in yaml.safe_load(open(STG))["spec"]["params"]}
         self.assertEqual(params.get("infraRevision"), "main")
         self.assertEqual(clone["workspaces"], [{"name": "output", "workspace": "build-context"}])
-        mirrors = {p["name"]: p["value"] for p in tasks["mirror-sync"]["params"]}
-        self.assertIn("bifrost-trade-infra", mirrors["mirrorRepos"].split())
 
+    # Owner 2026-11-15, five-step method (question, delete, simplify, then accelerate): of 172 s
+    # on the critical path of the STG delivery 54 s were pod starts of tasks doing 0–2 s of work.
+    # The stage-*-dockerfile tasks became the first step of the build Tasks; the property TD-448
+    # asked for is unchanged: the Dockerfile is the one in this run's infra clone.
     def test_stage_sources_are_in_the_clone_and_builds_wait(self):
         tasks = pipeline_tasks(STG)
+        self.assertFalse([name for name in tasks if name.startswith("stage-")])
         for kind in KINDS:
             with self.subTest(kind=kind):
-                stage_name = f"stage-{kind}-dockerfile"
-                stage = tasks[stage_name]
-                self.assertIn("clone-infra", stage["runAfter"])
-                self.assertIn("clone-platform", stage["runAfter"])
+                build = tasks[f"build-platform-{kind}"]
+                self.assertEqual(build["taskRef"], {"name": f"bifrost-kaniko-platform-{kind}-stg"})
+                self.assertIn("clone-infra", build["runAfter"])
+                self.assertIn("clone-platform", build["runAfter"])
                 if kind == "console":
-                    self.assertIn("clone-ui", stage["runAfter"])
-                self.assertEqual(stage["workspaces"], [{"name": "source", "workspace": "build-context"}])
-                script = stage["taskSpec"]["steps"][0]["script"]
+                    self.assertIn("clone-ui", build["runAfter"])
+                # The build reads the workspace the clones wrote, and takes the Task's own
+                # dockerfile default: the file the stage step writes.
+                self.assertEqual(build["workspaces"], [{"name": "source", "workspace": "build-context"}])
+                self.assertEqual(tasks["clone-infra"]["workspaces"], [{"name": "output", "workspace": "build-context"}])
+                self.assertNotIn("dockerfile", [p["name"] for p in build["params"]])
+                spec = build_task_spec(kind)
                 filename = f"Dockerfile.platform-{kind}-stg"
+                self.assertEqual([s["name"] for s in spec["steps"]], ["stage-dockerfile", "assert-context", "build-and-push"])
+                self.assertTrue(all("onError" not in s for s in spec["steps"]))
                 self.assertIn(
                     f'cp "$(workspaces.source.path)/bifrost-trade-infra/k8s/cicd/docker/{filename}" '
-                    f'"$(workspaces.source.path)/{filename}"', script,
+                    f'"$(workspaces.source.path)/{filename}"', stage_script(kind),
                 )
-                build = tasks[f"build-platform-{kind}"]
-                self.assertIn(stage_name, build["runAfter"])
-                self.assertEqual(build["workspaces"], stage["workspaces"])
+                dockerfile = {p["name"]: p["default"] for p in spec["params"]}["dockerfile"]
+                self.assertEqual(dockerfile, filename)
+                kaniko = spec["steps"][2]
+                self.assertIn("--dockerfile=$(params.dockerfile)", kaniko["args"])
+                self.assertIn("--context=$(workspaces.source.path)", kaniko["args"])
 
     def test_stage_copies_and_logs_changed_clone_bytes(self):
         for kind in KINDS:
@@ -109,7 +130,7 @@ class PlatformDockerfiles(unittest.TestCase):
                 source.parent.mkdir(parents=True)
                 content = f"# TD-448 changed {kind} Dockerfile\nFROM scratch\n"
                 source.write_text(content)
-                script = pipeline_tasks(STG)[f"stage-{kind}-dockerfile"]["taskSpec"]["steps"][0]["script"]
+                script = stage_script(kind)
                 script = script.replace("$(workspaces.source.path)", tmp)
                 result = subprocess.run(["sh", "-eu"], input=script, text=True, capture_output=True, timeout=10)
                 self.assertEqual(result.returncode, 0, result.stderr)

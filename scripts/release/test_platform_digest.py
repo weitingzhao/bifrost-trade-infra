@@ -27,6 +27,11 @@ DIGEST_RESULT = {
 # 2026-11-14: the api body's computeResources follow the task's (2 cores to 4:
 # 124 of the build's seconds were one go build on 2 cores). The equality still
 # holds every other line of the task to what it was.
+# Owner 2026-11-15, five-step method (question, delete, simplify, then accelerate): of
+# 172 s on the critical path of the STG delivery 54 s were pod starts of tasks doing 0–2 s
+# of work. Each body gains the step stage-dockerfile, the copy that the pipeline task
+# stage-<kind>-dockerfile made in a pod of its own; the STG pipeline's builds wait for the
+# clones instead of for that task. The equality still holds every other line.
 MAINLINE = {
     "api": """\
 # Kaniko build bifrost-platform-api from Gitea clone workspace.
@@ -48,6 +53,14 @@ spec:
   workspaces:
     - name: source
   steps:
+    - name: stage-dockerfile
+      image: alpine:3.20
+      script: |
+        #!/usr/bin/env sh
+        set -eu
+        cp "$(workspaces.source.path)/bifrost-trade-infra/k8s/cicd/docker/Dockerfile.platform-api-stg" "$(workspaces.source.path)/Dockerfile.platform-api-stg"
+        echo "=== Dockerfile.platform-api-stg from this run's infra clone ==="
+        cat "$(workspaces.source.path)/Dockerfile.platform-api-stg"
     - name: assert-context
       image: alpine:3.20
       script: |
@@ -95,6 +108,14 @@ spec:
   workspaces:
     - name: source
   steps:
+    - name: stage-dockerfile
+      image: alpine:3.20
+      script: |
+        #!/usr/bin/env sh
+        set -eu
+        cp "$(workspaces.source.path)/bifrost-trade-infra/k8s/cicd/docker/Dockerfile.platform-console-stg" "$(workspaces.source.path)/Dockerfile.platform-console-stg"
+        echo "=== Dockerfile.platform-console-stg from this run's infra clone ==="
+        cat "$(workspaces.source.path)/Dockerfile.platform-console-stg"
     - name: assert-context
       image: alpine:3.20
       script: |
@@ -135,7 +156,7 @@ PIPELINE_REFS = yaml.safe_load(
     """
 build-platform-api:
   name: build-platform-api
-  runAfter: [stage-api-dockerfile]
+  runAfter: [clone-platform, clone-infra]
   taskRef:
     name: bifrost-kaniko-platform-api-stg
   params:
@@ -146,7 +167,7 @@ build-platform-api:
       workspace: build-context
 build-platform-console:
   name: build-platform-console
-  runAfter: [stage-console-dockerfile]
+  runAfter: [clone-platform, clone-ui, clone-infra]
   taskRef:
     name: bifrost-kaniko-platform-console-stg
   params:

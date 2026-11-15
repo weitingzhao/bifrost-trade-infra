@@ -20,6 +20,18 @@ spec:
     - name: digest
       description: Registry digest (sha256:...) of the pushed image.
   steps:
+    # TD-448: the Dockerfile is the one in this run's infra clone, at the infra revision the
+    # run was given. This step was the pipeline task stage-api-dockerfile until 2026-11-15
+    # (a pod of its own for a copy); the copy is the same. A missing file in the clone fails
+    # the step even when an earlier copy is still in the workspace.
+    - name: stage-dockerfile
+      image: alpine:3.20
+      script: |
+        #!/usr/bin/env sh
+        set -eu
+        cp "$(workspaces.source.path)/bifrost-trade-infra/k8s/cicd/docker/Dockerfile.platform-api-stg" "$(workspaces.source.path)/Dockerfile.platform-api-stg"
+        echo "=== Dockerfile.platform-api-stg from this run's infra clone ==="
+        cat "$(workspaces.source.path)/Dockerfile.platform-api-stg"
     - name: assert-context
       image: alpine:3.20
       script: |

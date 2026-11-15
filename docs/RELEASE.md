@@ -234,6 +234,7 @@ STG 的 `rollout` 引用 `bifrost-rollout-verify-platform`，先重启并等待�
 - **没有拉取镜像了**：从 GitHub 往 Gitea 建拉取镜像的脚本和它的 make 目标已删（第 D 批）。deliver 和构建流水线里名为 `mirror-sync`
   的 Task 先问 Gitea 仓库是不是镜像，主仓库不拉取，只核对仓库在、给了 `expectSha` 时等提交在；平台的 `POST /api/v1/delivery/mirrors/sync`
   同样只等提交在 Gitea 上（最多 90 秒），不请求同步。
+  `bifrost-deliver-platform`（平台发 STG）2026-11-15 起没有这个 Task：它不传 `expectSha`，对三个主仓库什么都不做；克隆直接跟在 `freeze-check` 后面。
 - **CI** 由 Gitea 的推送钩子直接起（`scripts/gitea/ensure-push-webhooks.sh` 装钩子），不再等镜像同步。
 - **Agent 分支**在同一个 `bifrost/<repo>` 的 `agent/<任务>/a<n>`；平台 `AGENTRT_GIT_ORG=bifrost`，agentd 克隆和推送都用 `bifrost`。
   过渡用的组织 `bifrost-agents` 已删（2026-10-23，Gitea 回 404）。
