@@ -1,0 +1,124 @@
+# nats.conf. A change here needs a rollout restart of the StatefulSet (or
+# `nats-server --signal reload`, which the scratch image cannot run from a probe).
+#
+# Passwords: $RELAY_PASSWORD / $READER_PASSWORD are not defined in this file, so
+# nats-server resolves them from its environment (Secret nats-users, see the
+# StatefulSet). Plain text in memory, not bcrypt: bcrypt would put a hash of a
+# value only the Secret holds into git or need an init step to compute it.
+# The values start with a letter on purpose: nats-server's lexer reads an
+# environment value that looks like a number as a number.
+#
+# Stream names are listed one by one because a NATS wildcard covers a whole
+# token only: $JS.API.STREAM.CREATE.EV_ROCKET_* is not a pattern. A new env or
+# stream for ROCKET means a new line here.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nats-config
+  labels:
+    app.kubernetes.io/name: nats
+data:
+  nats.conf: |
+    server_name: bifrost-bus-0
+    listen: 0.0.0.0:4222
+    http: 0.0.0.0:8222
+    max_payload: 1MB
+
+    jetstream {
+      store_dir: /data
+      max_memory_store: 256MB
+      max_file_store: 10GB
+      sync_interval: always
+    }
+
+    system_account: SYS
+
+    accounts {
+      # System account: server events and $SYS requests. No users yet.
+      SYS: {}
+
+      # Tenant ROCKET (the Ops platform). Another tenant (TRADE, …) is another
+      # block like this one, with its own users and its own ev.<tenant>.> space.
+      ROCKET {
+        jetstream {
+          max_mem: 256MB
+          max_file: 10GB
+        }
+        users: [
+          # The platform workers: the relay (writes events, creates and owns EV_ROCKET_*)
+          # and the headrelease durable consumer with its receipts.
+          {
+            user: relay
+            password: $RELAY_PASSWORD
+            permissions: {
+              publish: {
+                allow: ["ev.rocket.>", "rcpt.rocket.>", "$JS.API.>", "$JS.ACK.>", "$JS.FC.>"]
+                deny: ["cmd.>"]
+              }
+              subscribe: {
+                allow: ["_INBOX.>"]
+                deny: ["cmd.>"]
+              }
+            }
+          }
+          # Subscribers: read events, write one receipt per event into
+          # RCPT_ROCKET_*, create RCPT_ROCKET_* and their own durable consumers.
+          # No publish on ev.>.
+          {
+            user: reader
+            password: $READER_PASSWORD
+            permissions: {
+              publish: {
+                allow: [
+                  "rcpt.rocket.>",
+                  "$JS.API.INFO",
+                  "$JS.API.STREAM.INFO.EV_ROCKET_STG",
+                  "$JS.API.STREAM.INFO.EV_ROCKET_PROD",
+                  "$JS.API.STREAM.CREATE.RCPT_ROCKET_STG",
+                  "$JS.API.STREAM.CREATE.RCPT_ROCKET_PROD",
+                  "$JS.API.STREAM.UPDATE.RCPT_ROCKET_STG",
+                  "$JS.API.STREAM.UPDATE.RCPT_ROCKET_PROD",
+                  "$JS.API.STREAM.INFO.RCPT_ROCKET_STG",
+                  "$JS.API.STREAM.INFO.RCPT_ROCKET_PROD",
+                  "$JS.API.CONSUMER.CREATE.EV_ROCKET_STG",
+                  "$JS.API.CONSUMER.CREATE.EV_ROCKET_STG.>",
+                  "$JS.API.CONSUMER.CREATE.EV_ROCKET_PROD",
+                  "$JS.API.CONSUMER.CREATE.EV_ROCKET_PROD.>",
+                  "$JS.API.CONSUMER.CREATE.RCPT_ROCKET_STG",
+                  "$JS.API.CONSUMER.CREATE.RCPT_ROCKET_STG.>",
+                  "$JS.API.CONSUMER.CREATE.RCPT_ROCKET_PROD",
+                  "$JS.API.CONSUMER.CREATE.RCPT_ROCKET_PROD.>",
+                  "$JS.API.CONSUMER.DURABLE.CREATE.EV_ROCKET_STG.*",
+                  "$JS.API.CONSUMER.DURABLE.CREATE.EV_ROCKET_PROD.*",
+                  "$JS.API.CONSUMER.DURABLE.CREATE.RCPT_ROCKET_STG.*",
+                  "$JS.API.CONSUMER.DURABLE.CREATE.RCPT_ROCKET_PROD.*",
+                  "$JS.API.CONSUMER.INFO.EV_ROCKET_STG.*",
+                  "$JS.API.CONSUMER.INFO.EV_ROCKET_PROD.*",
+                  "$JS.API.CONSUMER.INFO.RCPT_ROCKET_STG.*",
+                  "$JS.API.CONSUMER.INFO.RCPT_ROCKET_PROD.*",
+                  "$JS.API.CONSUMER.MSG.NEXT.EV_ROCKET_STG.*",
+                  "$JS.API.CONSUMER.MSG.NEXT.EV_ROCKET_PROD.*",
+                  "$JS.API.CONSUMER.MSG.NEXT.RCPT_ROCKET_STG.*",
+                  "$JS.API.CONSUMER.MSG.NEXT.RCPT_ROCKET_PROD.*",
+                  "$JS.API.CONSUMER.DELETE.EV_ROCKET_STG.*",
+                  "$JS.API.CONSUMER.DELETE.EV_ROCKET_PROD.*",
+                  "$JS.API.CONSUMER.DELETE.RCPT_ROCKET_STG.*",
+                  "$JS.API.CONSUMER.DELETE.RCPT_ROCKET_PROD.*",
+                  "$JS.ACK.EV_ROCKET_STG.>",
+                  "$JS.ACK.EV_ROCKET_PROD.>",
+                  "$JS.ACK.RCPT_ROCKET_STG.>",
+                  "$JS.ACK.RCPT_ROCKET_PROD.>",
+                  "$JS.FC.EV_ROCKET_STG.>",
+                  "$JS.FC.EV_ROCKET_PROD.>"
+                ]
+                deny: ["ev.>", "cmd.>"]
+              }
+              subscribe: {
+                allow: ["ev.rocket.>", "_INBOX.>"]
+                deny: ["cmd.>"]
+              }
+            }
+          }
+        ]
+      }
+    }

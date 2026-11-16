@@ -1,0 +1,37 @@
+# NATS JetStream for the whole cluster (the communication layer's event bus),
+# in the shared stateful namespace data (beside postgres, redis, minio).
+#
+# STG and PROD platforms both connect; subjects are ev.<tenant>.<env>.… and each
+# tenant is one NATS account (ROCKET first; TRADE and others are added as more
+# accounts in nats.conf). The command lane cmd.> is reserved and denied to every user.
+#
+# In data, not a namespace of its own (2026-11-16): the execution card may not
+# create a Namespace (owner-exec admission: cluster scope is PriorityClass and
+# Node only) and card #580 failed on exactly that. Not under Argo; k8s/bus is not
+# an apply_manifest prefix, so the first apply is an owner_run_command card with
+# the rendered output inline (the executor has no checkout).
+#
+# Secrets are not here. nats-users (relay-password, reader-password) is created by
+# the card's secret script, never committed (scripts/check-no-k8s-secrets.sh).
+#
+# Streams are not here either: the platform's relay creates EV_ROCKET_STG /
+# EV_ROCKET_PROD and the reader creates RCPT_ROCKET_* when they start.
+#
+# Render: kubectl kustomize k8s/bus
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: data
+
+resources:
+  - nats-config.yaml
+  - statefulset.yaml
+  - service.yaml
+  - network-policy.yaml
+
+labels:
+  - pairs:
+      app.kubernetes.io/managed-by: kustomize
+      app.kubernetes.io/part-of: bifrost
+      app.kubernetes.io/component: bus
+    includeSelectors: false

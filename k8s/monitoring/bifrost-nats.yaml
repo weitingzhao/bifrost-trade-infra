@@ -1,0 +1,25 @@
+# Scrape the prometheus-nats-exporter sidecar of data/nats (k8s/bus).
+# Applied with the rest of k8s/monitoring (apply_manifest, tier C) after the
+# bus is up; until then it matches nothing. No alert rules yet.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: bifrost-nats
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: bifrost
+    release: kube-prometheus-stack
+    app.kubernetes.io/component: bus
+spec:
+  namespaceSelector:
+    matchNames:
+      - data
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nats
+      app.kubernetes.io/component: bus
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s

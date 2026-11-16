@@ -1,0 +1,155 @@
+# One NATS server with JetStream on a node-local volume.
+#
+# Storage: local-path (node disk, not NFS). WaitForFirstConsumer binds the volume
+# on the node the pod first lands on and the pod is pinned there from then on.
+# Placement: required pool general (05 / 07, the redis-agents convention for
+# platform stateful pods), preferring ubt-k3s-05 (07 is the PROD-preferred node
+# and runs most CI). Not the control plane, not gpu-server.
+# local-path does not enforce the 10Gi request: the real ceiling is the node's
+# disk, and JetStream's own max_file_store (10GB) is what keeps it inside.
+# Deleting the PVC deletes the data (local-path reclaim policy is Delete).
+#
+# Images pinned by digest (Docker Hub index digests, read 2026-11-16 with crane).
+# nats 2.15.3 was published 2026-11-12.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: nats
+  labels:
+    app.kubernetes.io/name: nats
+spec:
+  replicas: 1
+  serviceName: nats
+  podManagementPolicy: OrderedReady
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nats
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nats
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 60
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: bifrost.io/workload-pool
+                    operator: In
+                    values: [general]
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values: [ubt-k3s-05]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: nats
+          image: docker.io/library/nats:2.15.3@sha256:9d85d87039bfba33baf48de4da32a2ee572bcd6c94f6365d05733a672de49253
+          args: ["--config", "/etc/nats/nats.conf"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          env:
+            # Referenced from nats.conf as $RELAY_PASSWORD / $READER_PASSWORD.
+            - name: RELAY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: nats-users
+                  key: relay-password
+            - name: READER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: nats-users
+                  key: reader-password
+            # Go runtime: stay under the 1Gi limit instead of being OOM-killed.
+            - name: GOMEMLIMIT
+              value: 900MiB
+          ports:
+            - name: client
+              containerPort: 4222
+            - name: monitor
+              containerPort: 8222
+          startupProbe:
+            # JetStream recovery after a restart can take a while on a full store.
+            httpGet:
+              path: /healthz?js-enabled-only=true
+              port: monitor
+            periodSeconds: 5
+            failureThreshold: 90
+          readinessProbe:
+            httpGet:
+              path: /healthz?js-enabled-only=true
+              port: monitor
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz?js-enabled-only=true
+              port: monitor
+            periodSeconds: 30
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 1Gi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/nats
+              readOnly: true
+            - name: data
+              mountPath: /data
+        - name: exporter
+          image: docker.io/natsio/prometheus-nats-exporter:0.20.3@sha256:4b8ddc1c86fec360b5cd3d5e1fbc6fb52bdafd5805bba3901cc52926538af255
+          args:
+            - -port=7777
+            - -varz
+            - -connz
+            - -jsz=all
+            - -healthz
+            - http://127.0.0.1:8222
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          ports:
+            - name: metrics
+              containerPort: 7777
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 250m
+              memory: 64Mi
+      volumes:
+        - name: config
+          configMap:
+            name: nats-config
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          app.kubernetes.io/name: nats
+      spec:
+        storageClassName: local-path
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 10Gi
