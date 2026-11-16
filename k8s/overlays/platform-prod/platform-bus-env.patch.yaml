@@ -1,0 +1,41 @@
+# The communication layer's bus, step 1 (bifrost-platform api/internal/bus/RULES.md),
+# switched on for PROD. PROD is where head-release runs (HEAD_RELEASE=stg), so
+# PROD is the platform whose Gitea hook wakes the STG release. platform-api serves the gate (/api/v1/bus/*) and the
+# Gitea push hook; platform-workers runs the relay and head-release's durable
+# consumer. Remove this patch (and its line in kustomization.yaml) to switch the
+# bus off: the code then behaves exactly as before. Secrets nats-users and
+# bus-gitea-hook are created by execution card #581 (values never printed).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-api
+spec:
+  template:
+    spec:
+      containers:
+        - name: platform-api
+          env:
+            - name: BUS_NATS_URL
+              value: nats://nats.data.svc.cluster.local:4222
+            - name: BUS_NATS_READER_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: nats-users, key: reader-password}
+            - name: BUS_GITEA_HOOK_SECRET
+              valueFrom:
+                secretKeyRef: {name: bus-gitea-hook, key: secret}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-workers
+spec:
+  template:
+    spec:
+      containers:
+        - name: platform-api
+          env:
+            - name: BUS_NATS_URL
+              value: nats://nats.data.svc.cluster.local:4222
+            - name: BUS_NATS_RELAY_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: nats-users, key: relay-password}
