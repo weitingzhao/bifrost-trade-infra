@@ -3,7 +3,7 @@
 # Gitea push hook; platform-workers runs the relay and head-release's durable
 # consumer. Remove this patch (and its line in kustomization.yaml) to switch the
 # bus off: the code then behaves exactly as before. Secrets nats-users and
-# bus-gitea-hook are created by execution card #580 (values never printed).
+# bus-gitea-hook are created by execution card #581 (values never printed).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
