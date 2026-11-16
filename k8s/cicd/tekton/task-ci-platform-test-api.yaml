@@ -540,6 +540,37 @@ spec:
           fi
         fi
         unset git_auth
+        # Owner 2026-11-16 (acceptance 8, "an incremental run misses nothing a full
+        # run catches"): a full run that failed left failed-tests empty, so the
+        # unit-scope shadow could not say whether the failing package was one the
+        # declaration would have run: 10 failed runs of 104 compared, 10 unnamed.
+        # go test runs as before and its output is unchanged; on failure the
+        # names go to failed-tests as the incremental path writes them
+        # (<import path>.<Test>, comma separated; the package alone when it did
+        # not build or failed outside a test).
+        named_go_test() {
+          local log status
+          log="$(mktemp)"
+          set +e
+          go test "$@" 2>&1 | tee "$log"
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" != 0 ]; then
+            awk -F'\t' '
+              /^--- FAIL: / { split($0, w, " "); tests[n++] = w[3]; next }
+              /^ok  \t/ { n = 0; next }
+              /^FAIL\t/ {
+                pkg = $2; sub(/ .*/, "", pkg)
+                if (n == 0) { out = out sep pkg; sep = "," }
+                for (i = 0; i < n; i++) { out = out sep pkg "." tests[i]; sep = "," }
+                n = 0
+              }
+              END { printf "%s", out }' "$log" | head -c 1500 > "$FAILED_TESTS_RESULT"
+            echo "==> failed: $(cat "$FAILED_TESTS_RESULT")"
+          fi
+          rm -f "$log"
+          return "$status"
+        }
         if [ -n "$why" ]; then
           # A full run keeps the two shares side by side (R5:5.7-5): part store
           # tests the store package alone, part rest every other package, so a
@@ -549,7 +580,7 @@ spec:
           cd api
           if [ "${part}" = store ]; then
             echo "==> go test ${STORE_PACKAGE} (part store); full: ${why}"
-            go test "${STORE_PACKAGE}" -timeout="${BIFROST_GO_TEST_TIMEOUT}"
+            named_go_test "${STORE_PACKAGE}" -timeout="${BIFROST_GO_TEST_TIMEOUT}"
             echo "==> Go API tests passed (part store)"
             exit 0
           fi
@@ -561,12 +592,12 @@ spec:
             packages="$(go list ./... | grep -vxF "${store_import}")"
             echo "==> go test: $(printf '%s\n' "${packages}" | wc -l | tr -d ' ') packages, every one but ${store_import} (part rest); full: ${why}"
             # shellcheck disable=SC2086
-            go test ${packages} -timeout="${BIFROST_GO_TEST_TIMEOUT}"
+            named_go_test ${packages} -timeout="${BIFROST_GO_TEST_TIMEOUT}"
             echo "==> Go API tests passed (part rest)"
             exit 0
           fi
           echo "==> go test ./... (full: ${why})"
-          go test ./... -timeout="${BIFROST_GO_TEST_TIMEOUT}"
+          named_go_test ./... -timeout="${BIFROST_GO_TEST_TIMEOUT}"
           echo "==> Go API tests passed"
           exit 0
         fi
