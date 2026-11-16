@@ -54,6 +54,7 @@ patches:
   - path: platform-agentrt-env.patch.yaml
   - path: platform-gitea-reader.patch.yaml
   - path: platform-workers-landing-drill.patch.yaml
+  - path: platform-bus-env.patch.yaml
 
 images:
   - name: registry.cicd.svc.cluster.local:5000/bifrost-platform-api
