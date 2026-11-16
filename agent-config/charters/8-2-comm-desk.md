@@ -1,4 +1,4 @@
-# 8.2「沟通台面」章程（2026-11-15，含主统筹对重叠的裁决）
+# 箭8 Coordination / 沟通 · 章程（2026-11-16；原 8.2 沟通台面，含 11-15 对重叠的裁决）
 
 标记：【量】= 读 `bifrost-platform` main 或实测；【推】= 推断。
 一句话：各家 Agent 之间**能递话、递得省、闲着能被叫醒**；发布窗口**排队叫号**；把**别的线的状态直接给做事的人看**。
@@ -7,6 +7,7 @@
 - 平台 MCP 的通讯部分（`mcp/platform/src/`）：`doorbell.ts`（等信命令）、`messageEnvelope.ts`、`messageTools.ts`、`registerMessages.ts`、`windowTools.ts`；`presence.ts` 是**代管**（线程在线归领域 2，它转正前由我管）。
 - 窗口的排队、通知、接续：`delivery/window_queue.go`、`window_notify.go`、`server/window_notify.go`。其余窗口代码归 CI 线；改 `window_store.go` 两边互相复核。
 - 等信协议和等信命令归我；Codex 机器上怎么常驻归算力线。
+- **下一代沟通层**（主统筹 11-16 派，整件归本线）：交规和登记表在 platform `api/internal/bus/`（底座子领域 0.2 总线，本线建）；席位记录、信箱、调度器归领域 8。
 - 「发布现场」只读口子 `GET /api/v1/delivery/context` 和 MCP `get_release_context`（在做）：STG/PROD 跑的提交、main 头、在跑的运行、同仓库待批、窗口、Owner 最后一次批卡或答题的时间、还没变成机器检查的教训。主统筹和值班说状态也读它。
 - 在线和能不能被叫醒的数归我出；席位现状归值班台账。席位通讯录 `directory.md` 的格式和规矩归我，各席位改自己那一行。
 - 不管：信箱的表和存储（`agentrt.message`、`store/coord.go`，底座）；把教训做成拒建检查（领域 5）。
