@@ -330,8 +330,21 @@
 | [TD-578](#td-578) | P2 | owner-exec | 还有几件事 Owner 只能在电脑上办：Mac 上的执行口没做、解冻的签名、一次性库步骤、装进集群的自举清单、应用 auto mode 规则 | 不用批 |
 | [TD-579](#td-579) | P1 | governance | Owner 定的法还有 8 条没落进规则文件（`OWNER_LAW.md` 标「未落」的行） | 其中 5 条要你重签发布规则 |
 | [TD-580](#td-580) | P2 | owner-exec | 执行卡的建卡检查不防「GET 也能读 Secret 内容、也能打 /proxy」 | 安全/凭据（要你批） |
+| [TD-581](#td-581) | P3 | cicd | 测试 TestThreadInboxBacklogMustNotStarveSweep 在集群 CI 里会红：13 秒期限只比 10 秒投递预算多 3 秒 | 不用批 |
 
 ## 条目
+
+### TD-581
+
+**P3 · platform api/internal/questions/thread_inbox_budget_test.go · 计时测试的余量只有 3 秒，集群 CI 忙时会红**
+
+- **状态**：未开始（2026-11-17）。归属：`api/internal/questions` 归 owner 领域（审批线）；登记的是 CI 线。
+- **出处**：2026-11-17 17:31Z ci-platform-vs9f9（解耦线 5779fb6f，没碰这个包）test-api 红在这一条，变基后重判就绿；解耦线本机全套四次都过。
+- **证据**：测试要求 13 秒内问题被扫成过期（`thread_inbox_budget_test.go:55` 前后的 `until := time.Now().Add(13 * time.Second)`）；而扫描循环每一轮先跑收件箱投递，投递一轮的预算是 10 秒（`api/internal/threadinbox/scan.go:36` `context.WithTimeout(ctx, 10*time.Second)`），测试里 160 条各要 100 毫秒，必定把 10 秒用满，到期的问题要等下一轮才扫到。所以通过需要的时间约等于 10 秒加两轮读写；余量 3 秒，集群里 CPU 争用或磁盘慢一点就超。
+- **影响**：别人的合入或全量 CI 偶尔红在一个他没碰的包上，要重跑；总线还会给提交者发一封「变红」信。
+- **修法**：让预算可以注入（`threadinbox.Scan` 加一个 Budget 字段，默认 10 秒），测试里设成 300 毫秒、期限放到 3 秒，测的还是「积压不会饿死扫描」，和机器快慢无关。不要只把 13 秒调大：余量照样随负载缩。
+- **防线**：同一个测试改完后在 `-count=20 -cpu=1` 下跑一遍全绿；阳性对照：把扫描循环改成先投递完全部积压再扫，测试应红。
+- **验收**：`go test -count=20 -cpu=1 ./internal/questions/ -run TestThreadInboxBacklogMustNotStarveSweep` 全绿，且总时长在 1 分钟内。
 
 ### TD-580
 
