@@ -1,6 +1,13 @@
 # PipelineRun TTL janitor — Tekton v1.6 CRD rejects spec.ttlSecondsAfterFinished
 # (strict decoding). Hourly CronJob, four passes:
-#  1. deletes terminal PipelineRuns older than 7d (MAX_AGE_SECONDS). The run objects are the
+#  1. deletes terminal PipelineRuns older than 2d (MAX_AGE_SECONDS; 7d until 2026-11-17). The
+#     pods of their tasks go after 1h (pass 2), and a TaskRun whose pod is gone is one the
+#     Tekton controller still walks: on 2026-11-17 00:01 it walked some 15,000 of them, each
+#     an error and a requeue, and no new task got a pod for 23 minutes. Two days of runs is
+#     about 900 runs and 7,000 TaskRuns where seven was 2,100 and 17,000. What reads a run
+#     older than two days reads the daily snapshot instead (the coordinator's shared notes,
+#     benchmark/daily/). A commit whose ci-* run is older than two days has no run for
+#     release.sh's CI gate to find: run its CI again before releasing it. The run objects are the
 #     record the Promote gate, release.sh's CI gate (TD-357), the Console run list and the
 #     wave review (scripts/release/wave_review.py) read; their workspace PVCs go in pass 4;
 #  2. deletes the pods of finished TaskRuns: a Succeeded pod after 1h (POD_MAX_AGE_SECONDS),
@@ -11,11 +18,11 @@
 #     "pods … not found" reconcile error and one Event per deleted pod, then leaves the
 #     TaskRun Succeeded/Failed as it was. 1h / 1d since cards #331/#334 (2026-11-07);
 #  3. deletes standalone TaskRuns (no tekton.dev/pipelineRun label: github-sync and
-#     mirror-sync from the webhook, the platform's Dockerfile refresh) older than 7d,
+#     mirror-sync from the webhook, the platform's Dockerfile refresh) older than 2d,
 #     keeping the newest KEEP_PER_TASK of each task (W-31 4.6 S7, TD-299: 481 on
 #     2026-10-24, the oldest from 2026-06-17; nothing deleted them);
 #  4. deletes the workspace PVCs (owner: a PipelineRun) of runs finished more than 1d ago
-#     (WORKSPACE_MAX_AGE_SECONDS), while the run object stays its 7d (TD-492). Each run's
+#     (WORKSPACE_MAX_AGE_SECONDS), while the run object stays its 2d (TD-492). Each run's
 #     local-path workspace holds about 2 GB of real disk (11-03: 104 volumes freed 215 GB on
 #     ubt-k3s-07) and about two thirds land on ubt-k3s-07's 500 GB root disk; at 60-100
 #     runs a day, 7 days of workspaces is 600-850 GB there. It filled that disk twice
@@ -99,7 +106,7 @@ spec:
                 - name: NAMESPACE
                   value: cicd
                 - name: MAX_AGE_SECONDS
-                  value: "604800"
+                  value: "172800"
                 - name: POD_MAX_AGE_SECONDS
                   value: "3600"
                 - name: FAILED_POD_MAX_AGE_SECONDS
@@ -125,7 +132,7 @@ spec:
                   set -eu
                   [ -n "${SKIP_APK:-}" ] || apk add --no-cache kubectl jq >/dev/null
                   NS="${NAMESPACE:-cicd}"
-                  MAX_AGE_SECONDS="${MAX_AGE_SECONDS:-604800}"
+                  MAX_AGE_SECONDS="${MAX_AGE_SECONDS:-172800}"
                   POD_MAX_AGE_SECONDS="${POD_MAX_AGE_SECONDS:-3600}"
                   FAILED_POD_MAX_AGE_SECONDS="${FAILED_POD_MAX_AGE_SECONDS:-86400}"
                   WORKSPACE_MAX_AGE_SECONDS="${WORKSPACE_MAX_AGE_SECONDS:-86400}"
