@@ -12,10 +12,23 @@
 - 在线和能不能被叫醒的数归我出；席位现状归值班台账。席位通讯录 `directory.md` 的格式和规矩归我，各席位改自己那一行。
 - 不管：信箱的表和存储（`agentrt.message`、`store/coord.go`，底座）；把教训做成拒建检查（领域 5）。
 
-## 2. 对外的口子
-- MCP：`send_message`、`wait_for_messages`（默认只给摘要）、`read_message`、`ack_messages`；`get_release_window`、`hold_release_window`（默认排队）、`release_release_window`；`get_release_context`。
-- 命令：等信命令（后台挂着，来信就退出，叫醒闲着的桌面会话，实测约 7 秒；auto mode 放行规则「Platform Inbox Doorbell」）。
-- 窗口通知：`window.your_turn`、`missed`、`queue_timeout`、`still_held`。
+## 2. 对外合约（Owner 2026-11-16 OWNER_LAW #28：评我这块只对着这一节做黑盒测试）
+
+合约栏改了要升 version 并告知使用方；只加不改的直接过。设计：共享笔记 `duty/from-agent-tool-comm-2026-11-16-subscriptions-and-contract.md`。
+
+| 形式 | 开放的东西 | 合约里承诺什么 | 谁在用 |
+|---|---|---|---|
+| 存储（文件） | 主题登记表 `platform api/internal/bus/registry/<tenant>.yaml` | 主题名、address、subject 形状、key、guarantee、ref 形状、lane、retention | 各门（发方）、所有订阅方 |
+| 存储（文件） | 订阅表 `bus/registry/subscriptions/<tenant>.yaml` | 一行 = 哪类事件、match/change、交付方式（wake/action/notify）、交给谁；只决定谁被叫，不带授权 | 分发器（workers） |
+| 事件格式 | 信封：CloudEvents 1.0，扩展 tenant/env/cursor/ref/actor/causeid/traceparent/change/key，不带数据、≤2 KiB | 字段名和语义 | 所有订阅方 |
+| 事件流 | NATS `ev.<tenant>.<env>.<type>`；回执 `rcpt.<tenant>.<env>` | subject 形状、回执头 `Bifrost-Event-Id`/`Bifrost-Consumer` | 平台进程（api、workers） |
+| 接口 | `GET /api/v1/bus/events`（types、match、after、wait、client）、`/bus/stream`（SSE）、`/bus/trace` | 参数、返回 `{events, next}`、长轮询最长 25 秒 | Console Bus 页、MCP `wait_for_event`、`bifrost-bus wait`、门铃 |
+| 接口 | MCP `send_message`、`wait_for_messages`、`read_message`、`ack_messages`；`get_release_window`、`hold_release_window`、`release_release_window`；`get_release_context` | 参数和返回形状 | 各席位、值班、主统筹 |
+| 指令 | 门铃 `scripts/bus/doorbell.mjs --types --match --timeout [--seat --waits-dir]` | 输出一行 `DOORBELL <type> <subject> <cursor>`；退出码 0 到了、2 到点、1 出错；运行中写 `waits/<seat>.json` | 各席位、值班（看 waits） |
+| 指令 | 等信命令（平台信箱） | 来信就退出 | 各席位 |
+| 事件 | 窗口通知 `window.your_turn`、`missed`、`queue_timeout`、`still_held` | 种类名 | 排窗口的席位 |
+
+本线发的主题：`seat.mail.arrived`（信箱写信同一事务）、`approval.card.*`（审批流）、`alert.rule.fired`（Alertmanager webhook）、`ci.verdict.changed`（证据账，代 CI 线发）。git、ci.run、release.window 由门·git、门·集群发。
 
 ## 3. 谁用它，它用谁
 - 用户：每个席位（收发信、等信、排窗口、看现场）、值班、主统筹、Codex 工人（算力线在接）。
