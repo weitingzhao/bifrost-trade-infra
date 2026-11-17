@@ -329,8 +329,20 @@
 | [TD-575](#td-575) | P3 | cicd | 单元任务续派每轮仍重算年轻提交的计划 | 不用批 |
 | [TD-578](#td-578) | P2 | owner-exec | 还有几件事 Owner 只能在电脑上办：Mac 上的执行口没做、解冻的签名、一次性库步骤、装进集群的自举清单、应用 auto mode 规则 | 不用批 |
 | [TD-579](#td-579) | P1 | governance | Owner 定的法还有 8 条没落进规则文件（`OWNER_LAW.md` 标「未落」的行） | 其中 5 条要你重签发布规则 |
+| [TD-580](#td-580) | P2 | owner-exec | 执行卡的建卡检查不防「GET 也能读 Secret 内容、也能打 /proxy」 | 安全/凭据（要你批） |
 
 ## 条目
+
+### TD-580
+
+**P2 · platform api/internal/approvals/createcheck.go · 执行卡的建卡检查不防「GET 也能读 Secret 内容、也能打 /proxy」**
+
+- **状态**：未开始（2026-11-17）。
+- **证据**：`createcheck.go` 只检查 `--raw`、`--dry-run`、自带连接参数、`DROP/TRUNCATE/DELETE FROM`；`kubectl get secret -o yaml`、`kubectl get --raw /api/v1/namespaces/<ns>/secrets`、`kubectl get --raw …/proxy/…` 一样被放行。执行口身份能读所有 Secret（`k8s/owner-exec/README.md`）。出处：领域 5 对「`--raw` 只许跟 `get`」的漏洞分析，`duty/from-domain5-raw-get-loopholes-2026-11-17.md` 第 7 条；主统筹 2026-11-17 要求记一条、不混进收窄 `--raw` 的那次改动。
+- **影响**：Secret 内容属于「钥匙」类，只有专门的读键名动作应该碰；一张执行卡可以把 Secret 内容读进卡的输出尾部（最后 2048 字节，写回卡上，Console 可见）。`/proxy` 是以执行口身份向集群里任意 HTTP 服务发 GET，对方让 GET 有副作用就等于写。这两件不是 `--raw` 才有，收窄 `--raw` 既没增加也没解决它们。
+- **修法**：建卡时对「读 Secret 内容」（`get secret` 带 `-o`，或 `--raw` 路径含 `/secrets`）要求理由里点名；对 `--raw` 路径含 `/proxy` 同样；路径是变量时静态看不见，只能提示。根治是执行口不再带读 Secret 内容的能力（读键名走平台读动作），那是 `owner-exec` 身份的收权，属于立法一类，要 Owner 定。
+- **防线**：`api/internal/approvals/mustrefuse` 加一条用例：命令读 Secret 内容而理由没写 → 建卡被拒（碰必拒集，所以是 Owner 的）。
+- **验收**：`go test ./internal/approvals/...` 通过，且新用例对「`kubectl get secret x -o yaml` 且理由没点名」红、点名后绿。
 
 ### TD-579
 
