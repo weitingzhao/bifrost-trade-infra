@@ -11,6 +11,7 @@
 //
 //   node scripts/bus/doorbell.mjs --types ci.run.finished --match bifrost-ci-platform --timeout 3600
 //   node scripts/bus/doorbell.mjs --types git.main.advanced,ci.verdict.changed --match 4277484d
+//   --server bifrost-platform-stg   (another platform entry of .mcp.json; default bifrost-platform)
 //
 // It speaks to the platform through the project's MCP server process (the
 // bifrost-platform entry of .mcp.json), which holds its own credentials; this
@@ -38,6 +39,7 @@ const match = opt('match', '')
 const timeout = Number(opt('timeout', '3600'))
 let after = opt('after', '')
 const label = opt('client', 'doorbell').slice(0, 40)
+const server = opt('server', 'bifrost-platform')
 const seat = opt('seat', '')
 const waitsDir = opt('waits-dir', '')
 if (seat && !/^[A-Za-z0-9._-]{1,80}$/.test(seat)) {
@@ -54,9 +56,10 @@ const srv = join(ws, 'bifrost-platform', 'mcp', 'platform')
 const sdk = join(srv, 'node_modules', '@modelcontextprotocol', 'sdk', 'dist', 'esm')
 let cfg
 try {
-  cfg = JSON.parse(readFileSync(join(ws, '.mcp.json'), 'utf8')).mcpServers['bifrost-platform']
+  cfg = JSON.parse(readFileSync(join(ws, '.mcp.json'), 'utf8')).mcpServers[server]
+  if (!cfg) throw new Error(`no ${server} entry`)
 } catch (e) {
-  console.error(`doorbell: cannot read the bifrost-platform entry of ${join(ws, '.mcp.json')}: ${e.message}`)
+  console.error(`doorbell: cannot read the ${server} entry of ${join(ws, '.mcp.json')}: ${e.message}`)
   process.exit(1)
 }
 const expand = (s, env) => String(s).replace(/\$\{([A-Za-z0-9_]+)(:-([^}]*))?\}/g, (_, k, __, d) => env[k] ?? d ?? '')
