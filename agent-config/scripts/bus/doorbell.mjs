@@ -17,10 +17,15 @@
 // script never reads a token. Run it from the workspace root, or set
 // BIFROST_WORKSPACE.
 //
+// --seat <name> --waits-dir <dir>: while it waits, the doorbell keeps
+// <dir>/<name>.json ({seat, types, match, since, until, pid}) and removes it on
+// exit, so whoever looks in on the seats (the duty seat's check) sees that
+// this one is armed and does not push it.
+//
 // Output: one line "DOORBELL <type> <subject> <cursor>" and exit 0 when an
 // event arrives; "DOORBELL timeout ... --after <cursor>" and exit 2 when the
 // time runs out (re-arm with --after to miss nothing); exit 1 on an error.
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync, rmSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 
 const args = process.argv.slice(2)
@@ -33,6 +38,12 @@ const match = opt('match', '')
 const timeout = Number(opt('timeout', '3600'))
 let after = opt('after', '')
 const label = opt('client', 'doorbell').slice(0, 40)
+const seat = opt('seat', '')
+const waitsDir = opt('waits-dir', '')
+if (seat && !/^[A-Za-z0-9._-]{1,80}$/.test(seat)) {
+  console.error('doorbell: --seat is 1 to 80 letters, digits, dots, dashes or underscores')
+  process.exit(1)
+}
 if (!types || !Number.isFinite(timeout) || timeout < 0) {
   console.error('usage: doorbell.mjs --types <t1,t2> [--match <subject substring>] [--timeout <s>] [--after <cursor>] [--client <name>]')
   process.exit(1)
@@ -59,6 +70,12 @@ const client = new Client({ name: 'doorbell', version: '1' })
 await client.connect(transport)
 
 const deadline = Date.now() + timeout * 1000
+const waitFile = seat && waitsDir ? join(waitsDir, `${seat}.json`) : ''
+if (waitFile) {
+  mkdirSync(waitsDir, { recursive: true })
+  writeFileSync(waitFile, JSON.stringify({ seat, types, match, since: new Date().toISOString(), until: new Date(deadline).toISOString(), pid: process.pid }) + '\n')
+  for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { rmSync(waitFile, { force: true }); process.exit(130) })
+}
 let failures = 0
 try {
   for (;;) {
@@ -101,5 +118,6 @@ try {
     }
   }
 } finally {
+  if (waitFile) rmSync(waitFile, { force: true })
   await client.close()
 }
