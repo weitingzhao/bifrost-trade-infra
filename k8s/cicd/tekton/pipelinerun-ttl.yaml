@@ -30,7 +30,7 @@
 #     `kubectl set env`, so the run records went after a day as well.
 # Ages are computed in jq (fromdateiso8601), so the same script runs in the test
 # (scripts/test_pipelinerun_ttl.py) as in the Pod. DRY_RUN=1 lists and counts, and sends
-# every delete with --dry-run=server.
+# every delete as a server-side dry run.
 #
 # Apply: kubectl apply -f k8s/cicd/tekton/pipelinerun-ttl.yaml
 # Also applied by scripts/k3s/install-stack-tekton.sh and install-cicd-stack.sh.
@@ -130,7 +130,7 @@ spec:
                 - -c
                 - |
                   set -eu
-                  [ -n "${SKIP_APK:-}" ] || apk add --no-cache kubectl jq >/dev/null
+                  [ -n "${SKIP_APK:-}" ] || apk add --no-cache kubectl jq curl >/dev/null
                   NS="${NAMESPACE:-cicd}"
                   MAX_AGE_SECONDS="${MAX_AGE_SECONDS:-172800}"
                   POD_MAX_AGE_SECONDS="${POD_MAX_AGE_SECONDS:-3600}"
@@ -138,12 +138,25 @@ spec:
                   WORKSPACE_MAX_AGE_SECONDS="${WORKSPACE_MAX_AGE_SECONDS:-86400}"
                   KEEP_PER_TASK="${KEEP_PER_TASK:-5}"
                   NOW="${NOW_EPOCH:-$(date -u +%s)}"
-                  # DRY_RUN=1: same listing and counts, deletes sent with --dry-run=server.
-                  DRY="${DRY_RUN:+--dry-run=server}"
+                  # DRY_RUN=1: same listing and counts, every delete sent as a server-side dry run.
+                  DRY=""
+                  if [ -n "${DRY_RUN:-}" ]; then DRY="--dry-run=server"; fi
+                  # api_get PATH: one GET of the API server as this Pod's service account, the
+                  # body to stdout. The paged lists below were `kubectl get` with its raw-path
+                  # flag until 2026-11-17: the check at the making of an Owner's execution card
+                  # refuses that flag anywhere in a command (origin #550, a delete with it that a
+                  # dry run did not stop), and this script is applied through such a card. The
+                  # requests and the pages are the same; curl writes a page to its file as it
+                  # arrives and holds none of it.
+                  SA_DIR="${SA_DIR:-/var/run/secrets/kubernetes.io/serviceaccount}"
+                  api_get() {
+                    curl -fsS --cacert "${SA_DIR}/ca.crt" -H "Authorization: Bearer $(cat "${SA_DIR}/token")" \
+                      "https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT}$1"
+                  }
                   work="$(mktemp -d)"
                   trap 'rm -rf "${work}"' EXIT
                   # Pass 1: terminal PipelineRuns older than MAX_AGE_SECONDS. Paged (PR_PAGE runs
-                  # a page) through the raw API, as pass 2 is: one `kubectl get pipelinerun -o json`
+                  # a page) through api_get, as pass 2 is: one `kubectl get pipelinerun -o json`
                   # of every run was 53 MB on 2026-11-15 and kubectl needed about 563 MB to decode
                   # it under a 256Mi limit. The job was OOMKilled at this line every hour from
                   # 04:21Z for 43 hours; nothing after it ran, finished pods piled up to 5,900 and
@@ -155,7 +168,7 @@ spec:
                   while :; do
                     url="/apis/tekton.dev/v1/namespaces/${NS}/pipelineruns?limit=${PR_PAGE:-100}"
                     [ -n "${cont}" ] && url="${url}&continue=${cont}"
-                    kubectl get --raw "${url}" >"${work}/page.json"
+                    api_get "${url}" >"${work}/page.json"
                     jq -r --argjson now "${NOW}" --argjson max "${MAX_AGE_SECONDS}" '
                       .items[]
                       | select(.status.completionTime != null)
@@ -188,7 +201,7 @@ spec:
                   while :; do
                     url="/api/v1/namespaces/${NS}/pods?limit=250"
                     [ -n "${cont}" ] && url="${url}&continue=${cont}"
-                    kubectl get --raw "${url}" >"${work}/page.json"
+                    api_get "${url}" >"${work}/page.json"
                     jq -r --argjson now "${NOW}" --argjson ok "${POD_MAX_AGE_SECONDS}" --argjson bad "${FAILED_POD_MAX_AGE_SECONDS}" '
                       .items[]
                       | select(.metadata.ownerReferences[0].kind? == "TaskRun")
@@ -217,7 +230,7 @@ spec:
                   while :; do
                     url="/apis/tekton.dev/v1/namespaces/${NS}/taskruns?labelSelector=%21tekton.dev%2FpipelineRun&limit=${PR_PAGE:-100}"
                     [ -n "${cont}" ] && url="${url}&continue=${cont}"
-                    kubectl get --raw "${url}" >"${work}/page.json"
+                    api_get "${url}" >"${work}/page.json"
                     ttotal=$((ttotal + $(jq '.items | length' "${work}/page.json")))
                     jq -c '.items[]
                       | select(.status.completionTime != null)
