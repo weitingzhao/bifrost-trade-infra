@@ -220,7 +220,10 @@ def test_land_is_inline_takes_the_pushed_commit_and_talks_to_gitea_only():
     assert "$(params" not in script() and "$(tasks" not in script()
     assert {r["name"]: r["value"] for r in pipeline()["results"]} == {
         name: "$(tasks.land.results.%s)" % name for name in ("outcome", "commit", "change-ids")}
-    assert [r["name"] for r in land_task()["taskSpec"]["results"]] == ["outcome", "commit", "change-ids"]
+    # refusal (2026-11-17): the sentence a refused run ends with is a result of the task, so that
+    # what wakes the pusher can say why; it is not a result of the pipeline, which a failed run does not give.
+    assert [r["name"] for r in land_task()["taskSpec"]["results"]] == ["outcome", "commit", "change-ids", "refusal"]
+    assert "('outcome', 'refused'), ('refusal', problem[:2000])" in script()
 
 
 # --- which CI runs count -------------------------------------------------------------

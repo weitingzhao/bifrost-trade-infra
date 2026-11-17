@@ -40,7 +40,7 @@ spec:
       description: The pushed ref, refs/heads/ready/<name>.
   results:
     - name: outcome
-      description: landed (the tested commit is on main), or landed-not-as-tested (Gitea rebased it once more inside the merge; `commit` is what is on main). A run that did not land fails; its last log line says why.
+      description: landed (the tested commit is on main), or landed-not-as-tested (Gitea rebased it once more inside the merge; `commit` is what is on main). A run that did not land fails; the land task's refusal result (and its last log line) says why.
       value: $(tasks.land.results.outcome)
     - name: commit
       description: The commit now on main. Not the pushed one when the branch had to be rebased.
@@ -72,6 +72,12 @@ spec:
           - name: outcome
           - name: commit
           - name: change-ids
+          # Why a run did not land, the sentence its log ends with. 2026-11-17: two
+          # pushes of one line were refused (a rebase conflict; main moved twice
+          # under the check) and the line learned of it an hour later from a
+          # reading that had not moved; the sentence was only in the pod's log,
+          # which the bus that wakes the pusher does not read.
+          - name: refusal
         volumes:
           - name: gitea-merger
             secret:
@@ -587,6 +593,9 @@ spec:
                                              push=lambda repo, commit, depth: fast_forward(
                                                  user, secret, GITEA + '/bifrost/' + repo + '.git', commit, depth))
                   if problem:
+                      for name, value in (('outcome', 'refused'), ('refusal', problem[:2000])):
+                          with open(RESULTS + name, 'w') as handle:
+                              handle.write(value)
                       sys.exit(problem)
                   for name, value in landed.items():
                       with open(RESULTS + name, 'w') as handle:
