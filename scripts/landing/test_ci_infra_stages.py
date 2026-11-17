@@ -106,8 +106,9 @@ def test_each_policy_stage_rejects_missing_baseline_input(ci_workspace):
     args.base_sha = commit(infra)
     put(infra, S['DOC'], 'Third\n')
     args.revision = commit(infra)
-    with pytest.raises(C.Error, match='command_failed'):
-        C.stage(args, 'consumers', infra, platform)  # registry absent at M0
+    # Until 2026-11-16 a registry absent at M0 failed this stage; the registry check is
+    # retired and the stage no longer reads it. The base is still checked.
+    C.stage(args, 'consumers', infra, platform)
     command = ['bash', str(HERE / 'ci-infra.sh'), '--stage', 'consumers', '--cand', str(args.cand),
                '--base', str(args.base), '--revision', args.revision, '--base-sha', 'bad',
                '--platform-revision', args.platform_revision]

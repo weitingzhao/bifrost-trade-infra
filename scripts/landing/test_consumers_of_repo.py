@@ -63,55 +63,6 @@ def run(registry, other, name="bifrost-platform"):
                           capture_output=True, text=True, timeout=60)
 
 
-def test_a_commit_that_matches_the_registry_passes(repos):
-    r = run(*repos)
-    assert r.returncode == 0 and r.stdout.startswith("ok: every hit of bifrost-platform"), r.stdout + r.stderr
-
-
-def test_the_line_changed_on_2026_11_14_is_reported_with_the_value_the_row_needs(repos):
-    registry, other = repos
-    commit(other, {PAGE: AFTER})
-    r = run(registry, other)
-    assert r.returncode == 1, r.stdout + r.stderr
-    now = D["fingerprint"](D["hits"](PAGE, AFTER.encode(), True))
-    # The value this prints is the one the real registry row was given that day (a897dd87).
-    assert now == "sha256:816c0f58b77c40a81bb5f8dc178e357b69447a80ffdb3088a725290838b6d436"
-    assert f"FAIL consumer_changed {PAGE}" in r.stderr and f"hits now:       {now}" in r.stderr
-    assert "line 1: return { you: entry === 'command'" in r.stderr and "registry_change" in r.stderr
-
-
-def test_every_difference_is_listed_not_only_the_first(repos):
-    # doc_consumers.py stops at the first: on 2026-10-31 that cost one CI run a difference.
-    registry, other = repos
-    commit(other, {PAGE: AFTER, "api/new.go": 'var path = "agent-config/work/x.md"\n', "docs/a.md": "a document that names /work/ and is not scanned\n"})
-    r = run(registry, other)
-    assert r.returncode == 1
-    assert f"FAIL consumer_changed {PAGE}" in r.stderr and "FAIL unregistered_consumer api/new.go" in r.stderr
-    assert '"repo": "bifrost-platform", "file": "api/new.go"' in r.stderr
-    assert r.stderr.startswith("2 file(s)")
-    # Markdown is not scanned, as in the registry check itself.
-    assert "docs/a.md" not in r.stderr
-
-
-def test_a_registered_file_that_is_gone_is_a_note_not_a_failure(repos):
-    registry, other = repos
-    git(other, "rm", "-q", PAGE)
-    commit(other, {"api/plain.go": "package plain\n\n"})
-    r = run(registry, other)
-    assert r.returncode == 0 and "WARN 1 row(s)" in r.stdout and PAGE in r.stdout, r.stdout + r.stderr
-
-
-def test_what_it_cannot_read_is_an_error_of_its_own(repos, tmp_path):
-    registry, other = repos
-    assert run(tmp_path / "nowhere", other).returncode == 2
-    empty = tmp_path / "empty"
-    empty.mkdir()
-    git(empty, "init", "-q")
-    commit(empty, {"README": "no registry\n"})
-    r = run(empty, other)
-    assert r.returncode == 2 and r.stderr.startswith("FAIL "), r.stderr
-
-
 def test_it_agrees_with_the_registry_check_on_the_same_tree(repos):
     # The narrowing search may only skip files without a hit: on this tree both list the same file.
     registry, other = repos
@@ -146,10 +97,20 @@ def test_the_platform_pipelines_step_runs_it_as_written(repos, tmp_path):
     (ws / "bifrost-trade-infra/scripts/landing").mkdir(parents=True)
     for name in ("consumers_of_repo.py", "doc_consumers.py", "doc_policy.py"):
         shutil.copy(Path(__file__).with_name(name), ws / "bifrost-trade-infra/scripts/landing" / name)
-    r = step_run()
-    assert r.returncode == 0 and r.stdout.startswith("ok: every hit of bifrost-platform"), r.stdout + r.stderr
+    # Retired 2026-11-16 (proposed on evidence, confirmed by the Owner): a commit that no longer
+    # matches the registry passes the step, and the step says the check is retired. Before,
+    # this commit was refused (consumer_changed); the comparison itself is still held by
+    # test_it_agrees_with_the_registry_check_on_the_same_tree above.
     commit(ws / "bifrost-platform", {PAGE: AFTER})
     r = step_run()
-    assert r.returncode == 1 and f"FAIL consumer_changed {PAGE}" in r.stderr, r.stdout + r.stderr
-    # A run that reuses another run's verdict does not look again.
+    assert r.returncode == 0 and r.stdout.startswith("consumers: retired 2026-11-16"), r.stdout + r.stderr
     assert step_run("yes").returncode == 0
+
+
+def test_the_script_itself_answers_retired_whatever_the_trees_hold(repos):
+    # Origin: 2026-11-16, the registry check is retired. The positive control of the old
+    # behaviour is the test above this file's pipeline test: verify() still raises there.
+    registry, other = repos
+    commit(other, {PAGE: AFTER})
+    r = run(registry, other)
+    assert r.returncode == 0 and r.stdout.startswith("consumers: retired 2026-11-16"), r.stdout + r.stderr

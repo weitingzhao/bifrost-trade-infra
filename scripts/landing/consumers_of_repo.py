@@ -87,6 +87,13 @@ def report(problems, name, registry_revision):
 
 
 def main():
+    # The registry check this gave early word of is retired (doc_consumers.RETIRED).
+    # compare() below is the comparison as it was; reverting this commit puts it back.
+    print(D["RETIRED"])
+    return 0
+
+
+def compare():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--registry-repo", type=Path, required=True)
     ap.add_argument("--registry-revision", default="HEAD")

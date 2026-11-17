@@ -79,7 +79,19 @@ def registry_change(base_rows, rows, found, found_platform):
             raise P["PolicyError"](f"registry_row_removed {name}")
 
 
+RETIRED = ("consumers: retired 2026-11-16 (confirmed by the Owner): documents and code pass the same CI, "
+           "so the registry of document consumers is no longer read")
+
+
 def main():
+    # The check answered one question: may a document land by the light lane, unread?
+    # That lane left on 2026-11-12 (the scope stage); every commit now runs every stage.
+    # judge() below is the check as it was; reverting this commit puts it back.
+    print(RETIRED)
+    return 0
+
+
+def judge():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--repo", type=Path, required=True)
     ap.add_argument("--base", required=True)

@@ -83,7 +83,7 @@ def test_main_reads_the_candidates_registry_and_both_registries_for_readers():
     # The wiring, read off the source: the candidate's rows are verified, the change of the
     # registry is judged first, and a changed path is held to the readers of both.
     src = Path(__file__).with_name("doc_consumers.py").read_text()
-    main = src[src.index("def main():"):]
+    main = src[src.index("def judge():"):]  # the check as it was; main answers retired since 2026-11-16
     order = [main.index(s) for s in ('P["registry"](args.repo, args.base)', 'P["registry"](args.repo, args.revision)', "registry_change(base_rows, rows, found, found_platform)",
                                      'verify(rows, found, P["REPO"])', 'P["consumers"](args.repo, args.base, args.revision, args.purpose)', 'P["consumed"](rows, ')]
     assert order == sorted(order)
