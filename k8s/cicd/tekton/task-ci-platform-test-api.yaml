@@ -316,13 +316,27 @@ spec:
           cd "${ws}/bifrost-platform"
           tested="$(git rev-parse -q --verify 'HEAD^{commit}' 2>/dev/null || true)"
           # Ancestry needs the history a bare-SHA shallow clone lacks; main is
-          # the one branch fetched with it.
-          deepen=""
-          if [ "$(git rev-parse --is-shallow-repository 2>/dev/null || true)" = true ]; then deepen=--unshallow; fi
+          # the one branch fetched with it. test-api and test-api-store run this
+          # side by side in the one checkout: both see it shallow, the first
+          # fetch completes it and the second is refused ("--unshallow on a
+          # complete repository"), or meets the first one's lock. One try and
+          # 2>/dev/null made that "main could not be read", and the run tested
+          # everything: 19 of the 33 ready runs after the increment was
+          # reopened (2026-11-16 18:47 to 20:37 CST). So the state is read
+          # again before each of a few tries, and what git said is printed.
           main_head=""
-          if git_read fetch -q $deepen origin '+refs/heads/main:refs/remotes/origin/main' 2>/dev/null; then
-            main_head="$(git rev-parse -q --verify 'refs/remotes/origin/main^{commit}' 2>/dev/null || true)"
-          fi
+          fetch_err="$(mktemp)"
+          for try in 1 2 3 4 5; do
+            deepen=""
+            if [ "$(git rev-parse --is-shallow-repository 2>/dev/null || true)" = true ]; then deepen=--unshallow; fi
+            if git_read fetch -q $deepen origin '+refs/heads/main:refs/remotes/origin/main' 2>"$fetch_err"; then
+              main_head="$(git rev-parse -q --verify 'refs/remotes/origin/main^{commit}' 2>/dev/null || true)"
+              break
+            fi
+            echo "==> base: fetching main, try ${try}: $(tail -n 1 "$fetch_err" | cut -c1-200)"
+            sleep "$try"
+          done
+          rm -f "$fetch_err"
           if [[ ! "$tested" =~ ^[0-9a-f]{40}$ ]] || [[ ! "$main_head" =~ ^[0-9a-f]{40}$ ]] ||
             [ "$(git rev-parse --is-shallow-repository 2>/dev/null || true)" != false ]; then
             base_why="no base: main or the commit's history could not be read"

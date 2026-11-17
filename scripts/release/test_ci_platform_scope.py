@@ -650,7 +650,7 @@ def main_moves_on(work: Path) -> str:
     return git(work, "rev-parse", "main")
 
 
-def landing_run(tmp_path: Path, origin: Path, sha: str, unreachable: bool = False, **env) -> dict:
+def landing_run(tmp_path: Path, origin: Path, sha: str, unreachable: bool = False, sibling_first: bool = False, **env) -> dict:
     ws = tmp_path / "ws"
     shutil.rmtree(ws, ignore_errors=True)
     checkout = ws / "bifrost-platform"
@@ -668,6 +668,17 @@ def landing_run(tmp_path: Path, origin: Path, sha: str, unreachable: bool = Fals
                              'if [ "$1" = list ]; then if [ "$2" = ./internal/agentrt/store ]; then echo m/store; '
                              'else printf \'m/a\\nm/store\\n\'; fi; fi\nexit 0\n')
     (bins / "go").chmod(0o755)
+    (bins / "git").unlink(missing_ok=True)
+    if sibling_first:
+        # The other share of the suite, in the same checkout, completes the history between this
+        # share's look at it and its own fetch: the first fetch this step makes finds that done.
+        real = shutil.which("git")
+        (bins / "git").write_text(f'#!/bin/bash\nif [ "$1" = fetch ] && [ ! -e "$RACE_DONE" ]; then : > "$RACE_DONE"; '
+                                  f'"{real}" fetch -q --unshallow origin "+refs/heads/main:refs/remotes/origin/main" >/dev/null 2>&1; fi\n'
+                                  f'exec "{real}" "$@"\n')
+        (bins / "git").chmod(0o755)
+        (tmp_path / "race-done").unlink(missing_ok=True)
+        env = {"RACE_DONE": str(tmp_path / "race-done"), **env}
     out = tmp_path / "landing-results"
     shutil.rmtree(out, ignore_errors=True)
     out.mkdir()
@@ -688,6 +699,22 @@ def landing_run(tmp_path: Path, origin: Path, sha: str, unreachable: bool = Fals
 def whole_suite(got: dict) -> bool:
     return (got["code"] == 0 and got["scope"] == "full" and got["selector"] is None and "go test ./... -timeout=" in got["go"]
             and "go vet ./..." in got["go"])
+
+
+def test_the_other_share_completing_the_history_first_does_not_cost_the_increment(tmp_path, landing):
+    """Origin: 2026-11-16 18:47-20:37 CST, the two hours after the incremental landing was reopened:
+    19 of 33 ready runs said "no base: main or the commit's history could not be read" and ran every
+    test. test-api and test-api-store run this step side by side in one checkout; both saw it shallow,
+    one fetch completed it, and the other's `fetch --unshallow` was refused. The step now reads the
+    state again and tries again, and says what git said. The test before this one is its control: the
+    same commit with no sibling."""
+    origin, work, main = landing
+    sha = branch(work, "ready/race", write("api/internal/x/x.go", "package x\n// one\n"))
+    got = landing_run(tmp_path, origin, sha, sibling_first=True)
+    assert got["code"] == 0, got["out"]
+    assert (got["base"], got["scope"], got["selector"]) == (main, "incremental", f"{main} {sha}"), got["out"]
+    assert "fetching main, try 1:" in got["out"] and "complete repository" in got["out"], got["out"]
+    assert "go test ./..." not in got["go"]
 
 
 @pytest.mark.parametrize("commits", [1, 2])
