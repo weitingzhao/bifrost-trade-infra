@@ -78,6 +78,13 @@ spec:
           # reading that had not moved; the sentence was only in the pod's log,
           # which the bus that wakes the pusher does not read.
           - name: refusal
+          # The watched paths a landed change touched, comma-separated; empty when none.
+          # 2026-11-17: the head-release loop starts its delivery runs in the service
+          # layer, which the signed release policy does not judge, so two lines of
+          # api/internal/headrelease decide whether it could deliver to PROD. A change
+          # to them lands as any other (this is no gate); the result says so, and the
+          # bus wakes the CI line and the coordinator on it.
+          - name: tripwire
         volumes:
           - name: gitea-merger
             secret:
@@ -131,7 +138,8 @@ spec:
                         "base_result": "base-commit",
                         "no_base": {"api-scope": ["full", "console"]}
                       },
-                      "merger": "gitea-merger"
+                      "merger": "gitea-merger",
+                      "watched": ["api/internal/headrelease/**", "api/internal/delivery/head_release_start.go"]
                     },
                     "bifrost-trade-infra": {
                       "ci": {
@@ -323,7 +331,14 @@ spec:
                       sha = parents[0]['sha']
                   return commits[::-1], sha, ''
 
-              def checked(token, api, commits, policy, repo):
+              def tripwired(entry, names):
+                  """The changed paths of the row's `watched` globs (the release policy's glob syntax),
+                  sorted: a landing is not stopped for them but reported (result tripwire). Not the
+                  signed policy: this is a reading, and the policy is the Owner's."""
+                  globs = entry.get('watched') or []
+                  return [n for n in sorted(names) if any(matches(p, n) for p in globs)]
+
+              def checked(token, api, commits, policy, repo, seen=None):
                   """(Change-Ids, '') when these commits may land. Each is read by its id, so what is
                   checked is what is merged: every commit carries a Change-Id trailer (the agents share
                   one Gitea account; the trailers are the record of which change a commit is, Owner
@@ -346,6 +361,8 @@ spec:
                       # is read as well, so a guarded file moved away is seen under its old name.
                       names.update(str(item.get(key)) for item in row['files'] if isinstance(item, dict)
                                    for key in ('filename', 'previous_filename') if item.get(key))
+                  if seen is not None:
+                      seen.update(names)
                   hit = guarded(policy, repo, names)
                   if hit:
                       return [], ('refused: %s is a trade-execution guard path (release policy no_d10_paths); this lane '
@@ -504,11 +521,18 @@ spec:
                       return {}, 'refused: this repository is not in LANDING_REPOS (pipeline-land.yaml)'
                   branch, api = found.group(1), gitea + '/api/v1/repos/bifrost/' + repo
                   pull, problem = pull_request(token, api, branch, commit, repo)
-                  ids, commits = [], []
+                  ids, commits, seen = [], [], set()
                   if not problem:
                       commits, problem = listed(token, api, pull['number'], commit)
                   if not problem:
-                      ids, problem = checked(token, api, commits, policy, repo)
+                      ids, problem = checked(token, api, commits, policy, repo, seen)
+
+                  def done(result):
+                      hit = tripwired(entry, seen)
+                      if hit:
+                          print('TRIPWIRE: this change touches %s (watched, not stopped)' % ', '.join(hit), flush=True)
+                          result['tripwire'] = ','.join(hit)[:2000]
+                      return result, ''
                   if problem:
                       return {}, problem
                   # `on` is the commit the branch sits on. For a pull request just opened it is the
@@ -531,7 +555,7 @@ spec:
                           commits, on, problem = walked(token, api, commit, len(ids))
                           again = []
                           if not problem:
-                              again, problem = checked(token, api, commits, policy, repo)
+                              again, problem = checked(token, api, commits, policy, repo, seen)
                           if not problem and sorted(again) != sorted(ids):
                               problem = ('refused: after its rebase the branch does not hold the same changes: someone '
                                          'pushed to it meanwhile, and that push has its own run')
@@ -553,7 +577,7 @@ spec:
                           if pushed_as == 'landed':
                               settled(token, api, pull, branch, commit)
                               print('landed %s on main: pushed as tested (pull request #%d)' % (commit, pull['number']))
-                              return {'outcome': 'landed', 'commit': commit, 'change-ids': ','.join(ids[:40])}, ''
+                              return done({'outcome': 'landed', 'commit': commit, 'change-ids': ','.join(ids[:40])})
                           if pushed_as == 'moved':
                               code, main = call(token, 'GET', api + '/branches/main')
                               if code != 200 or main.get('commit', {}).get('id') != base:
@@ -574,10 +598,10 @@ spec:
                               # main's own CI run of it is the check. Said, not passed off as landed.
                               print('WARNING: pull request #%d landed as %s, not as the tested %s'
                                     % (pull['number'], landed, commit), flush=True)
-                              return {'outcome': 'landed-not-as-tested', 'commit': landed,
-                                      'change-ids': ','.join(ids[:40])}, ''
+                              return done({'outcome': 'landed-not-as-tested', 'commit': landed,
+                                           'change-ids': ','.join(ids[:40])})
                           print('landed %s on main through pull request #%d' % (commit, pull['number']))
-                          return {'outcome': 'landed', 'commit': commit, 'change-ids': ','.join(ids[:40])}, ''
+                          return done({'outcome': 'landed', 'commit': commit, 'change-ids': ','.join(ids[:40])})
                       stale += still
                       if stale > 1:
                           return {}, 'refused: CI did not judge %s against main as it is now; push ready/ again' % commit

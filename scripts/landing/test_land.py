@@ -222,7 +222,8 @@ def test_land_is_inline_takes_the_pushed_commit_and_talks_to_gitea_only():
         name: "$(tasks.land.results.%s)" % name for name in ("outcome", "commit", "change-ids")}
     # refusal (2026-11-17): the sentence a refused run ends with is a result of the task, so that
     # what wakes the pusher can say why; it is not a result of the pipeline, which a failed run does not give.
-    assert [r["name"] for r in land_task()["taskSpec"]["results"]] == ["outcome", "commit", "change-ids", "refusal"]
+    # tripwire: 2026-11-17, see test_a_change_to_the_head_release_loop_lands_and_is_reported.
+    assert [r["name"] for r in land_task()["taskSpec"]["results"]] == ["outcome", "commit", "change-ids", "refusal", "tripwire"]
     assert "('outcome', 'refused'), ('refusal', problem[:2000])" in script()
 
 
@@ -906,3 +907,29 @@ def test_anything_but_a_ready_ref_a_full_commit_and_a_listed_repository_calls_no
     gitea = Gitea()
     assert run_land(gitea, ref, commit, repo)[1].startswith("refused")
     assert gitea.calls == []
+
+
+def test_a_change_to_the_head_release_loop_lands_and_is_reported():
+    """Origin: 2026-11-17, the decoupling line's reading of the release policy (coordinator's notes
+    duty/from-biz-2026-11-17-anchor-law-evaluation.md, sections 6 and 7), checked by the CI line: the
+    head-release loop starts delivery runs in the service layer, which the signed policy does not judge,
+    and the platform's PROD identity may create any pipeline's run; two lines of
+    api/internal/headrelease keep the loop off PROD. A change to them is not stopped (the Owner, the same
+    day: stability comes from tests, not from more approvals) and is reported in the result `tripwire`,
+    which the bus wakes the CI line and the coordinator on. Positive control: the other file of the same
+    run is not reported, and a change to neither carries no tripwire."""
+    task = land_task()["taskSpec"]
+    assert "tripwire" in [r["name"] for r in task["results"]]
+    for files, want in (
+        (["api/internal/headrelease/headrelease.go", "docs/x.md"], "api/internal/headrelease/headrelease.go"),
+        (["api/internal/headrelease/deliverables.yaml", "api/internal/delivery/head_release_start.go"],
+         "api/internal/delivery/head_release_start.go,api/internal/headrelease/deliverables.yaml"),
+        (["api/internal/delivery/service.go"], None),
+    ):
+        gitea = Gitea(files=files)
+        assert run_land(gitea) == ("landed", ""), files
+        assert gitea.landed.get("tripwire") == want, (files, gitea.landed)
+    gitea = Gitea(files=["api/internal/headrelease/headrelease.go"])
+    assert run_land(gitea, repo=INFRA) == ("landed", "")
+    assert "tripwire" not in gitea.landed  # the watched paths are the platform row's
+    assert table()[PLATFORM]["watched"] and "watched" not in table()[INFRA]
