@@ -104,9 +104,9 @@ echo "==> npm run lint"
 npm run lint
 
 echo "==> vitest run"
-# The pod sees the node's cores; the limit is four CPUs.
+# The pod sees the node's cores; the limit is six CPUs.
 # Measured 2026-10-11: without it, 7 of 814 tests time out.
-npx vitest run --maxWorkers=4
+npx vitest run --maxWorkers=6
 
 echo "==> npm run build"
 npm run build
@@ -148,8 +148,8 @@ EXPECTED_CONSOLE = {
                 "image": "node:20-slim",
                 "volumeMounts": [{"name": "build-cache", "mountPath": "/ci-cache"}],
                 "computeResources": {
-                    "requests": {"cpu": "4", "memory": "1Gi"},
-                    "limits": {"cpu": "4", "memory": "4Gi"},
+                    "requests": {"cpu": "6", "memory": "1Gi"},
+                    "limits": {"cpu": "6", "memory": "4Gi"},
                 },
                 "env": [{"name": "REUSE", "value": "$(params.reuse)"},
                         {"name": "RUN_MODULES", "value": "$(params.run-modules)"},
