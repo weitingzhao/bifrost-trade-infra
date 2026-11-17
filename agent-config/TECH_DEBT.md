@@ -331,7 +331,7 @@
 | [TD-579](#td-579) | P1 | governance | Owner 定的法还有 8 条没落进规则文件（`OWNER_LAW.md` 标「未落」的行） | 其中 5 条要你重签发布规则 |
 | [TD-580](#td-580) | P2 | owner-exec | 执行卡的建卡检查不防「GET 也能读 Secret 内容、也能打 /proxy」 | 安全/凭据（要你批） |
 | [TD-581](#td-581) | P3 | cicd | 测试 TestThreadInboxBacklogMustNotStarveSweep 在集群 CI 里会红：13 秒期限只比 10 秒投递预算多 3 秒 | 不用批 |
-| [TD-582](#td-582) | P2 | platform | store 里 30 个计划测试用 store 内部夹具断言跨领域接线；planstore 为它们多导出 21 个名字 | 不用批 |
+| [TD-582](#td-582) | P2 | platform | store 里 30 个计划测试用 store 内部夹具断言跨领域接线；planstore 为 store 的测试多导出 42 个名字 | 不用批 |
 
 ## 条目
 
@@ -344,9 +344,9 @@
 - **出处**：2026-11-17 计划代码搬出 store（platform `159c4f0b`、`90f25319`）。解耦线当时把这批记成「已知现状、不算欠账」，判断次序错了（先下结论、没先说标准）；主统筹转 Owner 12:1x 的意见更正为欠账。
 - **证据**：store 包里 30 个测试文件仍断言计划代码，靠的是 store_test 包里未导出的整套夹具（`newWorld`/`seededDB`/`seedTemplate`、`newKernelWorld`、`ask`/`answer`、`pv*`、时钟开关 `CtxOf`/`OwnClock`/`FreezeClock`、`SetHook` 等，合计几百行），其中一部分同时断言 store 的接线（端口绑定、记录员导入、外部工作写入）。planstore 为它们多导出 21 个名字：11 个端口调用名和 6 个自留常量（用户 `store/planports_export_test.go`），`ChangeBlocks`、`PendingChangeLimit`（`store/export_test.go`），`ImportOf`、`StreamRoot`（`store/pending_projection_parity_test.go`）。逐文件明细：共享笔记 `biz-align/planstore-tests-2026-11-17.md`。
 - **影响**：计划领域的内部改一处，store 的测试就要跟着改；合约之外的 21 个名字谁都能用；测试过了也说明不了计划领域的对外合约是否成立。
-- **修法**：不是搬，是重写。前提：计划领域登记了对外合约（Go 面和存储面），并有对着它的黑盒测试；store 的事务、身份、词汇表也有自己的合约测试。前提满足后，用这两组合约测试加少数只走对外入口的流程测试覆盖这 30 个文件断言的接线，然后删掉这批内部测试，21 个名字改回不导出。
-- **防线**：这 30 个文件和 21 个名字记成只减不增的基线，放在 CI 线的检查里（和 CI 线对过再落，不另起一套）。
-- **验收**：基线清单为空；`grep` 不到为 store 测试导出的 planstore 名字；全套测试通过。
+- **修法**：不是搬，是重写。前提：计划领域登记了对外合约（Go 面和存储面），并有对着它的黑盒测试；store 的事务、身份、词汇表也有自己的合约测试。前提满足后，用这两组合约测试加少数只走对外入口的流程测试覆盖这 30 个文件断言的接线，然后删掉这批内部测试，42 个名字改回不导出。
+- **防线**：在 CI 线的两条检查里，只减不增（2026-11-17 进 platform main）：30 个文件在 `codeguard` tests_reach（`8215afd8`）的「共享包里的测试文件」名单里；导出名在 `test_only_exports`（`2ebbf5ea`）的「只有别的包的测试在用的包级导出名」名单里——planstore 共 42 个，比当初数的 21 个多 21 个（store 别的测试在用的 planstore 名字，同一标准下也是欠账）。重写测试、收回导出时删掉名单里对应的行，检查会提示。
+- **验收**：tests_reach 名单里没有这 30 个文件；test_only_exports 名单里没有 planstore 的行；全套测试通过。
 
 ### TD-581
 
