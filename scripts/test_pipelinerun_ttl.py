@@ -30,14 +30,28 @@ import json, os, pathlib, sys
 a = sys.argv[1:]
 r = pathlib.Path(os.environ["FIXTURES"])
 if a[0] == "get" and a[1] == "pipelinerun":
-    print((r / "pr.json").read_text())
+    # 2026-11-15: this one call, every run decoded at once, is what was OOMKilled.
+    sys.exit("pass 1 must page through the raw API, not `kubectl get pipelinerun`")
+elif a[0] == "get" and a[1] == "--raw" and "/pipelineruns?" in a[2]:
+    from urllib.parse import urlparse, parse_qs, unquote
+    q = parse_qs(urlparse(a[2]).query)
+    items = json.loads((r / "pr.json").read_text())["items"]
+    limit, start = int(q["limit"][0]), int(unquote(q.get("continue", ["0"])[0]).split("/")[-1])
+    page = items[start:start + limit]
+    more = start + limit < len(items)
+    with (r / "pr.pages").open("a") as f:
+        f.write("%d\n" % len(page))
+    # A continue token that needs escaping, as the API server's does.
+    print(json.dumps({"items": page, "metadata": {"continue": "tok+en/%d" % (start + limit)} if more else {}}))
+elif a[0] == "get" and a[1] == "--raw" and "/taskruns?" in a[2]:
+    assert "labelSelector=%21tekton.dev%2FpipelineRun" in a[2], a
+    print((r / "tr.json").read_text())
 elif a[0] == "get" and a[1] == "--raw":
     print((r / "pods.json").read_text())
 elif a[0] == "get" and a[1] == "pvc":
     print((r / "pvc.json").read_text())
 elif a[0] == "get" and a[1] == "taskrun":
-    assert "-l" in a and a[a.index("-l") + 1] == "!tekton.dev/pipelineRun", a
-    print((r / "tr.json").read_text())
+    sys.exit("pass 3 must page through the raw API, not `kubectl get taskrun`")
 elif a[0] == "delete":
     names, skip = [], False
     for x in a[2:]:
@@ -90,7 +104,7 @@ class Janitor(unittest.TestCase):
         (self.dir / "pr.json").write_text(json.dumps({"items": prs}))
         (self.dir / "pvc.json").write_text(json.dumps({"items": pvcs or []}))
         (self.dir / "pods.json").write_text(json.dumps({"items": pods, "metadata": {}}))
-        (self.dir / "tr.json").write_text(json.dumps({"items": trs}))
+        (self.dir / "tr.json").write_text(json.dumps({"items": trs, "metadata": {}}))
         env = {**os.environ, **env_defaults(), "PATH": f"{self.dir / 'bin'}:{os.environ['PATH']}",
                "FIXTURES": str(self.dir), "SKIP_APK": "1", "NOW_EPOCH": str(NOW)}
         env.pop("KUBECONFIG", None)
@@ -174,6 +188,32 @@ class Janitor(unittest.TestCase):
                                    pvcs=[self.pvc("ws", "done-2d")])
         self.assertEqual(len(deleted), 4)
         self.assertTrue(all(dry for _, _, dry in deleted))
+
+
+    def test_pipelineruns_are_read_a_page_at_a_time(self) -> None:
+        """Origin: 2026-11-15 04:21Z. Pass 1 read every PipelineRun in one `kubectl get -o json`
+        (53 MB; kubectl peaked near 563 MB under a 256Mi limit) and the job was OOMKilled every
+        hour for 43 hours. No pass ran: finished pods reached 5,900, workspaces 717, and their
+        series took PROD's Prometheus down on 2026-11-16. With 250 runs the script asks for
+        pages of PR_PAGE and never for the whole list (the stand-in exits on that call), and
+        passes 1 and 4 see every run, the ones on the last page too."""
+        prs = [self.pr("old-%03d" % i, 9) for i in range(120)] + [self.pr("fresh-%03d" % i, 0.1) for i in range(129)]
+        prs.append(self.pr("day-old-last", 2))  # on the last page: its workspace goes, the run stays
+        pvcs = [self.pvc("pvc-day-old-last", "day-old-last"), self.pvc("pvc-fresh", "fresh-000")]
+        deleted = self.run_janitor(prs, [], [], pvcs=pvcs)
+        pages = [int(x) for x in (self.dir / "pr.pages").read_text().split()]
+        self.assertEqual(pages, [100, 100, 50])
+        self.assertEqual(sorted(n for k, n, _ in deleted if k == "pipelinerun"), sorted("old-%03d" % i for i in range(120)))
+        self.assertEqual([n for k, n, _ in deleted if k == "pvc"], ["pvc-day-old-last"])
+        self.assertIn("pipelinerun-ttl done deleted=120 kept=130", self.out)
+
+    def test_the_whole_list_in_one_call_is_refused_by_the_stand_in(self) -> None:
+        """The control of the test above: the old first line of pass 1 fails here."""
+        (self.dir / "pr.json").write_text(json.dumps({"items": []}))
+        env = {**os.environ, "PATH": f"{self.dir / 'bin'}:{os.environ['PATH']}", "FIXTURES": str(self.dir)}
+        out = subprocess.run(["sh", "-c", 'kubectl get pipelinerun -n cicd -o json'], env=env, capture_output=True, text=True)
+        self.assertNotEqual(out.returncode, 0)
+        self.assertIn("must page", out.stderr)
 
 
 if __name__ == "__main__":

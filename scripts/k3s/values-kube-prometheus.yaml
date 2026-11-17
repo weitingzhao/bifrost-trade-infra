@@ -54,13 +54,18 @@ prometheus:
           resources:
             requests:
               storage: 30Gi
+    # 2Gi / 6Gi since card #586 (2026-11-16): at 2Gi Prometheus was OOMKilled in a loop
+    # from 17:01 Chicago once kube-state-metrics' series went from 210k to 787k (the CI
+    # janitor had been failing for 43 hours and 5,900 finished pods stood in cicd).
+    # The card patched the Prometheus object; this file says the same so the next
+    # helm upgrade does not put 2Gi back.
     resources:
       requests:
         cpu: 200m
-        memory: 512Mi
+        memory: 2Gi
       limits:
         cpu: "1"
-        memory: 2Gi
+        memory: 6Gi
 
 grafana:
   # No persistence on purpose (TD-289): dashboards come from ConfigMaps through the
