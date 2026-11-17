@@ -1,4 +1,15 @@
 #!/usr/bin/env node
+// 停用（2026-11-16，CI 线指出，主统筹判）：这个脚本另起一个平台 MCP 进程，
+// 那个进程会读令牌文件。这踩了 Owner 定的两条不许的路：席位自己起进程或脚本去调
+// 平台接口；任何要读令牌的办法（11-15 同样形状的 call-tool.mjs 被判「削弱监督」后
+// 删掉）。不要运行它，也不要照它的写法另写。闲着的会话怎么被叫起来，新的做法见
+// 共享笔记 duty/from-agent-tool-comm-2026-11-16-wake-without-tokens.md。
+//
+// DISABLED 2026-11-16: it starts its own platform MCP process, which reads the
+// token file. Seats may neither start processes that call the platform nor
+// read tokens. It refuses to run.
+console.error('doorbell.mjs is disabled (2026-11-16): it starts a platform MCP process that reads the token file. See the header.')
+process.exit(1)
 // Doorbell: wait on the bus for the event a seat is waiting for, then exit.
 //
 // A seat that ends its turn while it waits on something (a card decided, a CI

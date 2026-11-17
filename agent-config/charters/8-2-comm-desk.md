@@ -24,7 +24,7 @@
 | 事件流 | NATS `ev.<tenant>.<env>.<type>`；回执 `rcpt.<tenant>.<env>` | subject 形状、回执头 `Bifrost-Event-Id`/`Bifrost-Consumer` | 平台进程（api、workers） |
 | 接口 | `GET /api/v1/bus/events`（types、match、after、wait、client）、`/bus/stream`（SSE）、`/bus/trace` | 参数、返回 `{events, next}`、长轮询最长 25 秒 | Console Bus 页、MCP `wait_for_event`、`bifrost-bus wait`、门铃 |
 | 接口 | MCP `send_message`、`wait_for_messages`、`read_message`、`ack_messages`；`get_release_window`、`hold_release_window`、`release_release_window`；`get_release_context` | 参数和返回形状 | 各席位、值班、主统筹 |
-| 指令 | 门铃 `scripts/bus/doorbell.mjs --types --match --timeout [--seat --waits-dir]` | 输出一行 `DOORBELL <type> <subject> <cursor>`；退出码 0 到了、2 到点、1 出错；运行中写 `waits/<seat>.json` | 各席位、值班（看 waits） |
+| 指令 | ~~门铃 `scripts/bus/doorbell.mjs`~~ **停用（2026-11-16）**：另起平台 MCP 进程读令牌，踩「席位不另起进程调平台、不读令牌」的边界 | — | 无 |
 | 指令 | 等信命令（平台信箱） | 来信就退出 | 各席位 |
 | 事件 | 窗口通知 `window.your_turn`、`missed`、`queue_timeout`、`still_held` | 种类名 | 排窗口的席位 |
 
