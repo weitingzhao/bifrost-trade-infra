@@ -70,12 +70,11 @@ spec:
 
 
         def same_increment(params, results, base):
-            # Owner 2026-11-15: a run with no base whose commit is not on main takes main's head
-            # as its base and names it in base-commit (task-ci-platform-test-api.yaml). Its
-            # increment is the current run's only when the current run was handed that commit
-            # as its base (the push to main after the landing). A run with no base never
-            # reuses an increment: it finds its own base, or runs every test.
-            return base != '' and (params.get('base', '') or results.get('base-commit', '')) == base
+            # Owner 2026-11-16: an incremental run is never reused. The push to main after an
+            # incremental landing has the landing run's tree; reusing that run would leave the
+            # commit without the full run that is the check on it (and that PROD is released
+            # on). A full run of the tree is reused as before.
+            return False
 
 
         def select(runs, current, identities, repo, base):

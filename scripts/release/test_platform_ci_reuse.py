@@ -58,10 +58,15 @@ def test_empty_tested_by_is_a_fresh_original():
     assert choose([run]) == run
 
 
-def test_incremental_matching_base():
+# Owner 2026-11-16: the push to main after an incremental landing runs every test; it is the
+# check on the landing run and what PROD is released on. Until then (2026-11-15) it reused the
+# landing run's increment, so a landed commit had no full pass at all and STG was not delivered.
+def test_an_incremental_run_is_never_reused_even_from_the_same_base():
     run = candidate()
     next(r for r in run['status']['results'] if r['name'] == 'api-scope')['value'] = 'incremental'
-    assert choose([run]) == run
+    assert choose([run]) is None
+    # Positive control: the same original, full, is reused.
+    assert choose([candidate()]) is not None
 
 
 # Owner 2026-11-15: a backend-only landing's CI is 67–128 s and 49–111 s of it is the whole Go suite;
@@ -76,10 +81,9 @@ def derived(base_commit):
     return run
 
 
-def test_the_push_to_main_reuses_the_landing_runs_increment_from_the_same_base():
-    assert choose([derived('base')]) is not None
-    # Positive control: an increment from another main is not this run's.
-    assert choose([derived('other')]) is None and choose([derived('none')]) is None
+def test_the_push_to_main_does_not_reuse_the_landing_runs_increment():
+    for base_commit in ('base', 'other', 'none'):
+        assert choose([derived(base_commit)]) is None
 
 
 def test_a_run_with_no_base_never_reuses_an_increment():

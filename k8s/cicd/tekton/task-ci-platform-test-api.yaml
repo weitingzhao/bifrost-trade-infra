@@ -306,13 +306,13 @@ spec:
         # that head is an ancestor of the commit: the endpoints the push to main
         # will have. base-commit says so, and the landing counts the run only
         # while main is still that commit (pipeline-land.yaml). A commit on main
-        # keeps having no base. A branch that is behind main runs every test:
+        # has no base and runs every test, whatever base the push names. A branch that is behind main runs every test:
         # the landing rebases it and the new commit has its own run. So does
         # anything that cannot be read. The base then goes the way a base from
         # the params goes, below: the same checks, the same selector.
         landing_base=""
         base_why=""
-        if [ "${LANDING_BASE_BRANCH:-}" = main ] && [ -z "${LANDING_BASE:-}" ] && [ "${API_SCOPE_REQUEST:-}" != full ]; then
+        if [ "${LANDING_BASE_BRANCH:-}" = main ] && [ "${API_SCOPE_REQUEST:-}" != full ]; then
           cd "${ws}/bifrost-platform"
           tested="$(git rev-parse -q --verify 'HEAD^{commit}' 2>/dev/null || true)"
           # Ancestry needs the history a bare-SHA shallow clone lacks; main is
@@ -332,7 +332,8 @@ spec:
             ahead=0
             git merge-base --is-ancestor "$main_head" "$tested" 2>/dev/null || ahead=$?
             if [ "$on_main" = 0 ]; then
-              : # On main: no base, as before.
+              # On main: every test, whatever base the push names (2026-11-16).
+              base_why="on main: every test runs (the check on the incremental run that let the commit in)"
             elif [ "$on_main" = 1 ] && [ "$ahead" = 0 ]; then
               landing_base="$main_head"
               printf '%s' "$landing_base" > "$BASE_COMMIT_RESULT"
@@ -514,6 +515,15 @@ spec:
         revision=""
         base="${LANDING_BASE:-}"
         [ -n "$base" ] || base="$landing_base"
+        # Owner 2026-11-16: with landing-base=main the only base is main's head
+        # for a commit that sits on it. The push to main names the commit before
+        # it as its base; that run is not incremental against it but full: the
+        # incremental ready/ run let the commit in, nobody waits for this one,
+        # and its verdict is what PROD is released on and what the platform
+        # reconciles the incremental run with (ci_reconcile). 2026-11-15, with
+        # this run incremental too, a commit that landed had no full pass at
+        # all: STG was not delivered for 1h46m.
+        if [ "${LANDING_BASE_BRANCH:-}" = main ]; then base="$landing_base"; fi
         why=""
         if [ "${API_SCOPE_REQUEST:-}" = full ]; then
           why="API_SCOPE_REQUEST=full"

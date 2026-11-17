@@ -102,7 +102,7 @@ def test_test_api_takes_its_scope_from_changes():
     # Owner 2026-11-15: a backend-only landing's CI is 67–128 s and 49–111 s of it is the whole Go suite;
     # the landing gate takes main as its base like the infra gate. Both parts are told so (landing-base).
     landing = [{"name": "base", "value": "$(params.base)"}, {"name": "api-scope-request", "value": "$(params.api-scope-request)"},
-               {"name": "landing-base", "value": ""}]  # off, 2026-11-15: see the pipeline
+               {"name": "landing-base", "value": "main"}]  # off 2026-11-15 14:20, on again 2026-11-16: see the pipeline
     assert (api["params"], store["params"]) == ([{"name": "reuse", "value": "$(tasks.reuse.results.reuse)"}, scope, *landing, {"name": "part", "value": "rest"}],
                                                 [{"name": "reuse", "value": "$(tasks.reuse.results.reuse)"}, scope, *landing, {"name": "part", "value": "store"}])
     assert api["runAfter"] == store["runAfter"] == ["clone", "clone-legacy"] and api["taskSpec"] == store["taskSpec"]
@@ -719,14 +719,22 @@ def test_a_ready_commit_behind_main_runs_every_test_and_says_why(tmp_path, landi
     assert (got["base"], got["why"]) == ("none", f"no base: the commit does not sit on main's head ({moved[:12]})")
 
 
-def test_a_commit_on_main_has_no_base_as_before(tmp_path, landing):
+# Owner 2026-11-16: the push to main after an incremental landing is the check on it and what PROD
+# is released on, so a commit on main runs every test, also when the push names the commit before it
+# as its base (the trigger does). 2026-11-15 that run was incremental against it (and reused the
+# landing run): a landed commit had no full pass at all and STG was not delivered for 1h46m.
+def test_a_commit_on_main_runs_every_test_whatever_base_the_push_names(tmp_path, landing):
     origin, work, main = landing
     older = git(work, "rev-parse", "main~1")
     main_moves_on(work)
-    for sha in (git(work, "rev-parse", "main"), main, older):
-        got = landing_run(tmp_path, origin, sha)
+    head = git(work, "rev-parse", "main")
+    for sha, named in ((head, ""), (main, ""), (older, ""), (head, main), (main, older)):
+        got = landing_run(tmp_path, origin, sha, **({"LANDING_BASE": named} if named else {}))
         assert whole_suite(got), got["out"]
-        assert (got["base"], got["why"]) == ("none", "no base (main push)"), sha
+        assert (got["base"], got["why"]) == ("none", "on main: every test runs (the check on the incremental run that let the commit in)"), (sha, named)
+    # Control: without the pipeline's word the push to main is incremental against the base it names.
+    got = landing_run(tmp_path, origin, head, LANDING_BASE=main, LANDING_BASE_BRANCH="")
+    assert got["scope"] == "incremental" and got["base"] == "none", got["out"]
 
 
 def test_a_run_that_asks_for_everything_or_cannot_read_main_runs_every_test(tmp_path, landing):
@@ -745,11 +753,15 @@ def test_a_run_that_asks_for_everything_or_cannot_read_main_runs_every_test(tmp_
         assert whole_suite(got) and (got["base"], got["why"]) == ("none", "no base (main push)"), (word, got["out"])
 
 
-def test_a_base_from_the_params_is_used_as_it_was_and_names_no_base_commit(tmp_path, landing):
-    # The push to main after the landing (base = the commit main moved from): the lane does not read that run.
+def test_with_the_pipelines_word_a_base_from_the_params_does_not_replace_mains_head(tmp_path, landing):
+    # Owner 2026-11-16: with landing-base=main the only base is main's head for a commit that sits on it.
     origin, work, main = landing
     sha = branch(work, "ready/lane", write("api/internal/x/x.go", "package x\n// one\n"))
-    got = landing_run(tmp_path, origin, sha, LANDING_BASE=main)
+    older = git(work, "rev-parse", "main~1")
+    got = landing_run(tmp_path, origin, sha, LANDING_BASE=older)
+    assert (got["code"], got["base"], got["scope"], got["selector"]) == (0, main, "incremental", f"{main} {sha}"), got["out"]
+    # Without the word a base from the params is used as it was and names no base-commit.
+    got = landing_run(tmp_path, origin, sha, LANDING_BASE=main, LANDING_BASE_BRANCH="")
     assert (got["code"], got["base"], got["scope"], got["selector"]) == (0, "none", "incremental", f"{main} {sha}"), got["out"]
 
 

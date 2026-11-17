@@ -187,13 +187,14 @@ spec:
           value: $(params.base)
         - name: api-scope-request
           value: $(params.api-scope-request)
-        # Off since 2026-11-15 14:20 Chicago: with main as the base a ready/ run is
-        # incremental, and the release side takes only a full pass as the CI verdict
-        # of a commit (platform server/evidence_gate.go ledgerCI): after two such
-        # landings main's head had no verdict and STG was not delivered. Set to main
-        # again only once the release side has a verdict for such a commit.
+        # On again 2026-11-16 (off 2026-11-15 14:20-: the release side took only a full
+        # pass as a commit's verdict, so two incremental landings left main's head
+        # without one and STG undelivered). Since platform 63e059b9 an incremental pass
+        # is a verdict together with its base's, which STG is delivered on; the push to
+        # main runs every test (test-api, "on main"), PROD is released on that run, and
+        # the platform reconciles the two (ci_reconcile). To turn it off: "" here.
         - name: landing-base
-          value: ""
+          value: main
         - name: part
           value: rest
       workspaces:
@@ -215,13 +216,14 @@ spec:
           value: $(params.base)
         - name: api-scope-request
           value: $(params.api-scope-request)
-        # Off since 2026-11-15 14:20 Chicago: with main as the base a ready/ run is
-        # incremental, and the release side takes only a full pass as the CI verdict
-        # of a commit (platform server/evidence_gate.go ledgerCI): after two such
-        # landings main's head had no verdict and STG was not delivered. Set to main
-        # again only once the release side has a verdict for such a commit.
+        # On again 2026-11-16 (off 2026-11-15 14:20-: the release side took only a full
+        # pass as a commit's verdict, so two incremental landings left main's head
+        # without one and STG undelivered). Since platform 63e059b9 an incremental pass
+        # is a verdict together with its base's, which STG is delivered on; the push to
+        # main runs every test (test-api, "on main"), PROD is released on that run, and
+        # the platform reconciles the two (ci_reconcile). To turn it off: "" here.
         - name: landing-base
-          value: ""
+          value: main
         - name: part
           value: store
       workspaces:
