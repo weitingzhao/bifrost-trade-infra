@@ -331,8 +331,22 @@
 | [TD-579](#td-579) | P1 | governance | Owner 定的法还有 8 条没落进规则文件（`OWNER_LAW.md` 标「未落」的行） | 其中 5 条要你重签发布规则 |
 | [TD-580](#td-580) | P2 | owner-exec | 执行卡的建卡检查不防「GET 也能读 Secret 内容、也能打 /proxy」 | 安全/凭据（要你批） |
 | [TD-581](#td-581) | P3 | cicd | 测试 TestThreadInboxBacklogMustNotStarveSweep 在集群 CI 里会红：13 秒期限只比 10 秒投递预算多 3 秒 | 不用批 |
+| [TD-582](#td-582) | P2 | platform | store 里 30 个计划测试用 store 内部夹具断言跨领域接线；planstore 为它们多导出 21 个名字 | 不用批 |
 
 ## 条目
+
+### TD-582
+
+**P2 · platform api/internal/agentrt/store/*_test.go 与 api/internal/agentrt/planstore · 伸进内部的集成测试代替了合约测试**
+
+- **状态**：未开始（2026-11-17）。归属：解耦线（0.1）；计划领域的合约测试由计划领域补。
+- **违反的标准**：OWNER_LAW #28「领域之间只通过合约说话，评判和测试只对着合约做」。跨领域的行为应由两类测试覆盖：各领域对着自己对外合约的黑盒测试，加少数只走对外入口的流程测试。这批两类都不是。
+- **出处**：2026-11-17 计划代码搬出 store（platform `159c4f0b`、`90f25319`）。解耦线当时把这批记成「已知现状、不算欠账」，判断次序错了（先下结论、没先说标准）；主统筹转 Owner 12:1x 的意见更正为欠账。
+- **证据**：store 包里 30 个测试文件仍断言计划代码，靠的是 store_test 包里未导出的整套夹具（`newWorld`/`seededDB`/`seedTemplate`、`newKernelWorld`、`ask`/`answer`、`pv*`、时钟开关 `CtxOf`/`OwnClock`/`FreezeClock`、`SetHook` 等，合计几百行），其中一部分同时断言 store 的接线（端口绑定、记录员导入、外部工作写入）。planstore 为它们多导出 21 个名字：11 个端口调用名和 6 个自留常量（用户 `store/planports_export_test.go`），`ChangeBlocks`、`PendingChangeLimit`（`store/export_test.go`），`ImportOf`、`StreamRoot`（`store/pending_projection_parity_test.go`）。逐文件明细：共享笔记 `biz-align/planstore-tests-2026-11-17.md`。
+- **影响**：计划领域的内部改一处，store 的测试就要跟着改；合约之外的 21 个名字谁都能用；测试过了也说明不了计划领域的对外合约是否成立。
+- **修法**：不是搬，是重写。前提：计划领域登记了对外合约（Go 面和存储面），并有对着它的黑盒测试；store 的事务、身份、词汇表也有自己的合约测试。前提满足后，用这两组合约测试加少数只走对外入口的流程测试覆盖这 30 个文件断言的接线，然后删掉这批内部测试，21 个名字改回不导出。
+- **防线**：这 30 个文件和 21 个名字记成只减不增的基线，放在 CI 线的检查里（和 CI 线对过再落，不另起一套）。
+- **验收**：基线清单为空；`grep` 不到为 store 测试导出的 planstore 名字；全套测试通过。
 
 ### TD-581
 
