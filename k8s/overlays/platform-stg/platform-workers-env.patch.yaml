@@ -15,12 +15,13 @@ spec:
             - name: OPS_VIEWER_ENV
               value: "stg"
             # Owner 2026-10-07: STG observes, PROD maintains. Exactly one IB
-            # auto-repair loop (PROD) acts on the one live data/ib-gateway (TD-223),
-            # and only PROD records releases (both wrote the same cicd records).
+            # auto-repair loop (PROD) acts on the one live data/ib-gateway (TD-223).
+            # Each platform keeps release records in its own table (2026-11-18);
+            # "rows" records without announcing: release events are PROD's.
             - name: OPS_IB_AUTOREPAIR_ENABLED
               value: "false"
             - name: PLATFORM_RELEASE_RECORDER
-              value: "off"
+              value: "rows"
             # W-42: release-policy expiry reminders go to the Owner's phone;
             # PROD is the one sender.
             - name: PLATFORM_RELEASE_POLICY_REMINDERS

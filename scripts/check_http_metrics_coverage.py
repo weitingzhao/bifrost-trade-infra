@@ -57,7 +57,7 @@ API_RULES = (
 APP_COMPONENTS = frozenset({"api", "research", "plugin", "control-plane", "worker"})
 #: Monitors that scrape exporters / infrastructure, not an API of ours. signal: node-level
 #: exporters such as the node-reboot-required DaemonSet (W-33).
-INFRA_COMPONENTS = frozenset({"postgres", "redis", "minio", "logging", "gateway", "signal"})
+INFRA_COMPONENTS = frozenset({"postgres", "redis", "minio", "logging", "gateway", "signal", "bus"})
 #: platform-api's namespaces; its request series must reach the API rules like everyone's.
 PLATFORM_NAMESPACES = ("bifrost-platform-prod", "bifrost-platform-stg")
 #: A label matcher other than namespace in the ratchet's selectors is an exemption.
