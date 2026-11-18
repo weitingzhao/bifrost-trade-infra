@@ -19,14 +19,6 @@
 # assessment of a card or an approval reads its items from, as
 # <repository>/<path> at main through the Gitea mirror; only the workers run
 # the assessments.
-# POST_RELEASE_CHECK (design: side-session notes ci-speed/auto-prod-design.md
-# 3.1 step A; ruling 2026-11-14): observe makes the workers read, 180 s after
-# a platform release here completes, what runs in this namespace and record
-# one verdict per run (audit action post_release_check); nothing is stopped or
-# rolled back. POST_RELEASE_PIPELINE names the pipeline that delivers this
-# environment (the default is the PROD pipeline). It is on here first so the
-# check meets a real failed start before PROD turns it on. Off: remove the two
-# variables and sync.
 # UNIT_SCOPE_SHADOW (main coordinator 2026-11-14: backend skip by package goes
 # shadow first): on makes the workers log, for each finished CI run of the
 # platform repository, which units the declaration says would have run and
@@ -76,10 +68,6 @@ spec:
           env:
             - name: AGENTRT_LEDGER
               value: bifrost-trade-infra/agent-config/TECH_DEBT.md
-            - name: POST_RELEASE_CHECK
-              value: observe
-            - name: POST_RELEASE_PIPELINE
-              value: bifrost-deliver-platform
             - name: UNIT_SCOPE_SHADOW
               value: "on"
             - name: AGENTRT_ENV
