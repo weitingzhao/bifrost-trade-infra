@@ -333,8 +333,25 @@
 | [TD-581](#td-581) | P3 | cicd | 测试 TestThreadInboxBacklogMustNotStarveSweep 在集群 CI 里会红：13 秒期限只比 10 秒投递预算多 3 秒 | 不用批 |
 | [TD-582](#td-582) | P2 | platform | store 里 30 个计划测试用 store 内部夹具断言跨领域接线；planstore 为 store 的测试多导出 42 个名字 | 不用批 |
 | [TD-583](#td-583) | P3 | platform | 测试 TestCursorAtReadsFromATime 在全量并行时会红：要等全库最老事务让路，15 秒等不到 | 不用批 |
+| [TD-584](#td-584) | P3 | platform | 两轮计划决定同时跑时，同一张卡的确认记录可能写两条 | 不用批 |
 
 ## 条目
+
+### TD-584
+
+**P3 · platform api/internal/agentrt/planstore/plandecide.go:64-101 · 两轮计划决定同时跑时，同一张卡的 `plan_card_settled` 可能写两条**
+
+- **状态**：未开始（2026-11-18）。归属：解耦线（0.1），计划领域的代码暂由它维护。
+- **出处**：2026-11-18 TD-582 写计划领域黑盒测试时临时实测到（实测用例没有进仓库），已写进 `planstore/doc.go` 的合约（platform `f85dbef0`）。
+- **证据**：`ackDecided` 先在一个事务里查「已决定、还没确认」的卡，事务结束后逐张调 `ack`，再在另一个事务里写 `plan_card_settled`。查和写之间没有锁，也不复查，两轮同时跑就都会写。
+- **现在会不会发生**：生产上基本不会。`DecidePlanChanges` 只由 platform-workers 的 `agentrt-facts-rules` 循环调用，循环内顺序执行；PROD 的 workers 是 1 副本、`Recreate` 发布，新旧进程不重叠。2026-11-18 查库：PROD 109 条、STG 95 条确认记录，重复 0 条（确认文字还都在旧的 `note` 类型上，`plan_card_settled` 还没写过）。
+- **后果**：
+  - 不会叫醒两次：问题库的 `Ack`（`questions/transition.go:198`）是幂等的，已读过的答案直接返回，不再写回执，不再发 `question.ack`。
+  - 不影响决定本身：决定只生效一次。
+  - 会多一条账：计划流上多一条相同的 `plan_card_settled`。现在没有读取方展示或统计它，唯一的读是 `ackDecided` 的 `NOT EXISTS`，多一条不改变结果，不会误导读者。以后谁按它计数就会数多。
+- **修法**：写 `plan_card_settled` 的事务里先锁该计划流（`eventlog.LockStream`），复查同文字的记录已存在就跳过。`ack` 本身幂等，不用动。不碰审批代码。
+- **防线**：在 `planstore/contract_changes_test.go` 新增两轮同时跑的用例，断言确认记录只有一条，并带阳性对照（去掉复查会红）。
+- **验收**：并发用例 `-count=20 -race` 通过；`planstore/doc.go` 里「may both acknowledge」的说法改掉。
 
 ### TD-583
 
