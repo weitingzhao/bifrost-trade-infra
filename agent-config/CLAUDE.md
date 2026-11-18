@@ -201,7 +201,7 @@ git commit                      # 不带 -a
 查某个线程碰过的提交：`git log --all --format='%h %s' --grep='Claude-Session: local_…'`。
 husky 仓库（frontend、platform）新开的 worktree 不执行任何钩子，在那里提交时自己补 `--trailer`。
 线程标题（Commit Lineage 显示用）由 Stop hook `claude/hooks/report-thread-title.js` 上报（TD-197）：令牌只放
-`~/.config/bifrost/lineage-reporter.token`（600）或 `PLATFORM_REPORTER_TOKEN`，不进仓库；没有令牌就不发，本机 platform-api 的同步兜底。
+`~/.config/bifrost/lineage-reporter.token`（600）或 `PLATFORM_REPORTER_TOKEN`，不进仓库；没有令牌就不发。
 
 ### 发布窗口 — 推 main 或起 deliver 之前先看
 
