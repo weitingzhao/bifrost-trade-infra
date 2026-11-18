@@ -64,6 +64,7 @@ Owner 定过的方向，一条一行。**没登记的不算定**：主统筹每�
 | 37 | 2026-11-18 | 要保留的模块都应和总线连通；断开了也没人受影响的，先问它为什么存在，没有理由就删 | 待写：沟通换代的去向表和各线清理规矩 | 只有文字 | 未落：沟通线和解耦线在按此重判。独立报警路、应急路径要有演练证据；有数据的删除和 Trade 仍按硬边界 | — |
 | 38 | 2026-11-18 | 简化和清理本身就是回报，需要做就做，不用先证明省了多少 | `agent-config/claude/skills/owner-decision-check/SKILL.md`「简化和清理本身就是回报」 | 只有文字 | 已落 | — |
 | 39 | 2026-11-18 | 所有没有意义的手续都需要简化 | `agent-config/claude/skills/owner-decision-check/SKILL.md`「没有意义的手续都要简化」 | 只有文字 | 已落 | — |
+| 40 | 2026-11-18 | 游戏化 UI 要让人看出系统是否顺畅；能反映就反映，不能反映不要假装，真实反映才是核心价值 | `agent-config/CLAUDE.md`「能反映就反映，不能反映不要假装」 | 只有文字 | 已落 | — |
 | H1 | 2026-07-04、11-13 | 交易和钱：D10 冻结；围栏没立好之前不排进任何波次 | `agent-config/CLAUDE.md`「D10 — 交易执行冻结」「不排进任何波次」「这六类始终是 Owner 的」 | `preflight.js`；签名规则的 `no_d10_paths`；集群准入策略 | 已落 | — |
 | H2 | — | 口令和 Secret 不入库、不读 | `agent-config/CLAUDE.md`「不得进仓库的是」「这六类始终是 Owner 的」 | `preflight.js`；CI 的 statics 段 | 已落 | — |
 | H3 | — | 有数据的删改要他 | `agent-config/CLAUDE.md`「跑 ddl-apply Job 前先」「这六类始终是 Owner 的」 | 签名规则的 `additive_ddl` | 已落。和 #9 的分界线未落 | — |

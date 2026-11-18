@@ -334,7 +334,7 @@ MCP：Claude `.mcp.json` 把平台 server 指到 PROD VIP `http://192.168.10.100
   在子 repo 目录启动的会话没有 preflight hook 与共享记忆（auto mode 规则在用户级，处处都有）。
 - **席位按领域归类和命名（Owner 2026-11-14）**：领域表还在起步，暂时在统筹的共享笔记 `brain/company-map.md`，定稿后搬进 `agent-config/`；这里不抄一份。
 - **每条线有一页章程（Owner 2026-11-15）**：管哪块、对外的口子、权限、目标和读数，在 `bifrost-trade-infra/agent-config/charters/`；新开会话先读自己那页。重叠还没裁；机器不认席位，硬边界以 §3、§5 为准。
-- **Ops 游戏化是人和 Agent 一起做事的具象化（Owner 2026-11-18）**：表现和系统分开，人只做人该做的，Agent 的真实工作看得见，万物分档。方向和落地路线在 `charters/10-cockpit.md`。
+- **Ops 游戏化是人和 Agent 一起做事的具象化（Owner 2026-11-18）**：表现和系统分开，人只做人该做的，Agent 的真实工作看得见，万物分档。目标是看出系统现在是否顺畅、堵在哪；能反映就反映，不能反映不要假装。方向和落地路线在 `charters/10-cockpit.md`。
 - **IB 账户号不是秘密**：登录只在两台 Win11 TWS 里，系统只经 IB API socket 取数；
   不得进仓库的是 `.env`、Secret YAML、dump、kubeconfig 与账户**内容**（12 个 repo 全部 PUBLIC）。
 
