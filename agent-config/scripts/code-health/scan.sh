@@ -319,6 +319,26 @@ add_metric code.image-version-spread.research "distinct research image tags" res
   "tags: $(printf '%s' "$tiers" | tr '\n' ' ')" "$tiers"
 fi
 
+# ---------------------------------------------------------------- metric 5
+# Facts written by hand into Ops source (law 30, Owner 2026-11-17: everything
+# Ops shows is computed from its source). Each string literal or JSX text with
+# a date, a state word (CLOSED, Signed, Live...) or a ratio/count ("6/6",
+# "4 moved") counts once; comments and test code do not. There is no in-file
+# exemption: a new honest hit is paid for by removing one elsewhere, and raising
+# the baseline is the Owner's. Rules: ops-hardcoded-facts.awk.
+if want bifrost-platform; then
+ops_files="$(tracked bifrost-platform 'console/src/*.ts' 'console/src/*.tsx' 'api/internal/*.go' \
+  ':(exclude)*_test.go' ':(exclude)*.test.ts' ':(exclude)*.test.tsx' ':(exclude)*.spec.ts' ':(exclude)*.spec.tsx' \
+  ':(exclude)*/testdata/*' ':(exclude)*/__fixtures__/*' ':(exclude)*/__tests__/*' ':(exclude)console/src/test/*' \
+  ':(exclude,icase)*fixture*' ':(exclude)*/agentrttest/*' ':(exclude)*/rptest/*')"
+ops_facts="$(cd "$ROOT/bifrost-platform" && xargs -0 awk -f "$SCRIPT_DIR/ops-hardcoded-facts.awk" < "$ops_files")"
+ops_facts_n=$(printf '%s' "$ops_facts" | grep -c . || true)
+ops_kind() { printf '%s\n' "$ops_facts" | grep -cF ": [$1] " || true; }
+add_metric code.ops-hardcoded-facts.rocket "hard-coded facts in Ops source" rocket bifrost-platform \
+  "$ops_facts_n" OPS_HARDCODED_FACTS_PLATFORM_BASELINE \
+  "date $(ops_kind date), state $(ops_kind state), count $(ops_kind count)" "$ops_facts"
+fi
+
 # ---------------------------------------------------------------- report
 # HEAD of the governance repo is the freshness anchor: a stored reading whose
 # commit is behind the current HEAD is stale, and the UI must say so rather
@@ -388,7 +408,7 @@ if [[ -z "$metrics_json" ]]; then
   # Repos no metric covers since the 800-line ratchet went (Owner 2026-11-06):
   # a scan restricted to them has nothing to check, which is a pass that says
   # so. An empty result for any other scan is still a failure.
-  NO_METRIC_REPOS=" bifrost-platform bifrost-ui "
+  NO_METRIC_REPOS=" bifrost-ui "
   if [[ -n "$REPO_FILTER" && -z "$not_measured" ]]; then
     uncovered=1
     for r in ${REPO_FILTER//,/ }; do
