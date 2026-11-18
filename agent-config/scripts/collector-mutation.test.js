@@ -13,7 +13,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 const h = require('./collector-test-harness.js')
 
-const FILES = ['thread-heartbeat.js', 'collector-session.js', 'collector-epochs.js', 'collector-launch.js', 'host-heartbeat.js', 'progress-publish.js', 'collector-test-harness.js',
+const FILES = ['thread-heartbeat.js', 'collector-session.js', 'collector-epochs.js', 'collector-launch.js', 'collector-test-harness.js',
   'collector-session.test.js', 'collector-hooks.test.js', 'collector-noop.test.js', 'source-capability-witness.test.js']
 const U = 'collector-session.test.js'
 const K = 'collector-hooks.test.js'
@@ -48,7 +48,6 @@ const MUTANTS = [
   ['heartbeats use the reporter token', 'thread-heartbeat.js', '  if (!body || !body.identity) return token()', '  return token()', K, '^credentials by purpose'],
   ['the epoch lock waits the whole budget', 'thread-heartbeat.js', '  if (capMs > 0) deadline = Math.min(deadline, lockRuntime.now() + capMs)', '', K, '^lock contention'],
   ['a dropped end is sent anyway', 'thread-heartbeat.js', '  if (r.drop) return false', '  if (r.drop) r.replay = []', K, '^a late SessionEnd across a resume'],
-  ['the host beat keeps the reporter token', 'host-heartbeat.js', '  if (collector) return collector.collectorToken()\n', '', K, '^credentials by purpose'],
   ['reporter mode sends a local field', 'thread-heartbeat.js', '  delete out.tool_use_id\n', '', N, '^tool, wait, compaction'],
   ['reporter mode sends the session events', 'thread-heartbeat.js', ': EVENTS[vendor]\n', ": require('./collector-session.js').eventMap(vendor, EVENTS)\n", N, '^every Claude hook fixture, one after another'],
 ]

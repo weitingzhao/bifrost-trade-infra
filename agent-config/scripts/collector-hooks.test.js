@@ -274,27 +274,15 @@ test('collector mode never sends a title; reporter mode still does (positive con
   }
 })
 
-test('credentials by purpose: heartbeats use the collector token, progress keeps the reporter one', async () => {
+test('credentials by purpose: heartbeats use the collector token', async () => {
   const home = h.tmpHome('tokens')
   const srv = await h.fakeServer()
   try {
-    const doc = path.join(home, 'status.json')
-    fs.writeFileSync(doc, '{"v":1}')
     const both = h.collectorEnv(home, srv.url)
     await h.runHook(HB, 'claude', h.claudePayload('SessionStart', S, { source: 'startup' }), { ...both, CLAUDE_PID: '41001' })
-    await h.runNode([path.join(h.HERE, 'progress-publish.js'), doc], { env: both })
-    await h.runNode([path.join(h.HERE, 'host-heartbeat.js')], { env: both })
     assert.deepEqual(srv.got.map(r => [r.method, r.url, r.auth]), [
       ['POST', '/api/v1/agent/threads/heartbeat', `Bearer ${h.COLLECTOR}`],
-      ['PUT', '/api/v1/agent/progress', `Bearer ${h.REPORTER}`],
-      ['POST', '/api/v1/agent/hosts/heartbeat', `Bearer ${h.COLLECTOR}`],
     ])
-    assert.equal(srv.got[2].body.host, 'h1')
-    assert.ok(Object.values(srv.got[2].body.vendors).every(v => v.token === true))
-    const collectorOnly = { ...both }
-    delete collectorOnly.PLATFORM_REPORTER_TOKEN
-    await h.runNode([path.join(h.HERE, 'progress-publish.js'), doc], { env: collectorOnly })
-    assert.equal(srv.got.length, 3, 'a collector token never publishes progress')
   } finally {
     srv.close()
   }

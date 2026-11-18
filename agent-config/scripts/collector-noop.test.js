@@ -21,7 +21,7 @@ const { spawnSync } = require('node:child_process')
 const h = require('./collector-test-harness.js')
 
 const BASELINE = '4508170' // the commit this slice is based on
-const SCRIPTS = ['thread-heartbeat.js', 'host-heartbeat.js', 'progress-publish.js']
+const SCRIPTS = ['thread-heartbeat.js']
 const PRELOAD = h.preloadPath()
 
 function baselineDir() {
@@ -210,50 +210,4 @@ test('the run wrapper sends what the baseline sends', async () => {
   const before = await runWrapper('baseline')
   assert.equal(before.length, 2)
   assert.deepEqual(await runWrapper('current'), before)
-})
-
-async function progress(variant) {
-  const home = h.tmpHome(`noop-progress-${variant}`)
-  const srv = await h.fakeServer()
-  try {
-    const doc = path.join(home, 'status.json')
-    fs.writeFileSync(doc, JSON.stringify({ v: 1, lanes: [] }))
-    const env = h.cleanEnv(home, srv.url, { PLATFORM_REPORTER_TOKEN: h.REPORTER, NODE_OPTIONS: `--require ${PRELOAD}` })
-    const r = await h.runNode([path.join(VARIANTS[variant], 'progress-publish.js'), doc], { env })
-    assert.equal(r.code, 0)
-    return srv.got.map(({ method, url, auth, raw }) => ({ method, url, auth, raw }))
-  } finally {
-    srv.close()
-  }
-}
-
-test('progress-publish sends what the baseline sends', async () => {
-  const before = await progress('baseline')
-  assert.equal(before.length, 1)
-  assert.deepEqual(await progress('current'), before)
-})
-
-async function hostBeat(variant) {
-  const home = h.tmpHome(`noop-host-${variant}`)
-  const ws = path.join(home, 'ws')
-  fs.mkdirSync(path.join(ws, '.claude'), { recursive: true })
-  fs.symlinkSync(VARIANTS[variant], path.join(ws, 'scripts'))
-  fs.copyFileSync(path.join(h.HERE, '..', 'claude', 'settings.json'), path.join(ws, '.claude', 'settings.json'))
-  seedHome(home)
-  const srv = await h.fakeServer()
-  try {
-    const env = h.cleanEnv(home, srv.url, { PLATFORM_REPORTER_TOKEN: h.REPORTER, BIFROST_WORKSPACE: ws, CODEX_HOME: path.join(home, '.codex'), NODE_OPTIONS: `--require ${PRELOAD}` })
-    const r = await h.runNode([path.join(VARIANTS[variant], 'host-heartbeat.js')], { env })
-    assert.equal(r.code, 0)
-    return srv.got.map(({ method, url, auth, raw }) => ({ method, url, auth, raw }))
-  } finally {
-    srv.close()
-  }
-}
-
-test('the host heartbeat sends what the baseline sends', async () => {
-  const before = await hostBeat('baseline')
-  assert.equal(before.length, 1)
-  assert.match(before[0].raw, /"wired":true/)
-  assert.deepEqual(await hostBeat('current'), before)
 })

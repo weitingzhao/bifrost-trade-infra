@@ -3,8 +3,8 @@
 /**
  * Collector mode of the hook scripts (R5:5.5-12 S1-4, design §2.3, §4, §12).
  *
- * Off by default. thread-heartbeat.js and host-heartbeat.js load this module
- * only to ask whether a collector token is configured; without one they run
+ * Off by default. thread-heartbeat.js loads this module
+ * only to ask whether a collector token is configured; without one it runs
  * exactly as before (reporter mode) and nothing here is used.
  *
  *   PLATFORM_COLLECTOR_TOKEN, or the first line of
