@@ -462,7 +462,7 @@ NEXT = "%040x" % (int(SHA, 16) + 1)  # the stub's head after one rebase
 IDS = "I" + "1" * 40
 
 
-def run_land(gitea, ref=REF, commit=SHA, repo=PLATFORM, wait=None, budget=3000, push=None, turn=None):
+def run_land(gitea, ref=REF, commit=SHA, repo=PLATFORM, wait=None, budget=3000, push=None, turn=None, tidy=None):
     """(outcome, refusal); the whole answer is left in gitea.landed."""
     waits = []
 
@@ -476,7 +476,8 @@ def run_land(gitea, ref=REF, commit=SHA, repo=PLATFORM, wait=None, budget=3000, 
     scope = module()
     scope["call"] = gitea.call
     gitea.landed, problem = scope["land"]("tok", table(), policy(), repo, ref, commit, wait=wait or waited,
-                                          gitea=gitea.HOST, tries=3, pause=0, budget=budget, push=push, turn=turn or (lambda: True))
+                                          gitea=gitea.HOST, tries=3, pause=0, budget=budget, push=push, turn=turn or (lambda: True),
+                                          tidy=tidy or (lambda api: None))
     gitea.waits = waits
     return gitea.landed.get("outcome", ""), problem
 
@@ -935,20 +936,40 @@ def test_a_change_to_the_head_release_loop_lands_and_is_reported():
     assert table()[PLATFORM]["watched"] and "watched" not in table()[INFRA]
 
 
-# 2026-11-18: 65 Gitea rebases in two hours, each checking out the whole repository
-# on the disk etcd shares, and each starting a CI run that the next landing undid.
-# A branch behind main waits for the older landings. Positive control: without the
-# turn check in up_to_date the first assertion sees a rebase while it is not its turn.
-def test_a_branch_behind_main_is_rebased_only_when_it_is_first_in_line():
-    gitea = Gitea(behind=True)
+# 2026-11-18: 65 Gitea rebases in two hours and about 20 GB written after each landing,
+# on the disk etcd shares: Gitea tests every open pull request again when main moves.
+# A landing opens its pull request only when it is first in line.
+# Positive control: moving the wait after pull_request fails the first assertion.
+def test_a_landing_opens_its_pull_request_only_when_first_in_line():
+    gitea = Gitea()
     seen = []
 
     def turn():
-        seen.append(len(gitea.paths("/update")))
+        seen.append(len([c for c in gitea.calls if c[0] == "POST" and c[1].endswith("/pulls")]))
         return len(seen) > 2
 
     assert run_land(gitea, turn=turn) == ("landed", "")
-    assert seen[:3] == [0, 0, 0] and len(gitea.paths("/update")) == 1
+    assert seen == [0, 0, 0]
+
+
+# Same origin: a refused landing left its pull request open for Gitea to keep testing.
+# Positive control: dropping the alive check closes the running branch too.
+def test_abandoned_landing_pull_requests_are_closed_and_running_ones_kept():
+    scope = module()
+    calls = []
+
+    def call(_token, method, url, body=None):
+        calls.append((method, url, body))
+        if method == "GET":
+            return 200, [{"number": 1, "head": {"ref": "ready/old"}}, {"number": 2, "head": {"ref": "ready/live"}},
+                         {"number": 3, "head": {"ref": "feature"}}]
+        return 201, {}
+
+    scope["call"] = call
+    run = {"metadata": {"labels": {"bifrost.io/repo": PLATFORM}}, "status": {},
+           "spec": {"params": [{"name": "branch", "value": "refs/heads/ready/live"}]}}
+    scope["close_abandoned"]("tok", "http://g/api", PLATFORM, runs=lambda _: [run])
+    assert [c[1] for c in calls if c[0] == "PATCH"] == ["http://g/api/pulls/1"]
 
 
 # Same origin: the queue is the unfinished landings of the same repository, oldest

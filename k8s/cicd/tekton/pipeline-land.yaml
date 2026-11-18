@@ -406,6 +406,31 @@ spec:
                   names = [m['name'] for m in sorted(waiting, key=lambda m: (m['creationTimestamp'], m['name']))]
                   return not names or run not in names or names[0] == run
 
+              def close_abandoned(token, api, repo, runs=cluster_runs):
+                  """Close the open landing pull requests no unfinished run owns, and say how many stay
+                  open. A refused landing leaves its pull request open, and Gitea tests every open
+                  pull request again each time main moves (2026-11-18: about 20 GB written after each
+                  landing). The branch stays, and pushing it again opens a new one. Best effort."""
+                  try:
+                      alive = {p.get('value') for r in runs('bifrost-land')
+                               if not r.get('status', {}).get('completionTime')
+                               and r['metadata'].get('labels', {}).get('bifrost.io/repo') == repo
+                               for p in r['spec'].get('params', []) if p.get('name') == 'branch'}
+                      code, pulls = call(token, 'GET', api + '/pulls?state=open&limit=50')
+                      if code != 200:
+                          return
+                      left = 0
+                      for pull in pulls:
+                          ref = pull.get('head', {}).get('ref', '')
+                          if ref.startswith('ready/') and 'refs/heads/' + ref not in alive:
+                              call(token, 'PATCH', api + '/pulls/%d' % pull['number'], {'state': 'closed'})
+                          else:
+                              left += 1
+                      print('open pull requests of %s: %d (of %d before closing abandoned ones)'
+                            % (repo, left, len(pulls)), flush=True)
+                  except Exception as problem:
+                      print('NOTICE: abandoned pull requests were not closed: %s' % problem, flush=True)
+
               def up_to_date(token, api, number, on, turn=lambda: True):
                   """(main's head, '') when the branch sits on it (`on` is the commit the branch is known
                   to sit on); (None, 'rebased') after Gitea rebased the branch; (None, 'waiting') while
@@ -527,7 +552,7 @@ spec:
                   return ''
 
               def land(token, table, policy, repo, ref, commit, wait=ci_wait, gitea=GITEA, tries=24, pause=5,
-                       budget=50 * 60, push=None, turn=lambda: True):
+                       budget=50 * 60, push=None, turn=lambda: True, tidy=lambda api: None):
                   """(what landed, refusal): ({'outcome': 'landed', 'commit': ..., 'change-ids': ...}, '') or
                   ({}, why not). One push is one run: a branch behind main is rebased by Gitea and this
                   run goes on with the new commit, as often as main moves, until it is merged or the
@@ -539,6 +564,14 @@ spec:
                   if entry is None:
                       return {}, 'refused: this repository is not in LANDING_REPOS (pipeline-land.yaml)'
                   branch, api = found.group(1), gitea + '/api/v1/repos/bifrost/' + repo
+                  # The pull request is opened only at this run's turn: every open one is tested
+                  # again by Gitea whenever main moves.
+                  deadline = time.time() + budget
+                  while not turn():
+                      if time.time() >= deadline:
+                          return {}, 'refused: older landings took %d minutes; push ready/ again' % (budget // 60)
+                      time.sleep(pause * 3)
+                  tidy(api)
                   pull, problem = pull_request(token, api, branch, commit, repo)
                   ids, commits, seen = [], [], set()
                   if not problem:
@@ -558,7 +591,7 @@ spec:
                   # merge_base Gitea reports. After a rebase that field, the pull request's commit list
                   # and the list of open pull requests all lag (2026-11-13: land-79dsl, land-wbnxq), so
                   # from then on the run reads only by commit id and by the pull request's number.
-                  deadline, pushed, stale, on = time.time() + budget, commit, 0, pull.get('merge_base')
+                  pushed, stale, on = commit, 0, pull.get('merge_base')
                   while time.time() < deadline:
                       base, problem = up_to_date(token, api, pull['number'], on, turn)
                       if problem == 'waiting':
@@ -638,7 +671,8 @@ spec:
                                              os.environ['REPO'], os.environ['BRANCH'], os.environ['COMMIT'],
                                              push=lambda repo, commit, depth: fast_forward(
                                                  user, secret, GITEA + '/bifrost/' + repo + '.git', commit, depth),
-                                             turn=lambda: first_in_line(os.environ['RUN'], os.environ['REPO']))
+                                             turn=lambda: first_in_line(os.environ['RUN'], os.environ['REPO']),
+                                   tidy=lambda api: close_abandoned(secret, api, os.environ['REPO']))
                   if problem:
                       for name, value in (('outcome', 'refused'), ('refusal', problem[:2000])):
                           with open(RESULTS + name, 'w') as handle:
