@@ -682,11 +682,12 @@ spec:
         - name: output
           workspace: build-context
 
-    # TD-411 (Owner 2026-10-21: PROD's migrations stay the Owner's Job): before the
-    # rollout, every agentrt migration this build carries must already be applied to
-    # PROD's database, with the same bytes, as PROD's platform-api says on /health
-    # (agentrt_schema_applied). If one is missing the run stops here and names the
-    # Job to create with this build's image; a health that does not say refuses too.
+    # TD-411: before the rollout, every agentrt migration this build carries must
+    # already be applied to PROD's database, with the same bytes, as PROD's
+    # platform-api says on /health (agentrt_schema_applied). If one is missing the run
+    # stops here and says how to run it: run_agentrt_migration for additive migrations
+    # (OWNER_LAW 32, 2026-11-18), else the Owner's Job with this build's image. A health
+    # that does not say refuses too.
     # "This build" is the api image STG built and verified (check-source's digest);
     # the migrations are read from the same commit's clone.
     - name: agentrt-schema
@@ -788,8 +789,11 @@ spec:
                       image = REGISTRY + "@" + digest
                       line = "image: 192.168.10.73:30500/bifrost-platform-api:prod$"
                       refuse("PROD's database misses %s, which this build carries" % ", ".join(missing), [
-                          "The Owner runs PROD's agentrt migrations first (its DDL approved), with this build's image,",
-                          "from an infra checkout on main (it creates nothing unless the Job's image line is there once):",
+                          "Additive migrations need no Owner step: request run_agentrt_migration with the commit this",
+                          "run releases; the signed policy judges it and the platform starts the Job. Then start this",
+                          "release again. If the platform answers that approval is required, the Owner runs it with",
+                          "this build's image, from an infra checkout on main (it creates nothing unless the Job's",
+                          "image line is there once):",
                           "  test \"$(grep -c '%s' k8s/agentrt-migrate/prod/job.yaml)\" = 1 && sed 's#%s#image: %s#' "
                           "k8s/agentrt-migrate/prod/job.yaml | kubectl create -f -" % (line, line, image),
                           "then watches the Job finish (k8s/agentrt-migrate/README.md) and starts this release again.",

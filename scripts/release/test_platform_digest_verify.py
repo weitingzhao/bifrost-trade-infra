@@ -854,9 +854,11 @@ def test_protected_files_unchanged():
     # first (CI_GATE_LEDGER) and falls back to the retained runs; rollout/digest
     # semantics stay unchanged. The pin was not moved with those two commits: this
     # directory's tests are not among the ones ci-infra runs.
+    # OWNER_LAW 32 (2026-11-18): the agentrt-schema refusal names run_agentrt_migration first;
+    # wording and a comment only, what it refuses is unchanged.
     hashes = {
         "task-deliver-platform.yaml": "3c039ec342b7224ec593ee9d76566037b750878b522ecb75bc4c1e75188972aa",
-        "pipeline-deliver-platform-prod.yaml": "8cde94a27333a6e7a8a0683d6018cc83626fcc59abc90cb2d45b339c9683e6e6",
+        "pipeline-deliver-platform-prod.yaml": "5c2d3eafed312936e7d90f4ead1258b0ac44f530cbdc1555cacf9cd5fe3878f4",
     }
     for filename, expected in hashes.items():
         assert (
