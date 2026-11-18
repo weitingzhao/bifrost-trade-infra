@@ -448,3 +448,15 @@
 - infra `scripts/release/test_policy_card.py`：卡的命令只带 sha256、先核对再读钥匙、不含任何 D10 路径（阳性对照：规则全文含）、不打印秘密、不起后台进程、不是 64 位十六进制的 sha 被拒。
 - `scripts/release/test_release_policy_cli.py::test_release_sh_judges_no_policy_itself` 原有：`release.sh` 自己不碰规则对象，所以卡的命令模板放在 `release_policy.py`。
 - 覆盖不到的：卡的理由写得对不对（规则改了哪几条）靠建卡的席位；集群里那把钥匙的 Secret 能被集群系统组件和备份读到；解冻还没有这条路（TD-578）。
+
+### 每个事件类型只有一个领域声明（TD-583，2026-11-17）
+
+出处：note 和 policy_alert 里混着七个领域的记录，由 store（混合包）统一声明；谁改字段谁说了算不清（OWNER_LAW #28，主统筹 11-17 晚定的方向）。拆成各自的类型后（platform `d95919c5`…`52223a83`，迁移 0029–0032），收尾把两者收窄并交给唯一的主人（`03c6a465`）。
+
+- 登记表 `bus/registry/ledger/types.yaml` 每个类型写一个领域；`bus/registry` 的测试要求登记表加上 rocket.yaml 正好等于最新迁移里 event_type_closed 允许的那组。
+- 各领域测自己声明的类型在登记表里、领域对得上：planstore `TestPlanVocabularyIsRegistered`（两个方向都对）、seenfacts `TestSeenFactsAreRegistered`、loopalert `TestLoopTypesAreRegistered`、artifact `TestRefusalTypeIsRegistered`、evidence `TestFullCINotedIsRegistered`、externalwork `TestNotedTypeIsRegistered`、actionrecord `TestTracedTypeIsRegistered`、coord `TestPolicyAlertIsRegisteredUnderCoordination`。
+- eventlog.Declare 对同一类型的 body、取值声明第二次直接 panic：两个包不能同时声明一个类型。
+- coord `TestPolicyAlertIsTheApprovalClaim`：policy_alert 只收 approval_claim；别的领域以前写过的 rule（local_path、repeated_failure…）被拒（阳性对照）。
+- 需要旧形状行的兼容测试用各自测试包里不导出的 `oldShapeRow` 直写（库只校验哈希链接续）；生产写入只有 eventlog.Append 一条路，按当前声明校验。
+- 覆盖不到的：一个新类型登记时选哪个领域靠写的人判断（登记表测试只查 id 合法）；compute 的历史类型名、metrics_computed、rule_* 还在 store 声明（各有前提：rulestore 等 Owner、metrics 等沟通线）。
+

@@ -331,37 +331,9 @@
 | [TD-579](#td-579) | P1 | governance | Owner 定的法还有 8 条没落进规则文件（`OWNER_LAW.md` 标「未落」的行） | 其中 5 条要你重签发布规则 |
 | [TD-580](#td-580) | P2 | owner-exec | 执行卡的建卡检查不防「GET 也能读 Secret 内容、也能打 /proxy」 | 安全/凭据（要你批） |
 | [TD-581](#td-581) | P3 | cicd | 测试 TestThreadInboxBacklogMustNotStarveSweep 在集群 CI 里会红：13 秒期限只比 10 秒投递预算多 3 秒 | 不用批 |
-| [TD-583](#td-583) | P3 | platform | note、policy_alert 两个共用事件类型还没有单一主人：声明留在 store（混合包），body 还带着已经各成类型的记录的历史字段 | 不用批 |
 | [TD-582](#td-582) | P2 | platform | store 里 30 个计划测试用 store 内部夹具断言跨领域接线；planstore 为 store 的测试多导出 42 个名字 | 不用批 |
 
 ## 条目
-
-### TD-583
-
-**P3 · platform api/internal/agentrt/store/vocab.go · note 和 policy_alert 还没有单一主人，body 还带着历史字段**
-
-- **状态**：未开始（2026-11-17）。归属：解耦线（0.1）。
-- **违反的标准**：每个事件类型只有一个领域拥有（OWNER_LAW #28；主统筹 2026-11-17 晚定的方向，拆法在共享笔记 `biz-align/note-policy-alert-decision-2026-11-17.md`）。
-- **出处**：同日 note 和 policy_alert 按领域拆分，第 1–5 步已上线（platform `d95919c5`、`6b7ca3b7`、`e9353e24`、`a6862d84`、`52223a83`；迁移 0029–0032，PROD 由 #594、#595 跑过）。混在两者里的每种记录都已各成自己领域的类型：循环告警、被拒的报告、全量 CI 记录、外部工作记录、动作追踪、计划的六种记录；发布窗口的备注删了写入。第 6 步（收尾）做到一半撤回，没进 main。
-- **证据**：
-  - note 和 policy_alert 的声明仍在 `store/vocab.go`（混合包）。
-  - note 的 body 还带着 23 个已经没有写入方的历史字段，以及 assessment_requested、agentd_build 的取值检查（`store/vocab.go` 的 init，`store/presence.go`）。
-  - policy_alert 的 rule、source、phrase 闭集还列着 seat_alert、local_path、controller_failing、disk_low 等十种已不写的取值（同文件；短语常量在 `store/alerts.go`、`retry.go`、`presencepass.go`、`presencejudge.go`、`hostdisk.go`）。
-  - 登记表 `bus/registry/ledger/types.yaml` 把两者记在 foundation。
-- **为什么没做完**：把 note 收窄成 {text, evidence?}、归 plan，把 policy_alert 收窄成 approval_claim、归 coordination 以后，全套里有 8 个测试红。它们有意写旧形状的行，验证读取方还认旧行：agentrtapi 的旧外部工作记录、artifact 的旧拒绝记录、eventlog 的 ledger 读取、store 的 assessment 请求和计划视图隔离等。写入只有 eventlog.Append 一条路，按当前声明校验。另开一个只给测试用的旁路，test_only_exports 不让加。
-- **影响**：
-  - 两个类型的合约谁说了算还不清楚。
-  - 理论上还能写出带历史字段的 note，或者非 approval_claim 的 policy_alert；新代码不写，但没有东西拦。
-  - store 里留着约 60 行只为历史形状服务的声明和常量。
-- **修法**：先满足前提，再收尾。
-  - 前提：给需要旧行的测试一个不经当前声明的写法。例如测试库从一份含旧行的快照起，或者迁移测试那样用 legacy_imported 事件配原始 SQL 写行。
-  - 前提满足后：note 收窄并归 plan（planstore 声明，checkNoteText 作 Before）；policy_alert 收窄并归 coordination（coord 声明，「信件要带 artifact、计划备注不带」作 After）；登记表改两行；删掉 store 里只为历史形状存在的字段、取值检查和短语常量。
-- **防线**：
-  - 新写入都走各自的新类型，读取方新旧都认；
-  - 各领域的「声明的类型在登记表里、领域对得上」测试；
-  - 登记表测试（登记表等于最新迁移的允许类型集合）。
-  - 还缺一条「note 只由 plan 写、policy_alert 只由 coord 写」的检查，收尾时随收窄一起有了。
-- **验收**：store/vocab.go 不再声明 note、policy_alert；登记表里两者分别在 plan、coordination 下；上面 8 个测试改用新的旧行写法后全套通过。
 
 ### TD-582
 
