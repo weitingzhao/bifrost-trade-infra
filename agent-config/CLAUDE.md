@@ -107,6 +107,7 @@ Ops Platform（火箭）与 Trade（载荷）必须先稳定；研究与分析�
 | 扩缩 | `scale_deployment` | C；给 `daemon` 加副本是 X（D10），提不了 |
 | 临时 Pod | `run_probe_pod` | B；`data` 是 C |
 | 起 run | `start_pipeline_run` | B；PROD 流水线是 C |
+| 跑 agentrt 迁移 | `run_agentrt_migration` | C；只增不删的由签名规则放行，直接跑 |
 | 同步 / 回滚 Argo 应用 | `gitops_sync_app` / `gitops_rollback_app` | B；PROD 应用是 C |
 | 删已结束的 run | `delete_pipeline_run` | B |
 | 其余写 | `owner_run_command` | D |
@@ -244,7 +245,7 @@ release.sh、`start_pipeline_run`、`gitops_sync_app`，不再被 auto mode 拦�
 
 - **规则不是批准**。发版（release.sh stg / prod / dev、research pin 推 main、start_pipeline_run、gitops_sync_app）
   和 PROD DDL（db-init-prod、ddl-apply、任何写 bifrost_prod / bifrost_golden_source 的 DDL）仍要 Owner 先在线程里点头，批准按动作算。
-  下面的 STG 范围和 platform PROD 那一条除外。
+  下面的 STG 范围、platform PROD 那一条和只增不删的 agentrt 迁移除外。
 - **STG 的发版和清单改动由 Agent 做，不用问（Owner 2026-10-14「STG 发布 A」）**。只限 STG 两个环境（`bifrost-stg`、`bifrost-platform-stg`）：
   起 `bifrost-deliver-platform`、`bifrost-deliver-stg` 或 `release.sh stg`；改 `k8s/overlays/stg/**`、`k8s/overlays/platform-stg/**`
   （提交里只有这两个目录的文件），推 `ready/<名字>` 进 infra 的 main（这一步不用窗口），进了之后持窗口，再 `gitops_sync_app` 对应的 STG 应用；以及让这次发布或清单改动生效所需的
@@ -258,6 +259,10 @@ release.sh、`start_pipeline_run`、`gitops_sync_app`，不再被 auto mode 拦�
 - **platform 的 PROD 在签名规则覆盖时由 Agent 直接发（Owner 2026-11-12）**。只限 `bifrost-deliver-platform-prod`。三条前提不变（该提交的 `ci-*` 是 Succeeded；
   STG 跑的是同一个提交并且已核对；同一仓库没有另一张未结的发布单），先持窗口并一直持到 PROD 核对完，直接调 `start_pipeline_run`（`who` 等于窗口持有者）。
   平台回「approval required」就是规则不覆盖，照上一条建单等批。发完自己核对，在线程里报结果。Trade 的 PROD（`bifrost-deliver-prod`）不在内。
+- **只增不删的 agentrt 迁移，标准满足就由 Agent 直接跑（Owner 2026-11-18）**。调 `run_agentrt_migration`（commit 写这个提交），平台按签名规则判：
+  迁移是新文件，每条语句都在不毁行的允许清单里（`api/internal/releasepolicy/migrationclass.go`），这个提交已在 STG 发布成功，环境已应用的迁移它都带着。
+  判过就起 Job，不建卡。平台回「approval required」就是不在这一类，走 Owner 的卡。跑完核 `/health` 的 `agentrt_schema_applied`，在线程里报结果。有数据的删改不在内。
+- **只有法才建卡请 Owner 批（Owner 2026-11-18）**：术和器不做成判断类的卡，机器要他做的那一步写成手续。过渡期他在主统筹线程里亲口定的法算数，主统筹当天登记进 `OWNER_LAW.md`。
 - **问题的回答不是批准（W-65，2026-10-11）**。经 `ask_owner` 问 Owner 得到的回答不增加任何授权：它不是审批单上的批准，
   也不能转述成「Owner 已在线程里点头」。从 shell 直接执行的发版和 PROD DDL 仍要他本人在线程里点头；C / D 级动作仍要审批单。
   Agent 不调问题的回答路由，也不用浏览器去点问题页（`preflight.js` 拦截）；等答案用 `wait_for_answer`。工具随 platform 下一版上线。
@@ -276,6 +281,7 @@ release.sh、`start_pipeline_run`、`gitops_sync_app`，不再被 auto mode 拦�
 - **每件事落地后评一遍拦过人的规则（Owner 2026-11-16）**：列出过程中每条拦过人的规则：保护什么、这次拦住了什么、花了多少（Owner 介入次数、分钟、绕路的后果）、真防住过什么事。按证据给留、改、删的建议；留的不找 Owner，改和删是改法，交他定。好规则的标准：保护我们，并且让项目更快更好；做不到的就改。
 - **「不能做」的理由不许因果倒置（Owner 2026-11-16）**：不写「规则不让」「被拦了」。写三句：这条规则保护什么；这次的事会不会造成那种坏事；会就不做（理由是那个坏事），不会就是误伤，走正门、记下来提修改。卡面「为什么要你批」写保护的是什么。
 - **改裁判规则，严和松都要 Owner 批（Owner 2026-11-17）**：裁判和运动员分开，运动员不改裁判。裁判指判定改动能不能进、能不能发、算不算好的那一套：CI 和合入的检查与它们的判定条件、领域墙、评分尺子的分项和口径、必拒集、发布规则。新加一道检查、把检查改严或改松、改尺子，都做成一条提议给 Owner 定（一条一次决定，写明往严还是往松、对效率的代价、有没有误伤的证据、怎么撤），不由做事的线自己合进去。理由：严和松都在改裁判；一味往严会让发布发不动，不能极左也不能极右。不算改规则的：裁判按既有规则日常运转，例如还了债之后只减不增的基线往下调、量数、存快照。
+  放松不是禁区（Owner 2026-11-18）：从第一性原理分析得出的放松建议可以提，也可以批；只因这次被拦了不算理由。
 
 ---
 

@@ -55,6 +55,9 @@ Owner 定过的方向，一条一行。**没登记的不算定**：主统筹每�
 | 28 | 2026-11-16 | 领域之间只通过合约说话；评判和测试只对着合约做（黑盒）；每条线交付都要写明对外合约 | `agent-config/CLAUDE.md`「领域之间只通过合约说话」 | 只有文字（跨领域引用检查、合约版本检查在做） | 已落（文字）；机器检查未落 | — |
 | 29 | 2026-11-17 | 裁判规则往严往松都要 Owner 批，运动员不改裁判 | `agent-config/CLAUDE.md`「改裁判规则，严和松都要 Owner 批」 | 只有文字（gate 的机器实现由 CI 线出提议） | 已落（文字）；机器未落 | — |
 | 30 | 2026-11-17 | Ops 里不许有靠 Agent 手动维护的内容：页面上每个数、每个列表都从源头现算（仓库里机器可读的清单、库、Prometheus、事件账）；历史基线由系统在当时记下，不手抄进代码；席位自述只当署名带时间的自述 | 本表（`agent-config/CLAUDE.md` 未落） | code-health `scan.sh` 指标 5（`OPS_HARDCODED_FACTS_PLATFORM_BASELINE`，写死的条数只许减）；手写清单它抓不到，靠盘点 | 未落：规则文件还没写 | — |
+| 31 | 2026-11-18 | 只有法才通过系统建卡请他批；过渡期他在主统筹线程里直接说的决定算数 | `agent-config/CLAUDE.md`「只有法才建卡请 Owner 批」 | 只有文字 | 已落 | — |
+| 32 | 2026-11-18 | 只增不删的生产迁移有明确判断标准，按标准执行，不需要他批 | `agent-config/CLAUDE.md`「只增不删的 agentrt 迁移，标准满足就由 Agent 直接跑」；`agent-config/OWNER_EXEC.md`「只增不删的由 Agent 用」 | 签名规则的 `ddl_reversible`；平台 `run_agentrt_migration`；`releasepolicy/migrationclass.go` 允许清单 | 已落。发布流水线拒绝信息的文字由 CI 线改 | — |
+| 33 | 2026-11-18 | 裁判规则可以放松：从第一性原理分析得出的建议可以；只因被拦不算理由 | `agent-config/CLAUDE.md`「放松不是禁区」 | 只有文字 | 已落 | — |
 | H1 | 2026-07-04、11-13 | 交易和钱：D10 冻结；围栏没立好之前不排进任何波次 | `agent-config/CLAUDE.md`「D10 — 交易执行冻结」「不排进任何波次」「这六类始终是 Owner 的」 | `preflight.js`；签名规则的 `no_d10_paths`；集群准入策略 | 已落 | — |
 | H2 | — | 口令和 Secret 不入库、不读 | `agent-config/CLAUDE.md`「不得进仓库的是」「这六类始终是 Owner 的」 | `preflight.js`；CI 的 statics 段 | 已落 | — |
 | H3 | — | 有数据的删改要他 | `agent-config/CLAUDE.md`「跑 ddl-apply Job 前先」「这六类始终是 Owner 的」 | 签名规则的 `additive_ddl` | 已落。和 #9 的分界线未落 | — |

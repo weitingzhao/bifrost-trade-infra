@@ -26,7 +26,10 @@ approved:
 kubectl create -f k8s/agentrt-migrate/prod/job.yaml
 ```
 
-PROD creation requires prior approval of its DDL. `generateName` creates a fresh
+A PROD migration that only adds (new file, every statement in the no-row-loss allow-list,
+already released to STG) needs no Owner step: request `run_agentrt_migration` with the commit and
+the platform creates the Job under the signed policy (Owner 2026-11-18). Anything else
+requires prior approval of its DDL. `generateName` creates a fresh
 name on each invocation; do not apply these manifests. Watch the generated Job
 through completion before enabling runtime use. Jobs have no retry, a 900-second
 deadline and a seven-day TTL; their wait-pg init container handles policy propagation.
@@ -47,7 +50,8 @@ DEV migration runs locally using the DEV owner identity; there is no DEV cluster
   run has just built pinned by digest and an annotation naming the run. A Job that fails
   stops the run before the promotion, gitops-sync and rollout; the run's log says which
   migrations it applied. The STG Job above stays for a database the pipeline has not reached.
-- **PROD**: still this Owner-created Job. Before it rolls out, `bifrost-deliver-platform-prod`
+- **PROD**: additive migrations go through `run_agentrt_migration` (above); anything else is still
+  this Owner-created Job. Before it rolls out, `bifrost-deliver-platform-prod`
   checks that PROD's database has applied every migration the build carries, with the same
   bytes, as PROD's platform-api reports on `/health` (`agentrt_schema_applied`). If one is
   missing, the run stops and prints, with the build's digest filled in, the one command that

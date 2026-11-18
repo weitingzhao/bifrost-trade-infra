@@ -92,7 +92,7 @@ kubectl get pods -A -l 'app.kubernetes.io/name in (platform-api,owner-exec)' -o 
 5. **交易相关的一切**。这扇门对它们是关着的，D10 解锁也不会自动打开。
 6. **一次性库步骤**（`scripts/release/db-steps.d/` 的 `commit:` 行）：卡批完后，命令现在还是他在电脑上跑。执行口能不能跑这类命令没验证过（TD-578）。
 7. **装进集群的自举清单**（`docs/RELEASE.md` 里写明不走 apply 流水线的那几个：冻结检查的 Task、PROD 平台流水线的检查）：现在还是他在电脑上 apply。能不能改成一张带清单的执行卡没验证过（TD-578）。
-8. **PROD 的 agentrt 迁移 Job**（`k8s/agentrt-migrate/README.md`）：现在还是他建（TD-524）。
+8. **PROD 的 agentrt 迁移 Job**（`k8s/agentrt-migrate/README.md`）：只增不删的由 Agent 用 `run_agentrt_migration` 直接跑（Owner 2026-11-18）；不在这一类的现在还是他建（TD-524）。
 9. **应用 auto mode 规则**（`apply-auto-mode.sh`）：写的是他本机的设置文件（TD-578）。
 
 碰到这张清单以外、却发现非他回电脑不可的事，当作系统的缺口报给统筹并登记进 `TECH_DEBT.md`，不要默默给他派一条终端命令。
