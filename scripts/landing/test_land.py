@@ -462,7 +462,7 @@ NEXT = "%040x" % (int(SHA, 16) + 1)  # the stub's head after one rebase
 IDS = "I" + "1" * 40
 
 
-def run_land(gitea, ref=REF, commit=SHA, repo=PLATFORM, wait=None, budget=3000, push=None):
+def run_land(gitea, ref=REF, commit=SHA, repo=PLATFORM, wait=None, budget=3000, push=None, turn=None):
     """(outcome, refusal); the whole answer is left in gitea.landed."""
     waits = []
 
@@ -476,7 +476,7 @@ def run_land(gitea, ref=REF, commit=SHA, repo=PLATFORM, wait=None, budget=3000, 
     scope = module()
     scope["call"] = gitea.call
     gitea.landed, problem = scope["land"]("tok", table(), policy(), repo, ref, commit, wait=wait or waited,
-                                          gitea=gitea.HOST, tries=3, pause=0, budget=budget, push=push)
+                                          gitea=gitea.HOST, tries=3, pause=0, budget=budget, push=push, turn=turn or (lambda: True))
     gitea.waits = waits
     return gitea.landed.get("outcome", ""), problem
 
@@ -933,3 +933,37 @@ def test_a_change_to_the_head_release_loop_lands_and_is_reported():
     assert run_land(gitea, repo=INFRA) == ("landed", "")
     assert "tripwire" not in gitea.landed  # the watched paths are the platform row's
     assert table()[PLATFORM]["watched"] and "watched" not in table()[INFRA]
+
+
+# 2026-11-18: 65 Gitea rebases in two hours, each checking out the whole repository
+# on the disk etcd shares, and each starting a CI run that the next landing undid.
+# A branch behind main waits for the older landings. Positive control: without the
+# turn check in up_to_date the first assertion sees a rebase while it is not its turn.
+def test_a_branch_behind_main_is_rebased_only_when_it_is_first_in_line():
+    gitea = Gitea(behind=True)
+    seen = []
+
+    def turn():
+        seen.append(len(gitea.paths("/update")))
+        return len(seen) > 2
+
+    assert run_land(gitea, turn=turn) == ("landed", "")
+    assert seen[:3] == [0, 0, 0] and len(gitea.paths("/update")) == 1
+
+
+# Same origin: the queue is the unfinished landings of the same repository, oldest
+# first; not being able to read it holds nothing back.
+def test_the_first_in_line_is_the_oldest_unfinished_landing_of_the_repository():
+    first = module()["first_in_line"]
+
+    def run(name, at, repo=PLATFORM, done=False):
+        return {"metadata": {"name": name, "creationTimestamp": at, "labels": {"bifrost.io/repo": repo}},
+                "status": {"completionTime": "x"} if done else {}}
+
+    items = [run("gone", "01", done=True), run("other", "02", repo=INFRA), run("a", "03"), run("b", "04")]
+    assert first("a", PLATFORM, runs=lambda _: items) and not first("b", PLATFORM, runs=lambda _: items)
+
+    def broken(_):
+        raise OSError("api away")
+
+    assert first("b", PLATFORM, runs=broken)

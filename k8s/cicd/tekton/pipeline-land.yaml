@@ -156,6 +156,8 @@ spec:
                 value: $(params.commit)
               - name: BRANCH
                 value: $(params.branch)
+              - name: RUN
+                value: $(context.pipelineRun.name)
             script: |
               #!/usr/bin/env python3
               """Land a green ready/ branch: pull request, up to date with main, CI green, merge."""
@@ -389,16 +391,33 @@ spec:
                            for p in group['paths']]
                   return next((n for n in sorted(names) if any(matches(p, n) for p in globs)), '')
 
-              def up_to_date(token, api, number, on):
+              def first_in_line(run, repo, runs=cluster_runs):
+                  """Whether this run is the oldest unfinished landing of its repository. Every rebase
+                  makes Gitea check out the whole repository and starts a CI run, and all but one of
+                  the rebases of a queue are undone by the next landing (2026-11-18: 65 in two hours,
+                  with ubt-k3s-01's disk, which etcd shares, at 100 MB/s). Not knowing is a yes: this
+                  only saves work, and must never hold a landing back."""
+                  try:
+                      waiting = [r['metadata'] for r in runs('bifrost-land')
+                                 if not r.get('status', {}).get('completionTime')
+                                 and r['metadata'].get('labels', {}).get('bifrost.io/repo') == repo]
+                  except Exception:
+                      return True
+                  names = [m['name'] for m in sorted(waiting, key=lambda m: (m['creationTimestamp'], m['name']))]
+                  return not names or run not in names or names[0] == run
+
+              def up_to_date(token, api, number, on, turn=lambda: True):
                   """(main's head, '') when the branch sits on it (`on` is the commit the branch is known
-                  to sit on); (None, 'rebased') after Gitea rebased the branch; (None, refusal) when
-                  that is not possible."""
+                  to sit on); (None, 'rebased') after Gitea rebased the branch; (None, 'waiting') while
+                  an older landing goes first; (None, refusal) when it cannot be rebased."""
                   code, main = call(token, 'GET', api + '/branches/main')
                   head = main.get('commit', {}).get('id') if code == 200 else None
                   if not head:
                       return None, 'refused: could not read main (%s)' % code
                   if on == head:
                       return head, ''
+                  if not turn():
+                      return None, 'waiting'
                   code, out = call(token, 'POST', api + '/pulls/%d/update?style=rebase' % number)
                   if code == 200:
                       return None, 'rebased'
@@ -508,7 +527,7 @@ spec:
                   return ''
 
               def land(token, table, policy, repo, ref, commit, wait=ci_wait, gitea=GITEA, tries=24, pause=5,
-                       budget=50 * 60, push=None):
+                       budget=50 * 60, push=None, turn=lambda: True):
                   """(what landed, refusal): ({'outcome': 'landed', 'commit': ..., 'change-ids': ...}, '') or
                   ({}, why not). One push is one run: a branch behind main is rebased by Gitea and this
                   run goes on with the new commit, as often as main moves, until it is merged or the
@@ -541,7 +560,10 @@ spec:
                   # from then on the run reads only by commit id and by the pull request's number.
                   deadline, pushed, stale, on = time.time() + budget, commit, 0, pull.get('merge_base')
                   while time.time() < deadline:
-                      base, problem = up_to_date(token, api, pull['number'], on)
+                      base, problem = up_to_date(token, api, pull['number'], on, turn)
+                      if problem == 'waiting':
+                          time.sleep(pause * 3)
+                          continue
                       if problem == 'rebased':
                           commit, problem = rebased_head(token, api, pull, pause=pause)
                           if problem:
@@ -615,7 +637,8 @@ spec:
                       landed, problem = land(secret, json.loads(os.environ['LANDING_REPOS']), json.load(signed),
                                              os.environ['REPO'], os.environ['BRANCH'], os.environ['COMMIT'],
                                              push=lambda repo, commit, depth: fast_forward(
-                                                 user, secret, GITEA + '/bifrost/' + repo + '.git', commit, depth))
+                                                 user, secret, GITEA + '/bifrost/' + repo + '.git', commit, depth),
+                                             turn=lambda: first_in_line(os.environ['RUN'], os.environ['REPO']))
                   if problem:
                       for name, value in (('outcome', 'refused'), ('refusal', problem[:2000])):
                           with open(RESULTS + name, 'w') as handle:
