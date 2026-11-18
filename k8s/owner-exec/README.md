@@ -53,6 +53,19 @@ goes at Trade directly, however it is worded. It does not stop:
   platform-api redacts token shapes from stored output; an encoded token
   would pass.
 
+Entering a node is the same accepted risk, with a name, a version and a test.
+`scripts/owner-exec/node-run.sh` composes a card whose command creates one short-lived
+privileged Pod pinned to one cluster node (device tier: a fixed read-only recipe, no host
+namespaces; host tier: the node's root through hostPID and nsenter, which the Owner
+allowed on nodes that run Trade or IB services on 2026-11-18, one card at a time). Nothing
+here stops it either: a privileged Pod can mount the node's disks and read what is on
+them, and the admission policy sees only writes. The control is the same one as above:
+the Owner reads the command on the card and enters his code. The tool lists the Trade
+and IB Pods on the node in the first lines of a host-tier card, refuses command text that
+names them (a tripwire, not a barrier), and leaves D10 where it is. Machines outside the
+cluster (the Mac minis, the NAS, ubt-k3s-06) are not reachable this way. See
+`agent-config/OWNER_EXEC.md`, "要进某台集群节点".
+
 For cluster-scoped writes, the no-trade policy permits only these operations,
 without a subresource (coordinator 2026-11-14 tightened scope; compute-13 review):
 

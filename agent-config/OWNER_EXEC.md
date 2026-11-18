@@ -97,6 +97,38 @@ kubectl get pods -A -l 'app.kubernetes.io/name in (platform-api,owner-exec)' -o 
 
 碰到这张清单以外、却发现非他回电脑不可的事，当作系统的缺口报给统筹并登记进 `TECH_DEBT.md`，不要默默给他派一条终端命令。
 
+## 要进某台集群节点（2026-11-18 起，OWNER_LAW #35）
+
+用途：Owner 不在电脑前，也能让一张卡在某一台集群节点上读东西或做事，不用他回去。工具是 `scripts/owner-exec/node-run.sh`，带版本。**它是生成器，不执行任何东西**：执行口没有仓库检出，卡里没法调用仓库里的脚本，所以它在本地拼出一段完整、自包含的命令全文，你把这段文字放进 `owner_run_command`，Owner 读卡、输验证码，执行口跑。卡首行带 `node-run v1`、档位、节点和运行部分的 sha256。没有新的长期凭证，没有常驻的特权进程，没有 SSH 密钥：每次一个 Pod、钉一个节点、有超时、跑完删。
+
+```bash
+bash scripts/owner-exec/node-run.sh render --tier device --node ubt-k3s-05 --recipe nvme-smart
+bash scripts/owner-exec/node-run.sh render --tier host --node <节点> --cmd '<写死的命令>' --pods-file <该节点存活 Pod 的清单>
+bash scripts/owner-exec/node-run.sh selftest   # 不需要集群
+```
+
+引用哈希时用平台口径：命令全文去掉首尾空白后的 sha256（命令文件末尾的换行平台会去掉，卡面哈希和平台记的 `command_sha256` 才一致）。
+
+**两档，能用设备档或平台动作就不用主机档。**
+
+| | 设备只读档 | 主机档 |
+|---|---|---|
+| 能做什么 | 只能跑命名的固定配方（现在只有 `nvme-smart`：对 `/dev/nvme0` 发 Identify 和 SMART 日志两个 NVMe 管理命令，读 PCIe 链路，不打印序列号），不接受自由命令 | 自由命令，在该节点的主机命名空间里（hostPID + nsenter）以 root 跑 |
+| Pod | 特权（只为打开设备节点）；无 hostPID、hostNetwork、hostIPC、hostPath、chroot、nsenter；不挂令牌，无 env、无 volume | 同上，但开 hostPID 并 nsenter 进 PID 1 的命名空间 |
+| 卡首行 | 「DEVICE TIER…」 | **「THIS IS THE NODE'S ROOT…」** |
+| 生成时 | 节点名只许集群节点；配方名要在白名单里 | 同左；**必须给 `--pods-file`，卡面前几行列出该节点上存活的 Trade、redis-ib、IB 网关、daemon Pod**，并写明 D10 不解除；命令文本命中字面关卡就拒绝生成 |
+| 运行时 | 节点必须存在且 Ready（关机的 gpu-server 会被拒，先用平台的唤醒动作） | 同左，并再打印一次该节点上存活的 Trade/IB Pod |
+
+**说清楚的边界**
+
+1. **设备档是特权 Pod。** 它能看到该节点的全部设备、带 CAP_SYS_ADMIN，原则上能挂载宿主盘（可读可写）、借盘上的节点凭证以节点身份读调度到该节点的 Pod 引用的 Secret。限制它只读的是配方文本，不是内核。控制靠「命令写死 + 全文在卡上 + Owner 读卡再输码」。不要写「它读不了任何 Secret」。
+2. **主机档就是该节点的 root。** Owner 2026-11-18 决定它可以用在有 Trade 或 IB 服务的节点（逐卡由他读卡输码），所以工具不再因节点上有这些 Pod 而拒绝，只把它们列在卡面前几行。D10 不解除：不下单、不改交易服务、不动这些 Pod 及其卷和 Secret。
+3. **命令文本的字面关卡是绊线，不是栅栏。** 它拦 `bifrost-prod/stg/dev`、`redis-ib`、`ib-gateway`、`ib:operator`、`daemon`、`kubernetes.io~secret`、`/var/lib/kubelet/pods`、`/run/secrets`、`serviceaccount/token` 这些字面，拦的是手滑。root 命令可以把同样的意思拼成任何正则看不出来的写法。真正的控制是 Owner 读卡；卡要短到手机上读得完。
+4. **不在范围内：** 集群外的机器（Mac mini、NAS、ubt-k3s-06）。这条路是集群里的 Pod，够不着它们。
+5. **验过什么：** 设备档在 ubt-k3s-05 上真跑过一次（卡 #602，2026-11-18，exit 0，执行结果的 `command_sha256` 与卡面一致）。主机档**从未在集群上跑过**。`selftest`（24 个用例，不需要集群）还没进 CI：quick 清单由 platform 的 `api/cmd/infracheck` 生成，加进去要改 platform，见 TD-585。
+
+**没有「要他回电脑」清单里可以因此减掉的条目**：这类事本来就不在那张清单里，新增的是一个能力，不是消去一个缺口。
+
 ## 重签发布策略：一张执行卡（2026-11-15 起）
 
 Owner 2026-11-15：重签不该非回到放钥匙的电脑不可。输码批准的卡已经证明他同意的是那一份精确内容。

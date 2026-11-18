@@ -334,8 +334,22 @@
 | [TD-582](#td-582) | P2 | platform | store 里 30 个计划测试用 store 内部夹具断言跨领域接线；planstore 为 store 的测试多导出 42 个名字 | 不用批 |
 | [TD-583](#td-583) | P3 | platform | 测试 TestCursorAtReadsFromATime 在全量并行时会红：要等全库最老事务让路，15 秒等不到 | 不用批 |
 | [TD-584](#td-584) | P3 | platform | 两轮计划决定同时跑时，同一张卡的确认记录可能写两条 | 不用批 |
+| [TD-585](#td-585) | P3 | owner-exec | 节点执行工具 `node-run.sh` 的 selftest 没进 CI | 不用批 |
 
 ## 条目
+
+### TD-585
+
+**P3 · infra `scripts/owner-exec/node-run.sh` · 节点执行工具的 selftest（24 个用例，不需要集群）没有进 CI**
+
+- **状态**：未开始（2026-11-18）。归属：算力线；改动落在 platform（解耦线维护的 `api/cmd/infracheck`）。
+- **出处**：2026-11-18 把节点执行工具落进 infra（OWNER_LAW #35）时发现。
+- **证据**：infra 的 quick 清单由 platform 的 `api/cmd/infracheck` 生成（`scripts/landing/coverage_infra.py` 的 `quick()` 调它）；`scripts/owner-exec` 不在清单里，不在 `RELEASE_TREES`（`scripts/release`、`scripts/gitea`）里。把测试塞进发布门的目录会改到签名规则管着的树，所以这次没有那样做。
+- **现在会不会发生**：工具改坏了不会有人发现，直到有人下一次手跑 `bash scripts/owner-exec/node-run.sh selftest`。工具只生成卡面文字，不执行；Owner 读每一张卡并输码，是主要控制。
+- **后果**：selftest 里的检查（Pod 名是 RFC 1123 标签、设备档无 hostPID 和 hostPath、主机档卡面列出 Trade/IB Pod、命令文本关卡、配方白名单）可能悄悄退化。#601 就是因为没核名字格式白批了一次。
+- **修法**：让 `infracheck` 的清单带上 `scripts/owner-exec/node-run.sh selftest`（或把 selftest 包成一个 `test_*.py` 放进 quick 清单已覆盖的目录）；CI 镜像里要有 `bash`、`python3`、`pyyaml`（锁文件里有 `pyyaml==6.0.3`）。
+- **防线**：selftest 本身带阳性对照（检查器会拒绝 #601 的那个名字）；进 CI 后任何一个用例变红就挡住落地。
+- **验收**：CI 日志里能看到 `selftest: 0 failure(s)`；故意把设备档的 `hostPID` 改成 true，CI 红。
 
 ### TD-584
 
