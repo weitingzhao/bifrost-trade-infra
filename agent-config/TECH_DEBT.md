@@ -369,7 +369,7 @@
 
 **P2 · platform api/internal/agentrt/store/*_test.go 与 api/internal/agentrt/planstore · 伸进内部的集成测试代替了合约测试**
 
-- **状态**：未开始（2026-11-17）。归属：解耦线（0.1）；计划领域的合约测试由计划领域补。
+- **状态**：进行中（2026-11-18）。归属：解耦线（0.1）。已进 platform main：计划领域合约 `planstore/doc.go` 和 33 条黑盒测试（`f85dbef0`）；31 条测试原样搬进计划领域（到 `a76668fe`）；端口接线测试改经合约断言（`a928f0f9`），收回 15 个导出名。还差：store 的并行检查要求至少 100 条测试，现在 103 条，再搬要等改检查的提议批复（共享笔记 `duty/proposal-biz-2026-11-18-parallel-test-floor.md`）；穿过别的领域的 19 条要改写。
 - **违反的标准**：OWNER_LAW #28「领域之间只通过合约说话，评判和测试只对着合约做」。跨领域的行为应由两类测试覆盖：各领域对着自己对外合约的黑盒测试，加少数只走对外入口的流程测试。这批两类都不是。
 - **出处**：2026-11-17 计划代码搬出 store（platform `159c4f0b`、`90f25319`）。解耦线当时把这批记成「已知现状、不算欠账」，判断次序错了（先下结论、没先说标准）；主统筹转 Owner 12:1x 的意见更正为欠账。
 - **证据**：store 包里 30 个测试文件仍断言计划代码，靠的是 store_test 包里未导出的整套夹具（`newWorld`/`seededDB`/`seedTemplate`、`newKernelWorld`、`ask`/`answer`、`pv*`、时钟开关 `CtxOf`/`OwnClock`/`FreezeClock`、`SetHook` 等，合计几百行），其中一部分同时断言 store 的接线（端口绑定、记录员导入、外部工作写入）。planstore 为它们多导出 21 个名字：11 个端口调用名和 6 个自留常量（用户 `store/planports_export_test.go`），`ChangeBlocks`、`PendingChangeLimit`（`store/export_test.go`），`ImportOf`、`StreamRoot`（`store/pending_projection_parity_test.go`）。逐文件明细：共享笔记 `biz-align/planstore-tests-2026-11-17.md`。
