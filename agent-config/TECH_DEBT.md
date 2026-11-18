@@ -345,6 +345,7 @@
 - **证据**：store 包里 30 个测试文件仍断言计划代码，靠的是 store_test 包里未导出的整套夹具（`newWorld`/`seededDB`/`seedTemplate`、`newKernelWorld`、`ask`/`answer`、`pv*`、时钟开关 `CtxOf`/`OwnClock`/`FreezeClock`、`SetHook` 等，合计几百行），其中一部分同时断言 store 的接线（端口绑定、记录员导入、外部工作写入）。planstore 为它们多导出 21 个名字：11 个端口调用名和 6 个自留常量（用户 `store/planports_export_test.go`），`ChangeBlocks`、`PendingChangeLimit`（`store/export_test.go`），`ImportOf`、`StreamRoot`（`store/pending_projection_parity_test.go`）。逐文件明细：共享笔记 `biz-align/planstore-tests-2026-11-17.md`。
 - **影响**：计划领域的内部改一处，store 的测试就要跟着改；合约之外的 21 个名字谁都能用；测试过了也说明不了计划领域的对外合约是否成立。
 - **修法**：不是搬，是重写。前提：计划领域登记了对外合约（Go 面和存储面），并有对着它的黑盒测试；store 的事务、身份、词汇表也有自己的合约测试。前提满足后，用这两组合约测试加少数只走对外入口的流程测试覆盖这 30 个文件断言的接线，然后删掉这批内部测试，42 个名字改回不导出。
+- **同一类（2026-11-18，platform `da952628`）**：store 还留着只给测试用的转发 `VerifyStream`、`ChainBreak`、`WithEventClock`、`AckMessage`、`SetControl`。它们的生产调用方已经没有，留着是因为这批测试还在用；直接删会让 eventlog、coord 的同名导出变成只给别的包测试用。随这批测试重写一起删。
 - **防线**：在 CI 线的两条检查里，只减不增（2026-11-17 进 platform main）：30 个文件在 `codeguard` tests_reach（`8215afd8`）的「共享包里的测试文件」名单里；导出名在 `test_only_exports`（`2ebbf5ea`）的「只有别的包的测试在用的包级导出名」名单里——planstore 共 42 个，比当初数的 21 个多 21 个（store 别的测试在用的 planstore 名字，同一标准下也是欠账）。重写测试、收回导出时删掉名单里对应的行，检查会提示。
 - **验收**：tests_reach 名单里没有这 30 个文件；test_only_exports 名单里没有 planstore 的行；全套测试通过。
 
