@@ -58,6 +58,29 @@ spec:
 # The repository's name is passed on only to be looked up there. The binding names no
 # `base`: the bifrost-platform CI run of a ready/ push tests the whole suite (or the console
 # scope, which is measured from main), never the increment since the last push to the branch.
+# The node new platform CI runs go to, kept current by PROD's platform
+# (delivery/ci_node.go; k8s/platform-rbac/48-ci-node.yaml). The values here leave
+# a run to the scheduler: a selector true of every node. The platform's writes
+# are not in Git, and applying this file resets them until its next pass.
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerBinding
+metadata:
+  name: bifrost-ci-node
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: ci-trigger
+spec:
+  params:
+    - name: ciNode
+      value: none
+    - name: ciNodeKey
+      value: kubernetes.io/os
+    - name: ciNodeValue
+      value: linux
+    - name: ciNodeWhy
+      value: not chosen yet
+
+---
 apiVersion: triggers.tekton.dev/v1beta1
 kind: TriggerBinding
 metadata:
@@ -261,6 +284,15 @@ spec:
     # The commit a push moved from; empty for a ui push (the whole suite).
     - name: base
       default: ""
+    # Where the run goes (binding bifrost-ci-node).
+    - name: ciNode
+      default: none
+    - name: ciNodeKey
+      default: kubernetes.io/os
+    - name: ciNodeValue
+      default: linux
+    - name: ciNodeWhy
+      default: not chosen
   resourcetemplates:
     - apiVersion: tekton.dev/v1
       kind: PipelineRun
@@ -272,6 +304,9 @@ spec:
           bifrost.io/trigger: gitea-webhook
           bifrost.io/repo: bifrost-platform
           bifrost.io/layer: L1
+        annotations:
+          bifrost.io/build-node: $(tt.params.ciNode)
+          bifrost.io/build-node-why: $(tt.params.ciNodeWhy)
       spec:
         pipelineRef:
           name: bifrost-ci-platform
@@ -292,6 +327,7 @@ spec:
           podTemplate:
             nodeSelector:
               kubernetes.io/arch: amd64
+              $(tt.params.ciNodeKey): $(tt.params.ciNodeValue)
             tolerations:
               - key: node-role.kubernetes.io/control-plane
                 operator: Exists
@@ -455,6 +491,7 @@ spec:
                 body.repository.name == 'bifrost-platform'
       bindings:
         - ref: bifrost-gitea-push-ready
+        - ref: bifrost-ci-node
       template:
         ref: bifrost-ci-platform-template
     # One landing trigger for every repository: which ones land is LANDING_REPOS (pipeline-land.yaml), read

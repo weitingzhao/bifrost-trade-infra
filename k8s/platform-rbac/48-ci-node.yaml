@@ -1,0 +1,29 @@
+# The node new CI runs go to (the Owner, 2026-11-18: CI on ubt-k3s-05 moves to
+# ubt-k3s-07, the slow disk only as the fallback). A CI run is created by the
+# Gitea webhook's trigger; PROD's platform keeps the current choice in this one
+# TriggerBinding (delivery/ci_node.go), which the trigger reads when it creates a
+# run. Nothing else in cicd's triggers is writable by it.
+#
+# Manual apply with the rest of k8s/platform-rbac. Way back: delete the two
+# objects; the binding keeps its last value, so also apply trigger-trade-ci.yaml,
+# whose value leaves runs to the scheduler.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: bifrost-platform-ci-node
+  namespace: cicd
+  labels: {app.kubernetes.io/part-of: bifrost-platform}
+rules:
+  - apiGroups: ["triggers.tekton.dev"]
+    resources: [triggerbindings]
+    resourceNames: [bifrost-ci-node]
+    verbs: [get, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: bifrost-platform-ci-node-prod
+  namespace: cicd
+  labels: {app.kubernetes.io/part-of: bifrost-platform}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: bifrost-platform-ci-node}
+subjects: [{kind: ServiceAccount, name: bifrost-platform, namespace: bifrost-platform-prod}]
