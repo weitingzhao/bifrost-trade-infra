@@ -25,6 +25,7 @@
 
 ## 5. 对外合约的变动记录（底座代记，领域 2 席位是占位）
 
+- **2026-11-18（底座，platform `b6c6abc2`）计划读血缘改走端口**：`workregistration` 新开放四个读，都在调用方事务里跑：`RecentStreams`、`RecentRecords`（计划视图的最近变更）、`HasWork`（根下有没有工作）、`Registrants`（登记人）。计划经 `planstore.ExternalWorkPorts` 用，`store/portsbind.go` 绑定；计划不再自己写 SQL 认 `external_work` 的字段。签收候选改用已有的 `workregistration.Snapshot`。改这几个读的返回，算改合约。
 - **2026-11-17（底座，platform `a6862d84`，迁移 0032）登记事件换了类型**：external-work 的每条记录（登记、心跳、事件）从 `note`（body 带 `external_work` 字段）改成血缘自己的事件类型 `external_work_noted {text, external_work}`，登记在 `bus/registry/ledger/types.yaml` 的 lineage 名下。body 字段没变。
   - 代码现在在 `api/internal/agentrt/externalwork/`：`AppendExternal` 写，`vocab.go` 声明，用 `ExternalNote.Validate` 校验。原来经计划的 note 校验和端口间接校验。
   - 改过的读取方，新旧两种类型都读，旧行不回填：
