@@ -1,10 +1,10 @@
-"""S1-5 no-op equivalence: without a collector token the wrapper, register-claude-work.py and
-handin.sh behave as the scripts of 46d1a32 do (R5:5.5-12 S1-5).
+"""S1-5 no-op equivalence: without a collector token the wrapper and register-claude-work.py
+behave as the scripts of 46d1a32 do (R5:5.5-12 S1-5).
 
 python3 -m pytest -q scripts/agent-host/tests/test_collector_s15_noop.py
 Compared: exit code, stdout, stderr, every request (method, path, Authorization,
-X-Bifrost-Session, Content-Type, X-Artifact-Kind, body bytes), the files
-handin.sh leaves under .git/handin, the wrapper's state.json, and, run as the
+X-Bifrost-Session, Content-Type, X-Artifact-Kind, body bytes), the wrapper's
+state.json, and, run as the
 coordinator runs it (one file copied alone into an empty directory), --help, a
 whole run and a refused registration. Two differences are intended and
 checked as such, not as equal: the Codex child's environment lacks exactly
@@ -26,7 +26,6 @@ import pytest
 from collector_fakes import AGENT_HOST, INFRA, Platform, clean_env
 
 BASELINE = "46d1a32"
-HANDIN = INFRA / "agent-config" / "scripts" / "landing" / "handin.sh"
 DESCRIPTION = {"v": 1, "kind": "agentrt.external_work/v1", "task": "任务", "executor": "codex", "provider": "openai",
                "repo": "platform", "branch": "b", "acceptance_refs": ["PV1"], "estimate_minutes": [1, 2]}
 # Without a collector token, a blank one, and an unreadable token file.
@@ -173,87 +172,3 @@ def test_register_claude_work_manual_mode_sends_what_the_baseline_sends(tmp_path
     new = run_register(tmp_path, AGENT_HOST, case, "new")
     assert [o[0] for o in old[0]][:3] == [0, 0, 0] and len(old[1]) >= 6
     assert new == old
-
-
-FAKE_CURL = r'''#!{python}
-import json, os, sys
-from pathlib import Path
-args = sys.argv[1:]; url = args[-1]; root = Path(os.environ["TEST_ROOT"])
-shown = ["<out>" if i and args[i - 1] == "-o" else ("@header" if a.startswith("@") else a) for i, a in enumerate(args)]
-with (root / "calls").open("a") as f: f.write(json.dumps(shown) + "\n")
-out = Path(args[args.index("-o") + 1])
-if "/tasks/" in url:
-    out.write_text(json.dumps({{"base_commit": os.environ["TEST_BASE"], "state": "ready", "repo": "platform", "mission_id": "M-1"}})); print("200", end="")
-elif "/landing/missions/" in url:
-    out.write_text(json.dumps({{"roots": []}})); print("200", end="")
-elif "/tasks?mission=" in url:
-    out.write_text(json.dumps({{"tasks": []}})); print("200", end="")
-else:
-    out.write_text("{{}}"); print("500", end="")
-'''
-
-
-def run_handin(tmp_path, script, case, tag):
-    root = tmp_path / ("handin-" + tag)
-    work = root / "repo"
-    work.mkdir(parents=True)
-    bin_dir = root / "bin"
-    bin_dir.mkdir()
-    (bin_dir / "curl").write_text(FAKE_CURL.format(python=sys.executable))
-    (bin_dir / "curl").chmod(0o755)
-    # The squash Change-Id is random; a fixed one makes both versions' commits comparable.
-    (bin_dir / "openssl").write_text("#!/bin/sh\necho " + "c" * 40 + "\n")
-    (bin_dir / "openssl").chmod(0o755)
-    home = root / "home"
-    setup_home(home, case)
-    env = {"PATH": str(bin_dir) + os.pathsep + os.environ["PATH"], "HOME": str(home), "TEST_ROOT": str(root), "GIT_CONFIG_GLOBAL": "/dev/null",
-           "PLATFORM_AGENTRT_URL": "http://offline.invalid", "AGENTRT_COORDINATOR_AGENTD_TOKEN": "SENTINEL",
-           "GIT_AUTHOR_DATE": "2026-11-04T00:00:00Z", "GIT_COMMITTER_DATE": "2026-11-04T00:00:00Z",
-           **{k: v for k, v in case.items() if k != "unreadable"}}
-    def git(*a):
-        return subprocess.run(["git", *a], cwd=work, env=env, capture_output=True, text=True, check=True).stdout.strip()
-
-    git("init", "-q", "-b", "unit")
-    git("config", "user.name", "F")
-    git("config", "user.email", "f@example.invalid")
-    task = "t_" + "0" * 25 + "3"
-    for name, message in (("base", "base"), ("a", "a\n\nClaude-Session: local_one"), ("b", "b")):
-        (work / name).write_text(name)
-        git("add", name)
-        git("commit", "-qm", message)
-    base = git("rev-list", "--max-parents=0", "HEAD")
-    env["TEST_BASE"] = base
-    commits = git("rev-list", "--reverse", base + "..HEAD").split()
-    outs = []
-    selected = [x for c in commits for x in ("--commit", c)]
-    (root / "report").write_text("r\n")
-    # The run binding hashes the platform URL, host, task and key: the same in both versions.
-    for args in (["squash", "--task", task, "--base", base, *selected], ["squash", "--task", task, "--base", base],
-                 ["run", "--task", task, "--report", str(root / "report"), "--remote", "x", "--key", "k"]):
-        p = subprocess.run(["bash", str(script), *args], cwd=work, env=env, capture_output=True, text=True, timeout=60)
-        outs.append((p.returncode, p.stdout, p.stderr.replace(str(root), "<root>")))
-    files = {}
-    for f in sorted((work / ".git" / "handin").rglob("*")):
-        if f.is_file():
-            files[str(f.relative_to(work / ".git"))] = f.read_text()
-    calls = (root / "calls").read_text() if (root / "calls").exists() else ""
-    return outs, files, calls.replace(str(root), "<root>")
-
-
-def without_one_per_repo_reads(calls):
-    """The calls less the three reads run makes before it binds, which the baseline predates: the task, its mission's
-    landing and its mission's tasks (one hand-in per repository at a time, R5:5.6-2). They must be there, in order."""
-    lines = calls.splitlines(keepends=True)
-    urls = [json.loads(line)[-1] for line in lines]
-    i = next(k for k, u in enumerate(urls) if u.endswith("/landing/missions/M-1"))
-    assert urls[i - 1].endswith("/tasks/t_" + "0" * 25 + "3") and urls[i + 1].endswith("/tasks?mission=M-1"), urls
-    return "".join(lines[:i - 1] + lines[i + 2:])
-
-
-@pytest.mark.parametrize("case", NO_TOKEN, ids=["no-token", "blank-token", "unreadable-file"])
-def test_handin_squash_and_run_behave_as_the_baseline(tmp_path, case):
-    old_script = baseline(tmp_path, "agent-config/scripts/landing/handin.sh") / "handin.sh"
-    old = run_handin(tmp_path, old_script, case, "old")
-    new = run_handin(tmp_path, HANDIN, case, "new")
-    assert old[0][0][0] == 0 and old[1], "the baseline squashed and kept its state"
-    assert (new[0], new[1], without_one_per_repo_reads(new[2])) == old

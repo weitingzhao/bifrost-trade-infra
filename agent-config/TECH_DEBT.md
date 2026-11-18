@@ -2557,20 +2557,6 @@
 - **防线**：在修好之前：`git push` 单独一条命令、无人值守时一件事一条命令（统筹记忆 `push_alone_or_night_stalls`）；派活一律 `< /dev/null > log 2>&1` 并后台跑。修好之后：两条告警各有一条「故意挂住 → 告警到达」的验收测试。
 - **验收**：STG 上让一个模拟统筹报到后停止 31 分钟，For you 出现条目且 ntfy 收到；让一个执行者在心跳中停止输出 N+1 分钟，出现告警。
 
-### TD-458
-
-**P2 · infra `handin.sh` · 刚提的任务要手等就绪；返工第 2 轮压提交被第 1 轮恢复状态挡住**
-
-- **状态**：未开始（2026-10-29）。
-- **证据**：① C-7 实测 2（t_01M64V09RSFFRPCA7Z4QSRB4CA）`propose` 后立刻 `run`：`claim/pinned: HTTP 409 … is proposed, not ready`，等约 20 秒后重跑才成功；之后每次都要手写等待循环。② B5-e（t_01M658DPFZH5GDSJGN233HRPMT）运行时评审第 1 轮 FAIL 进第 2 轮，`handin.sh squash` 报 `recovery state differs: <git-dir>/handin/squash/<task>`——恢复状态按任务记（`agent-config/scripts/landing/handin.sh:241` 比较 `source = "$base $head"`），不按尝试记；统筹把第 1 轮的状态目录改名为 `.attempt1` 后才压成功，第 2 轮也因此换了 Change-Id。
-- **第三例**（2026-10-30 00:2x，N-01 t_01M65M2BJ4HTGF762CJDPE19HA）：在派活目录（clone 自本机检出）里跑 `run --remote origin`，`origin` 是本机路径，分支推到了本机而不是 Gitea；平台 persist 读 Gitea 找不到 ref，连续 409，尝试过期成 stale。修法加一条：`run` 推送前核对 `--remote` 的 URL 就是该任务仓库在 Gitea 的地址，不是就拒绝并说明。
-- **第四例**（2026-10-30 01:46，B5-f+g t_01M65RYVF3NQMD25K8QYK3RPKP）：第一次 `run` 在领取前就因提交不合格被拒（squash 参数被 zsh 当成一个词，没压成功），却已在 `handin/runs/<binding>.json` 记下了那个错误提交；之后正确压好的提交被 `key is bound to a different commit` 拒绝。平台上并无尝试。修法加一条：领取成功之前失败的 run 不写绑定（或失败时撤销）。
-- **影响**：每件交付多一步手工等待；返工轮需要手动处理本地状态，容易误删或误用旧消息，Change-Id 在轮次间不稳定。
-- **修法**：`run` 在 `proposed` 时按退避等到 `ready`（有上限，超时报清楚的原因）；`squash` 的恢复状态按（任务, 尝试序号）记，或在上一轮尝试已交付（`a<n>` 已推、已 submit）时自动归档旧状态；同一任务的各轮沿用第一次的 Change-Id。
-- **附带**（2026-10-30 06:4x）：`test_handin.sh` 的 `run` 用例在 10 分钟 pytest 之后紧接着跑时超过 5 秒上限超时一次，单独连跑两次 20/20 通过——测试内 5 秒上限偏紧，放宽或改为按步骤计时。
-- **防线**：`test_handin.sh` 加两组：proposed→ready 自动等待（含超时）；第 1 轮已交付后第 2 轮 squash 成功且 Change-Id 不变。
-- **验收**：两组测试通过；下一次真实返工无需手工处理本地状态。
-
 ### TD-459
 
 **P1 · platform 授权材料 · 每次请求重算约 50 秒（Owner 的批准按钮因此时灰时亮），Console 对已执行的单持续轮询，把 api 占满，新单取材料 503**
@@ -2640,18 +2626,6 @@
 - **修法**：STG 发布和 main CI 在 Work 的 Now 上有自己的一行，失败要看得见；卡片正文从发布运行的结果生成。R5:5.5-16「每句说法从事实生成」覆盖卡片这一半。
 - **防线**：Console 测试：一个在跑或失败的 STG 发布出现在 Now；卡片模板测试：发布失败时不说部署了。
 - **验收**：下一次 STG 发布失败时，Work 页 Now 上看得见，卡片说的是失败。
-
-### TD-497
-
-**P3 · 交付 · 没用上的交付任务永远停在 ready，交付脚本没有撤回**
-
-- **状态**：未开始（2026-11-02 记；当晚统筹用 `request_stop` 停了两个）。
-- **合并自 TD-506**（2026-11-05 台账清理）：重提的任务不挂到它替代的那个，旧的一直 ready；预算卡不看同 mission 里已接受的同步骤、同任务书的实现，写「No recommendation」（卡 #99）。理由：同一机制：被替代/没用上的交付任务一直 ready；②即 TD-497 修法，①卡片规则一并带入。原文在 git 历史（infra `e68e94b` 及以前的本文件）。
-- **证据**：`t_01M6BP9G5AR3R8A7NGAE3MD0T1`（R5:5.7-2，M-261）和 `t_01M6CZR8J8M1JKBM70XC47SKS0`（R5:5.5-8，M-267）在同一 mission 里各有一个已接受并落地的兄弟任务，自己却一直 ready。它们钉给 `external:coordinator`，没有执行器会领，但倒计时（R5:5.5-13）会把它们算成排队。`handin.sh` 没有撤回子命令；`request_stop` 停下后只有你能解。
-- **影响**：计划上多出永远不会动的「排队」，倒计时不准。
-- **修法**：`handin.sh withdraw --task …`（只限没起尝试的、自己提的任务）；或者兄弟任务的 patch 落地后，delivered-by 顺手收掉从没跑过的同组 root。
-- **防线**：平台检查：已完成步骤上没有 ready 的交付 root；`test_handin.sh` 覆盖 withdraw。
-- **验收**：PROD 上所有已完成步骤的交付 root，ready 数为 0。
 
 ### TD-498
 
@@ -3433,17 +3407,6 @@
 - **修法**：S5 启用前一并改为节点可达的 registry 地址（platform 常量与 contract、infra 清单与 VAP、pins.py 重生成），并在 pins 测试里断言 Task 镜像主机与平台其他镜像一致。
 - **防线**：infra 加一条检查：`k8s/cicd/tekton` 下 Task 步骤的 `image` 不得用 `*.svc.cluster.local` 主机。
 - **验收**：S5 启用演练中 S5 Task 的 Pod 成功拉取检查器镜像。
-
-### TD-465
-
-**P2 · infra 落地 · 文档消费者棘轮：reader / constraint / skip 只按命中行哈希，复用已有路径变量的新读取看不见**
-
-- **状态**：未开始（2026-10-30）。
-- **证据**：`scripts/landing/doc_consumers.py:29` 的 `fingerprint` 只对命中行（S1/S2）取哈希，`:46-52` 的 `verify` 只在命中行改变时报 `consumer_changed`。已登记的读者都把文档目录放在一个变量里：`scripts/release/test_dl5_approval_consistency.py:9` 的 `ROOT`、`agent-config/scripts/validate_plan_view.py:9` 的 `DEFAULT`、`scripts/agentrt/issue_index_check.py:33` 的 `CREW`、`scripts/cicd/test_landing_owner_steps.py:13` 的 `DOCUMENT`、`scripts/agent-host/test_probe_gitea_protection.py:911` 的 `steps`。之后在同一文件里写 `ROOT / 'REPORT-x.md'` 之类的新读取，命中行一行不变，哈希照旧，登记里的读集（`reads`）就不再完整，`registry_overlap` 不变式也查不到它。constraint 和 skip 同样只看命中行。
-- **影响**：开放集合与读者读集不相交，是 infra 文档落地的前提（DESIGN-S6-v3 §4.4）。这个缺口让新读者可以在不触发棘轮的情况下进 main，只剩复核者人工发现（§4.5 第 1 条的剩余信任）。
-- **修法**：`reader`、`constraint`、`skip` 三类改为对整个文件取哈希（文件任何改动都要重新核实登记）；`data`、`mention`、`token` 仍按命中行。`doc_consumers.py` 按类别选哈希方式，登记表随之重算。
-- **防线**：`scripts/landing/test_doc_policy.py` 加用例：已登记的 reader 在不改命中行的情况下加一行新读取 → 红 `consumer_changed`；同样的改动放在 mention 文件里 → 绿。
-- **验收**：`python -m pytest -q scripts/landing` 全绿，且新用例在去掉整文件哈希后变红。
 
 ## 没覆盖到的（下一轮从这里开始）
 

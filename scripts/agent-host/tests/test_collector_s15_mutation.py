@@ -14,11 +14,10 @@ from collector_fakes import INFRA
 
 LAUNCH = "scripts/agent-host/tests/test_collector_launch.py"
 CODEX = "scripts/agent-host/tests/test_collector_codex.py"
-HANDIN = "agent-config/scripts/landing/test_handin_sessions.py"
 INTENTS = "scripts/agent-host/tests/test_collector_intents.py"
 ENV = "scripts/agent-host/tests/test_collector_env.py"
 W, L, X = "scripts/agent-host/collector_work.py", "scripts/agent-host/dispatch-claude.py", "scripts/agent-host/dispatch-codex.py"
-J, H = "agent-config/scripts/collector-launch.js", "agent-config/scripts/landing/handin-sessions.sh"
+J = "agent-config/scripts/collector-launch.js"
 A = "agent-config/scripts/collector-audit.js"
 
 # (name, file, from, to, test file, -k expression)
@@ -61,13 +60,9 @@ MUTANTS = [
     ("the audit calls a lost registration never sent (R2-S1)", A, "  if (state && state.registration_sent) return 'unconfirmed'\n", "", INTENTS, "r2s1"),
     ("the audit owes no end to a lost registration (R2-S1)", A, "Boolean(state && (state.id || state.registration_sent))", "Boolean(state && state.id)", INTENTS, "r2s1"),
     ("the audit misses an undelivered end (M2)", A, "    if (works.some(w => w.end_not_delivered)) gaps.push('work_end_not_delivered')\n", "", INTENTS, "audit_reports_an_end"),
-    ("no fallback to the session id", H, '  if [ -z "$states" ]; then\n    states=$(sessions_get session "$value") || { echo unknown; return; }\n  fi\n', "", HANDIN, "registered_unregistered"),
-    ("linked does not win", H, "elif grep -qx linked <<<\"$states\"; then echo registered", "elif false; then echo registered", HANDIN, "registered_unregistered"),
-    ("a retried squash asks again", H, '  if [ -f "$dir/sessions.json" ] && [ "$(jq', '  if false && [ -f "$dir/sessions.json" ] && [ "$(jq', HANDIN, "registered_unregistered"),
-    ("no token still asks", H, 'sessions_check() {\n  [ -n "$(sessions_token)" ] || return 0\n', "sessions_check() {\n", HANDIN, "without_a_collector_token"),
 ]
 COPY = ["scripts/agent-host", "agent-config/scripts/thread-heartbeat.js", "agent-config/scripts/collector-session.js", "agent-config/scripts/collector-epochs.js",
-        J, "agent-config/scripts/collector-audit.js", "agent-config/scripts/landing/handin.sh", H, HANDIN]
+        J, "agent-config/scripts/collector-audit.js"]
 
 
 def copy_tree(root: Path) -> Path:

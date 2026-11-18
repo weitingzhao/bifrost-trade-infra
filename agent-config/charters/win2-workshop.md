@@ -43,7 +43,7 @@
 
 ## 和谁有重叠
 - **CI 线（3-4）**：「什么要 Owner 批」的文字。规则是它的，写进 `CLAUDE.md` §5 和 `RELEASE.md` 的句子工坊也在改。B 组五条谁落，没定。
-- **CI 线**：`check-governance-consistency.sh` 整个脚本和 `doc-consumers.yaml` 在它的通道里跑，工坊只加了第 8 节。脚本归谁，没定。
+- **CI 线**：`check-governance-consistency.sh` 整个脚本在它的通道里跑，工坊只加了第 8 节。脚本归谁，没定。
 - **主统筹**：Owner 的方向。出处在它的记忆里，登记表在仓库里，两处都在记；谁是准的——工坊的理解是仓库为准，记忆是出处。
 - **值班统筹（8.1）**：章程和「席位按领域命名」的领域表（`brain/company-map.md` 定稿后搬进 `agent-config/`），内容归它和主统筹，搬进仓库归工坊。
 - **9-harness**：「多家 Agent 都能做完」（方向 #17，Codex 经不经过 preflight）。工坊登记了没落，核现状该谁做，没定。
