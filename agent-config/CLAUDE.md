@@ -262,6 +262,7 @@ release.sh、`start_pipeline_run`、`gitops_sync_app`，不再被 auto mode 拦�
 - **只增不删的 agentrt 迁移，标准满足就由 Agent 直接跑（Owner 2026-11-18）**。调 `run_agentrt_migration`（commit 写这个提交），平台按签名规则判：
   迁移是新文件，每条语句都在不毁行的允许清单里（`api/internal/releasepolicy/migrationclass.go`），这个提交已在 STG 发布成功，环境已应用的迁移它都带着。
   判过就起 Job，不建卡。平台回「approval required」就是不在这一类，走 Owner 的卡。跑完核 `/health` 的 `agentrt_schema_applied`，在线程里报结果。有数据的删改不在内。
+- **找 Owner 之前先过 `.claude/skills/owner-decision-check/`（Owner 2026-11-18）**：这件事该不该存在、稳定和效率的回报是什么、到底需不需要他。
 - **只有法才建卡请 Owner 批（Owner 2026-11-18）**：术和器不做成判断类的卡，机器要他做的那一步写成手续。过渡期他在主统筹线程里亲口定的法算数，主统筹当天登记进 `OWNER_LAW.md`。
 - **问题的回答不是批准（W-65，2026-10-11）**。经 `ask_owner` 问 Owner 得到的回答不增加任何授权：它不是审批单上的批准，
   也不能转述成「Owner 已在线程里点头」。从 shell 直接执行的发版和 PROD DDL 仍要他本人在线程里点头；C / D 级动作仍要审批单。
