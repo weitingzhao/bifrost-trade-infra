@@ -58,6 +58,8 @@ Owner 定过的方向，一条一行。**没登记的不算定**：主统筹每�
 | 31 | 2026-11-18 | 只有法才通过系统建卡请他批；过渡期他在主统筹线程里直接说的决定算数 | `agent-config/CLAUDE.md`「只有法才建卡请 Owner 批」 | 只有文字 | 已落 | — |
 | 32 | 2026-11-18 | 只增不删的生产迁移有明确判断标准，按标准执行，不需要他批 | `agent-config/CLAUDE.md`「只增不删的 agentrt 迁移，标准满足就由 Agent 直接跑」；`agent-config/OWNER_EXEC.md`「只增不删的由 Agent 用」 | 签名规则的 `ddl_reversible`；平台 `run_agentrt_migration`；`releasepolicy/migrationclass.go` 允许清单 | 已落。发布流水线拒绝信息的文字由 CI 线改 | — |
 | 33 | 2026-11-18 | 裁判规则可以放松：从第一性原理分析得出的建议可以；只因被拦不算理由 | `agent-config/CLAUDE.md`「放松不是禁区」 | 只有文字 | 已落 | — |
+| 34 | 2026-11-18 | Ops 游戏化是人和 Agent 一起做事的具象化：表现和系统分开，人只做人该做的，Agent 的真实工作看得见，万物分档 | `agent-config/CLAUDE.md`「Ops 游戏化是人和 Agent 一起做事的具象化」 | 只有文字 | 已落。方向全文在 charters/10-cockpit.md | — |
+| 35 | 2026-11-18 | 执行卡这条路是给他不在电脑前准备的，哪里不通就扩到哪里，要能到他所有的集群服务器 | 待写：`agent-config/OWNER_EXEC.md` 主机执行一节 | 验证码执行卡（`owner_run_command`） | 未落：算力线在做节点级执行工具。交易和钱不因此放开（D10、H1） | — |
 | H1 | 2026-07-04、11-13 | 交易和钱：D10 冻结；围栏没立好之前不排进任何波次 | `agent-config/CLAUDE.md`「D10 — 交易执行冻结」「不排进任何波次」「这六类始终是 Owner 的」 | `preflight.js`；签名规则的 `no_d10_paths`；集群准入策略 | 已落 | — |
 | H2 | — | 口令和 Secret 不入库、不读 | `agent-config/CLAUDE.md`「不得进仓库的是」「这六类始终是 Owner 的」 | `preflight.js`；CI 的 statics 段 | 已落 | — |
 | H3 | — | 有数据的删改要他 | `agent-config/CLAUDE.md`「跑 ddl-apply Job 前先」「这六类始终是 Owner 的」 | 签名规则的 `additive_ddl` | 已落。和 #9 的分界线未落 | — |

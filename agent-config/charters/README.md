@@ -22,4 +22,5 @@
 | `8-1-duty.md` | 8.1 值班统筹 |
 | `8-2-comm-desk.md` | 8.2 沟通台面 |
 | `9-harness.md` | 9 Harness 接入 |
+| `10-cockpit.md` | 10 Cockpit · Ops 游戏化 |
 | `win2-workshop.md` | 窗 2 · Agent 工坊 |
