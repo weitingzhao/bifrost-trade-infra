@@ -332,8 +332,21 @@
 | [TD-580](#td-580) | P2 | owner-exec | 执行卡的建卡检查不防「GET 也能读 Secret 内容、也能打 /proxy」 | 安全/凭据（要你批） |
 | [TD-581](#td-581) | P3 | cicd | 测试 TestThreadInboxBacklogMustNotStarveSweep 在集群 CI 里会红：13 秒期限只比 10 秒投递预算多 3 秒 | 不用批 |
 | [TD-582](#td-582) | P2 | platform | store 里 30 个计划测试用 store 内部夹具断言跨领域接线；planstore 为 store 的测试多导出 42 个名字 | 不用批 |
+| [TD-583](#td-583) | P3 | platform | 测试 TestCursorAtReadsFromATime 在全量并行时会红：要等全库最老事务让路，15 秒等不到 | 不用批 |
 
 ## 条目
+
+### TD-583
+
+**P3 · platform api/internal/agentrt/eventlog/cursorat_db_test.go · 游标测试要等全库最老事务，并行跑全量时偶尔红**
+
+- **状态**：未开始（2026-11-18）。归属：`agentrt/eventlog`；登记的是沟通线。
+- **出处**：2026-11-18 沟通线本机跑 `./internal/agentrt/...`，红在 `cursorat_db_test.go:83`（`from before both: []`），这次改动没碰这个包。
+- **证据**：测试自己的注释写明读取上限是「集群里最老的运行中事务」，别的测试可能压住它；`cursorat_db_test.go:76` 起只等 15 秒。所有包共用一个 PG，并行时一个长事务就能让它等不到。原因是按注释和现象判断的，没有抓到当时压住上限的那个事务。
+- **影响**：别人的本机全量或合入偶尔红在一个没碰的包上，要重跑。
+- **修法**：给这个测试单独建库（或单独的 PG 实例），上限只受自己的事务影响；不要只把 15 秒调大，余量照样随负载缩。
+- **防线**：改完在全量并行下重复跑；阳性对照：测试里另开一个不提交的事务，读取应等不到，提交后读到。
+- **验收**：`go test -count=10 ./internal/agentrt/...` 全绿。
 
 ### TD-582
 
