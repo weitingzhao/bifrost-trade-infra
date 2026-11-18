@@ -22,3 +22,15 @@
 - 没人维护的地方【推】：线程状态是单文件存储，多副本/重启下的一致性没见到保证；`presence*.go` 命名误导，归属不清。
 - 已知缺口：external-work 无专属表，查询靠扫事件（`externalwork.go:693` DISTINCT ON），量大后会慢【推】；线程在线只认 Claude 席位（domains-review 第 85 行「信箱只认 Claude」）。
 - 建议第一步（等有活）：先把 21 个旧派活依赖列清单，再决定搬进领域 2 还是重写。
+
+## 5. 对外合约的变动记录（底座代记，领域 2 席位是占位）
+
+- **2026-11-17（底座，platform `a6862d84`，迁移 0032）登记事件换了类型**：external-work 的每条记录（登记、心跳、事件）从 `note`（body 带 `external_work` 字段）改成血缘自己的事件类型 `external_work_noted {text, external_work}`，登记在 `bus/registry/ledger/types.yaml` 的 lineage 名下。body 字段没变。
+  - 代码现在在 `api/internal/agentrt/externalwork/`：`AppendExternal` 写，`vocab.go` 声明，用 `ExternalNote.Validate` 校验。原来经计划的 note 校验和端口间接校验。
+  - 改过的读取方，新旧两种类型都读，旧行不回填：
+    - planstore 三处：计划视图的覆盖数、证据、采纳判断；
+    - workregistration 三处：identities、spans、snapshot；
+    - externalwork 两处：最近一条记录、`NamingOfCommit`。
+  - Console 按 body 字段读，不看类型，不用改。
+  - 同日搬进 externalwork 的还有：写入（`writes.go`）、记录员导入的落地（`recorder.go`）、`PrepareRecorderImport`、`NamingOfCommit`（交付读「哪个工作点名了这个提交」用）。上面第 1 节里 `store/externalwork.go` 的行号已经过时。
+
