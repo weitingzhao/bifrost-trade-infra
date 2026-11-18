@@ -58,29 +58,6 @@ spec:
 # The repository's name is passed on only to be looked up there. The binding names no
 # `base`: the bifrost-platform CI run of a ready/ push tests the whole suite (or the console
 # scope, which is measured from main), never the increment since the last push to the branch.
-# The node new platform CI runs go to, kept current by PROD's platform
-# (delivery/ci_node.go; k8s/platform-rbac/48-ci-node.yaml). The values here leave
-# a run to the scheduler: a selector true of every node. The platform's writes
-# are not in Git, and applying this file resets them until its next pass.
-apiVersion: triggers.tekton.dev/v1beta1
-kind: TriggerBinding
-metadata:
-  name: bifrost-ci-node
-  namespace: cicd
-  labels:
-    bifrost.io/purpose: ci-trigger
-spec:
-  params:
-    - name: ciNode
-      value: none
-    - name: ciNodeKey
-      value: kubernetes.io/os
-    - name: ciNodeValue
-      value: linux
-    - name: ciNodeWhy
-      value: not chosen yet
-
----
 apiVersion: triggers.tekton.dev/v1beta1
 kind: TriggerBinding
 metadata:

@@ -1,0 +1,22 @@
+# The node new platform CI runs go to. PROD's platform owns this object and keeps
+# it current (delivery/ci_node.go; k8s/platform-rbac/48-ci-node.yaml), so it lives
+# apart from trigger-trade-ci.yaml, whose apply would otherwise conflict with the
+# platform's writes. Applying this file is for a new cluster, or for handing runs
+# back to the scheduler: these values are a selector true of every node.
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerBinding
+metadata:
+  name: bifrost-ci-node
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: ci-trigger
+spec:
+  params:
+    - name: ciNode
+      value: none
+    - name: ciNodeKey
+      value: kubernetes.io/os
+    - name: ciNodeValue
+      value: linux
+    - name: ciNodeWhy
+      value: not chosen yet

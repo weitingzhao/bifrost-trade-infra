@@ -5,8 +5,9 @@
 # run. Nothing else in cicd's triggers is writable by it.
 #
 # Manual apply with the rest of k8s/platform-rbac. Way back: delete the two
-# objects; the binding keeps its last value, so also apply trigger-trade-ci.yaml,
-# whose value leaves runs to the scheduler.
+# objects; the binding keeps its last value, so also apply
+# k8s/cicd/tekton/trigger-ci-node-binding.yaml, whose value leaves runs to the
+# scheduler.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
