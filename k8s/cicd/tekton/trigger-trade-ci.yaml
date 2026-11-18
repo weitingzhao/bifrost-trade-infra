@@ -138,6 +138,24 @@ spec:
             serviceAccountName: tekton-platform-ci-reuse
         taskRunTemplate:
           podTemplate:
+            # Never ubt-k3s-01: CI there went with etcd's WAL fsync P99 at 109 ms against 8
+            # idle (2026-11-18). A run's affinity replaces the default template's, so the
+            # preference for nodes outside batch=deny is repeated here.
+            affinity:
+              nodeAffinity:
+                requiredDuringSchedulingIgnoredDuringExecution:
+                  nodeSelectorTerms:
+                    - matchExpressions:
+                        - key: kubernetes.io/hostname
+                          operator: NotIn
+                          values: [ubt-k3s-01]
+                preferredDuringSchedulingIgnoredDuringExecution:
+                  - weight: 100
+                    preference:
+                      matchExpressions:
+                        - key: bifrost.io/batch
+                          operator: NotIn
+                          values: [deny]
             nodeSelector:
               kubernetes.io/arch: amd64
             tolerations:
@@ -198,6 +216,24 @@ spec:
             value: $(tt.params.revision)
         taskRunTemplate:
           podTemplate:
+            # Never ubt-k3s-01: CI there went with etcd's WAL fsync P99 at 109 ms against 8
+            # idle (2026-11-18). A run's affinity replaces the default template's, so the
+            # preference for nodes outside batch=deny is repeated here.
+            affinity:
+              nodeAffinity:
+                requiredDuringSchedulingIgnoredDuringExecution:
+                  nodeSelectorTerms:
+                    - matchExpressions:
+                        - key: kubernetes.io/hostname
+                          operator: NotIn
+                          values: [ubt-k3s-01]
+                preferredDuringSchedulingIgnoredDuringExecution:
+                  - weight: 100
+                    preference:
+                      matchExpressions:
+                        - key: bifrost.io/batch
+                          operator: NotIn
+                          values: [deny]
             nodeSelector:
               kubernetes.io/arch: amd64
             tolerations:
@@ -249,6 +285,24 @@ spec:
             value: $(tt.params.uiRevision)
         taskRunTemplate:
           podTemplate:
+            # Never ubt-k3s-01: CI there went with etcd's WAL fsync P99 at 109 ms against 8
+            # idle (2026-11-18). A run's affinity replaces the default template's, so the
+            # preference for nodes outside batch=deny is repeated here.
+            affinity:
+              nodeAffinity:
+                requiredDuringSchedulingIgnoredDuringExecution:
+                  nodeSelectorTerms:
+                    - matchExpressions:
+                        - key: kubernetes.io/hostname
+                          operator: NotIn
+                          values: [ubt-k3s-01]
+                preferredDuringSchedulingIgnoredDuringExecution:
+                  - weight: 100
+                    preference:
+                      matchExpressions:
+                        - key: bifrost.io/batch
+                          operator: NotIn
+                          values: [deny]
             nodeSelector:
               kubernetes.io/arch: amd64
             tolerations:
@@ -325,6 +379,24 @@ spec:
             serviceAccountName: tekton-platform-ci-reuse
         taskRunTemplate:
           podTemplate:
+            # Never ubt-k3s-01: CI there went with etcd's WAL fsync P99 at 109 ms against 8
+            # idle (2026-11-18). A run's affinity replaces the default template's, so the
+            # preference for nodes outside batch=deny is repeated here.
+            affinity:
+              nodeAffinity:
+                requiredDuringSchedulingIgnoredDuringExecution:
+                  nodeSelectorTerms:
+                    - matchExpressions:
+                        - key: kubernetes.io/hostname
+                          operator: NotIn
+                          values: [ubt-k3s-01]
+                preferredDuringSchedulingIgnoredDuringExecution:
+                  - weight: 100
+                    preference:
+                      matchExpressions:
+                        - key: bifrost.io/batch
+                          operator: NotIn
+                          values: [deny]
             nodeSelector:
               kubernetes.io/arch: amd64
               $(tt.params.ciNodeKey): $(tt.params.ciNodeValue)
@@ -612,6 +684,24 @@ spec:
         value: ''
       taskRunTemplate:
         podTemplate:
+          # Never ubt-k3s-01: CI there went with etcd's WAL fsync P99 at 109 ms against 8
+          # idle (2026-11-18). A run's affinity replaces the default template's, so the
+          # preference for nodes outside batch=deny is repeated here.
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: kubernetes.io/hostname
+                        operator: NotIn
+                        values: [ubt-k3s-01]
+              preferredDuringSchedulingIgnoredDuringExecution:
+                - weight: 100
+                  preference:
+                    matchExpressions:
+                      - key: bifrost.io/batch
+                        operator: NotIn
+                        values: [deny]
           nodeSelector:
             kubernetes.io/arch: amd64
           tolerations:
