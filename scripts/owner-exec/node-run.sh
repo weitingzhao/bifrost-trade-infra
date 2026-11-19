@@ -143,6 +143,7 @@ render() {
   fi
   echo "# owner-exec node-run v$VERSION tier=$tier node=$node runtime_sha256=$(runtime | sha256)"
   echo "TIER=$tier"; echo "NODE=$node"; echo "DEADLINE=${DEADLINE:-300}"
+  echo "IMG='$IMG'"   # 2026-11-19 card #626: the card had no IMG, so the Pod's image was empty
   if [ "$tier" = device ]; then
     echo "read -r -d '' RECIPE_SCRIPT <<'RECIPE_EOF'"; recipe_script "$recipe"; echo "RECIPE_EOF"
   else
@@ -182,6 +183,9 @@ assert d["metadata"]["namespace"] == "bifrost-owner-exec"
 assert s["automountServiceAccountToken"] is False and s["hostNetwork"] is False and s["hostIPC"] is False
 assert not s.get("volumes") and not c.get("env") and "hostPath" not in str(d)
 assert s["hostPID"] is (tier == "host")
+# 2026-11-19, card #626: the rendered card never set IMG, so the Pod's image was empty and the
+# card had to be fixed by hand. Positive control: drop the IMG line from render and this fails.
+assert c.get("image") and "@sha256:" in c["image"] and "$" not in c["image"], "the Pod needs the pinned image"
 assert c["securityContext"]["privileged"] is True
 if tier == "device": ast.parse(c["args"][0]); assert c["command"][0] == "python3"
 else: assert c["command"][0] == "nsenter"
