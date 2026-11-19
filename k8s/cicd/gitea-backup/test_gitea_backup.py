@@ -248,7 +248,7 @@ def test_alert_and_maintainers():
     assert "and on()" in alerts[0]["expr"]
     for p in (
         ROOT / "agent-config/MAINTAINERS.yaml",
-        ROOT / "k8s/monitoring/maintainer-reconcile/MAINTAINERS.yaml",
+        ROOT / "k8s/monitoring/maintainer-reconcile/config/MAINTAINERS.yaml",
     ):
         s = p.read_text()
         assert s.count("id: cronjob/cicd/gitea-backup\n") == 1

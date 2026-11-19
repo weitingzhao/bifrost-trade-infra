@@ -416,7 +416,7 @@ maintainers:
     if not any("not_in_inventory" in line for line in drift_lines(items, extra)):
         raise SystemExit("self-test: extra schedule not reported")
     here = pathlib.Path(__file__).resolve()
-    root = here.parents[3]
+    root = here.parents[4]
     src = root / "agent-config" / "MAINTAINERS.yaml"
     copy = here.with_name("MAINTAINERS.yaml")
     if src.is_file() and copy.is_file() and src.read_bytes() != copy.read_bytes():

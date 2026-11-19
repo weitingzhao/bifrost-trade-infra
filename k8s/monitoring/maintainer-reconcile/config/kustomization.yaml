@@ -1,0 +1,22 @@
+# The reconcile's ConfigMap alone (2026-11-19): its inventory copy and script
+# change often, the CronJob and its RBAC rarely. Kept apart so the platform's
+# apply_manifest can push this directory without the RBAC objects, which it
+# does not apply in monitoring.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: monitoring
+
+configMapGenerator:
+  - name: maintainer-reconcile
+    files:
+      - reconcile.py
+      - MAINTAINERS.yaml
+    options:
+      disableNameSuffixHash: true
+
+labels:
+  - pairs:
+      app.kubernetes.io/name: maintainer-reconcile
+      app.kubernetes.io/part-of: bifrost
+    includeSelectors: false

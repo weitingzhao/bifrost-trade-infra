@@ -316,7 +316,7 @@ def live_check(items: list[dict]) -> None:
 
 
 def inventory_copy() -> None:
-    copy = ROOT / "k8s" / "monitoring" / "maintainer-reconcile" / "MAINTAINERS.yaml"
+    copy = ROOT / "k8s" / "monitoring" / "maintainer-reconcile" / "config" / "MAINTAINERS.yaml"
     if not copy.is_file():
         fail(f"missing {copy.relative_to(ROOT)}")
     if copy.read_bytes() != INVENTORY.read_bytes():

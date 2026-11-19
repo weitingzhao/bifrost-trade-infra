@@ -3,16 +3,10 @@ kind: Kustomization
 
 namespace: monitoring
 
+# The ConfigMap is in config/ (applied on its own when only it changes).
 resources:
   - cronjob.yaml
-
-configMapGenerator:
-  - name: maintainer-reconcile
-    files:
-      - reconcile.py
-      - MAINTAINERS.yaml
-    options:
-      disableNameSuffixHash: true
+  - config
 
 labels:
   - pairs:
