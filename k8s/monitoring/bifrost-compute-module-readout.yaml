@@ -1,7 +1,7 @@
 # Compute line: per-module "ask / use / given / from where" readings (record rules only; no alerts, nobody is paged).
 # Module = namespace (an approximation, not a contract-level module). ask = requests of Running pods;
 # use = container usage; given = requests are the reservation; from where = requests split by node.
-# Series: 9 per-namespace rules x 18 namespaces + ~42 per-node pairs + 12 node series, roughly 216 series (~1.5MB).
+# Series: 9 per-namespace rules x 18 namespaces + ~42 per-node pairs + 12 node series, plus 6 SSD rules x ~6 hosts and ~3 CI rules x ~40 classes: roughly 400 series (~2.7MB).
 # Disk "ask" has no source (pods do not declare it); see compute notes, not faked here.
 # Apply: plan_manifest + apply_manifest (monitoring is level C). Rollback: delete this PrometheusRule.
 apiVersion: monitoring.coreos.com/v1
@@ -47,5 +47,35 @@ spec:
           expr: sum by (node)(kube_pod_container_resource_requests{resource="cpu"} * on(namespace,pod) group_left() (kube_pod_status_phase{phase="Running"} == 1)) / on(node) kube_node_status_allocatable{resource="cpu"}
         - record: bifrost_node:cpu_requests_share_1h
           expr: avg_over_time(bifrost_node:cpu_requests_share[1h])
+    # SSD efficiency and wear (formal compute indicators, Owner 2026-11-19), per node (instance label; 01=.73 02=.70 04=.75 05=.77 07=.80).
+    # node_exporter has no per-IO histogram: the "p95" below is the 95th percentile of 5-minute AVERAGE latencies over 1h.
+    # Remaining life needs SMART percentage_used and rated TBW; neither is exported for the k3s nodes, so it is NOT recorded here
+    # (kept as unknown in the ledger; formula: life_days = (100-used)/used * written_to_date_TB / written_TB_per_day).
+    - name: bifrost-compute-ssd
+      interval: 5m
+      rules:
+        - record: bifrost_node:disk_write_latency_seconds_5m
+          expr: sum by (instance)(rate(node_disk_write_time_seconds_total{job="node-exporter",device="nvme0n1"}[5m])) / sum by (instance)(rate(node_disk_writes_completed_total{job="node-exporter",device="nvme0n1"}[5m]))
+        - record: bifrost_node:disk_read_latency_seconds_5m
+          expr: sum by (instance)(rate(node_disk_read_time_seconds_total{job="node-exporter",device="nvme0n1"}[5m])) / sum by (instance)(rate(node_disk_reads_completed_total{job="node-exporter",device="nvme0n1"}[5m]))
+        - record: bifrost_node:disk_busy_ratio_5m
+          expr: avg by (instance)(rate(node_disk_io_time_seconds_total{job="node-exporter",device="nvme0n1"}[5m]))
+        - record: bifrost_node:disk_write_latency_seconds_p95_1h
+          expr: quantile_over_time(0.95, bifrost_node:disk_write_latency_seconds_5m[1h])
+        - record: bifrost_node:disk_read_latency_seconds_p95_1h
+          expr: quantile_over_time(0.95, bifrost_node:disk_read_latency_seconds_5m[1h])
+        - record: bifrost_node:disk_written_tb_per_day
+          expr: increase(node_disk_written_bytes_total{job="node-exporter",device="nvme0n1"}[1d]) / 1e12
+    # CI write volume per task class over the last hour (cadvisor container writes; LVM nodes 01/02/04/05 count about twice).
+    # class = pipeline family / task. Pods that match no class are summed into the series with an empty class label.
+    - name: bifrost-compute-ci-writes
+      interval: 5m
+      rules:
+        - record: bifrost_ci:fs_write_gb_1h
+          expr: sum by (class)(label_replace(sum by (pod)(increase(container_fs_writes_bytes_total{namespace="cicd",container!="",container!="POD",pod=~".*-pod"}[1h])), "class", "$1/$3", "pod", "((?:ci-[a-z]+|land|bifrost-deliver-platform(?:-prod)?))-([0-9a-z]{5}|[0-9]{10})-(.*)-pod")) / 1e9
+        - record: bifrost_ci:runs_1h
+          expr: count by (class)(label_replace(kube_pod_created{namespace="cicd",pod=~".*-pod"} > time()-3600, "class", "$1/$3", "pod", "((?:ci-[a-z]+|land|bifrost-deliver-platform(?:-prod)?))-([0-9a-z]{5}|[0-9]{10})-(.*)-pod"))
+        - record: bifrost_ci:fs_write_gb_per_run_1h
+          expr: bifrost_ci:fs_write_gb_1h / on(class) bifrost_ci:runs_1h
 # 7 天峰值不单独录，读时用 quantile_over_time(0.95, bifrost_module:cpu_usage_cores[7d]) 一类（录入后才有数据，7 天后可读）。
 # 磁盘的「要」没有来源（Pod 不申报），本组不假装；见 compute/disk-demand-line-2026-11-18.md。
