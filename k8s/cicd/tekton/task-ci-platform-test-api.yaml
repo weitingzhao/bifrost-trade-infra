@@ -184,8 +184,8 @@ spec:
       # limit); most of them wait on the database above (R5:5.7 CI time).
       computeResources:
         requests:
-          cpu: 500m
-          memory: 512Mi
+          cpu: 1000m
+          memory: 1536Mi
         limits:
           cpu: "4"
           memory: 3Gi

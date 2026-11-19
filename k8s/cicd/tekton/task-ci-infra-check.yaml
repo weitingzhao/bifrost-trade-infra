@@ -38,8 +38,8 @@ spec:
       value: $(params.generation)
     computeResources:
       requests:
-        cpu: 250m
-        memory: 512Mi
+        cpu: 10m
+        memory: 64Mi
       limits:
         cpu: '2'
         memory: 2Gi
@@ -67,8 +67,8 @@ spec:
       value: $(params.generation)
     computeResources:
       requests:
-        cpu: 250m
-        memory: 512Mi
+        cpu: 100m
+        memory: 64Mi
       limits:
         cpu: '2'
         memory: 2Gi
@@ -96,8 +96,8 @@ spec:
       value: $(params.generation)
     computeResources:
       requests:
-        cpu: 250m
-        memory: 512Mi
+        cpu: 10m
+        memory: 64Mi
       limits:
         cpu: '2'
         memory: 2Gi
@@ -125,7 +125,7 @@ spec:
       value: $(params.generation)
     computeResources:
       requests:
-        cpu: 250m
+        cpu: 1000m
         memory: 512Mi
       limits:
         cpu: '2'
@@ -154,8 +154,8 @@ spec:
       value: $(params.generation)
     computeResources:
       requests:
-        cpu: 250m
-        memory: 512Mi
+        cpu: 10m
+        memory: 64Mi
       limits:
         cpu: '2'
         memory: 2Gi
@@ -183,8 +183,8 @@ spec:
       value: $(params.generation)
     computeResources:
       requests:
-        cpu: 250m
-        memory: 512Mi
+        cpu: 10m
+        memory: 64Mi
       limits:
         cpu: '2'
         memory: 2Gi
@@ -212,8 +212,8 @@ spec:
       value: $(params.generation)
     computeResources:
       requests:
-        cpu: 250m
-        memory: 512Mi
+        cpu: 10m
+        memory: 64Mi
       limits:
         cpu: '2'
         memory: 2Gi
