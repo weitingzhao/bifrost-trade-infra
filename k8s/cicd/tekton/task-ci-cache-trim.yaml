@@ -1,0 +1,100 @@
+# Size and trim of the shared CI build cache, the claim ci-build-cache
+# (pvc-ci-build-cache.yaml). LANE-ci-w1, 2026-11-19.
+#
+# Why: LANE-compute's read of the NAS (#632, 06:22Z) puts ci-build-cache at
+# about 413 GB of volume2's 468 GB, growing about 13.9 GB a day (about 37 days
+# to full). That number is derived (volume2 used minus every other directory),
+# not read: the line that held it was cut from the card's output, and volume2
+# "used" also counts snapshots and recycle bins that du does not see. So the
+# first run of this Task is mode=measure, which only reads.
+#
+# Layout (task-ci-platform-test-api.yaml, pipeline-ci-platform.yaml,
+# bifrost-platform scripts/ci/unit-*): go/build is GOCACHE, go/mod/<month> and
+# npm/<month> are the module and npm caches. Every CI run already deletes the
+# months before last of the last two, so the only part without a bound of its
+# own is GOCACHE, which Go trims itself (entries unused for 5 days).
+#
+# mode=trim:
+#   1. months before last under go/mod and npm, as the CI runs do;
+#   2. GOCACHE files not used for idle-days (Go stamps a file's mtime when it
+#      uses it, at most once an hour, so mtime is the last use);
+#   3. while the whole cache is over cap-gb, the same with 7, 3 and 1 days
+#      (least recently used first).
+# Safe beside running CI: a missing GOCACHE entry is a cache miss to Go, and
+# no run uses a module or npm month before last.
+#
+# Started by the platform action start_pipeline_run (pipeline-ci-cache-trim.yaml).
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: bifrost-ci-cache-trim
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: ci-cache
+    bifrost.io/workload: ci
+spec:
+  description: Measure, and with mode=trim bound, the shared CI build cache.
+  params:
+    - name: mode
+      type: string
+      default: measure
+      description: measure (read only) | trim
+    - name: cap-gb
+      type: string
+      default: "200"
+    - name: idle-days
+      type: string
+      default: "14"
+  volumes:
+    - name: build-cache
+      persistentVolumeClaim:
+        claimName: ci-build-cache
+  steps:
+    - name: trim
+      image: 192.168.10.73:30500/bifrost-ci-infra-tools@sha256:4ff505208b6cd977e36b7fb29c0f9faa4824a4ed9f4beb6e2f1ffc94b591a23e
+      computeResources:
+        requests: {cpu: 50m, memory: 64Mi}
+        limits: {memory: 256Mi}
+      volumeMounts:
+        - name: build-cache
+          mountPath: /ci-cache
+      env:
+        - {name: MODE, value: $(params.mode)}
+        - {name: CAP_GB, value: $(params.cap-gb)}
+        - {name: IDLE_DAYS, value: $(params.idle-days)}
+      script: |
+        #!/bin/sh
+        set -eu
+        cd /ci-cache
+        case "${MODE}" in measure|trim) ;; *) echo "unknown mode ${MODE}"; exit 1 ;; esac
+        sizes() {
+          echo "== $1 (MB)"
+          nice du -sm -- * go/* npm/* go/mod/* 2>/dev/null | sort -k2 || true
+          echo "total $(nice du -sm . | cut -f1)"
+          echo "GOCACHE files by age (days since last use: count)"
+          for d in 1 3 5 7 14 30; do
+            printf '  >%s: %s\n' "$d" "$(find go/build -type f -mtime +"$d" 2>/dev/null | wc -l)"
+          done
+        }
+        sizes before
+        [ "${MODE}" = trim ] || exit 0
+
+        month="$(date -u +%Y-%m)"
+        year="${month%-*}" mon="${month#*-}"
+        if [ "${mon}" = 01 ]; then last="$((year - 1))-12"; else last="$(printf '%s-%02d' "${year}" "$((10#${mon} - 1))")"; fi
+        for old in go/mod/* npm/*; do
+          case "${old##*/}" in "${month}"|"${last}") continue ;; esac
+          [ -d "${old}" ] || continue
+          echo "==> removing ${old}"
+          chmod -R u+w "${old}" 2>/dev/null || true   # Go writes the module cache read-only
+          rm -rf "${old}" 2>/dev/null || true
+        done
+
+        cap_mb=$((CAP_GB * 1024))
+        for days in "${IDLE_DAYS}" 7 3 1; do
+          [ "${days}" -le "${IDLE_DAYS}" ] || continue
+          if [ "${days}" != "${IDLE_DAYS}" ] && [ "$(du -sm . | cut -f1)" -le "${cap_mb}" ]; then break; fi
+          echo "==> removing GOCACHE files unused for more than ${days} days"
+          find go/build -type f -mtime +"${days}" -delete 2>/dev/null || true
+        done
+        sizes after
