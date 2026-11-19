@@ -54,6 +54,16 @@ def trial_run(revision, ui_revision="main"):
             # arm64 node would test another variant of the image.
             "taskRunTemplate": {
                 "podTemplate": {
+                    # As the trigger's runs (2026-11-18): never ubt-k3s-01, whose etcd slowed
+                    # under CI, and preferably off the database nodes.
+                    "affinity": {"nodeAffinity": {
+                        "requiredDuringSchedulingIgnoredDuringExecution": {"nodeSelectorTerms": [
+                            {"matchExpressions": [{"key": "kubernetes.io/hostname", "operator": "NotIn",
+                                                   "values": ["ubt-k3s-01"]}]}]},
+                        "preferredDuringSchedulingIgnoredDuringExecution": [
+                            {"weight": 100, "preference": {"matchExpressions": [
+                                {"key": "bifrost.io/batch", "operator": "NotIn", "values": ["deny"]}]}}],
+                    }},
                     "nodeSelector": {"kubernetes.io/arch": "amd64"},
                     "tolerations": [
                         {

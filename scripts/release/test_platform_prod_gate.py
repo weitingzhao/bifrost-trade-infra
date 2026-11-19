@@ -789,10 +789,12 @@ def test_trial_only_source_task():
     assert {p["name"]: p["value"] for p in spec["params"]}["uiRevision"] == OTHER
     # Same nodes as a run the trigger or the platform starts (trigger-trade-ci.yaml).
     trigger = ROOT / "k8s/cicd/tekton/trigger-trade-ci.yaml"
+    # The platform's own CI template is left out (2026-11-18/19): it pins the node chosen
+    # for its run and also keeps off ubt-k3s-02, where its test database cannot live in memory.
     templates = [
         d["spec"]["resourcetemplates"][0]["spec"]["taskRunTemplate"]
         for d in yaml.safe_load_all(trigger.read_text())
-        if d and d["kind"] == "TriggerTemplate"
+        if d and d["kind"] == "TriggerTemplate" and d["metadata"]["name"] != "bifrost-ci-platform-template"
     ]
     assert templates and all(t == spec["taskRunTemplate"] for t in templates)
 

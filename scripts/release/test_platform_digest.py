@@ -82,8 +82,8 @@ spec:
         - --insecure-registry=registry.cicd.svc.cluster.local:5000
       computeResources:
         requests:
-          cpu: "1"
-          memory: 1Gi
+          cpu: "2"
+          memory: 2560Mi
         limits:
           cpu: "4"
           memory: 3Gi
