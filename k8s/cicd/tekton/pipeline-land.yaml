@@ -190,6 +190,15 @@ spec:
                   found = table.get(repo) if isinstance(repo, str) and re.fullmatch(r'[a-z0-9-]{1,100}', repo) else None
                   return found if isinstance(found, dict) and isinstance(found.get('ci'), dict) else None
 
+              def resolver():
+                  """The nameservers this Pod asks, for the log of a failed lookup: errno -3 (EAI_AGAIN) is
+                  no answer in time, -2 (EAI_NONAME) is an answer that the name does not exist."""
+                  try:
+                      with open('/etc/resolv.conf') as handle:
+                          return ' '.join(l.strip() for l in handle if l.startswith('nameserver'))
+                  except OSError:
+                      return 'resolv.conf unreadable'
+
               def opened(req, **kw):
                   """urlopen, tried again when the request never left: a name that did not resolve or a
                   refused connection (2026-11-19: land-pcs8m and land-grklw died on one DNS failure, and
@@ -204,6 +213,8 @@ spec:
                           if attempt == 3 or not isinstance(err.reason, (socket.gaierror, ConnectionRefusedError)):
                               raise
                           print('%s: %s; trying again' % (req.full_url.split('?')[0], err.reason))
+                          print('dns: %s pod=%s errno=%s %s' % (time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+                                socket.gethostname(), getattr(err.reason, 'errno', None), resolver()))
                           time.sleep(5 * (attempt + 1))
 
               def call(token, method, url, body=None):

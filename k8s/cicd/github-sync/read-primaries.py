@@ -11,7 +11,9 @@ sync must not guess. Runs in alpine/k8s (python3)."""
 import json
 import os
 import re
+import socket
 import sys
+import time
 import urllib.error
 import urllib.request
 
@@ -43,6 +45,16 @@ def main() -> int:
             code, raw = e.code, b""
         except (urllib.error.URLError, OSError) as e:
             print(f"ERROR: repository {org}/{repo}: {e}", file=sys.stderr)
+            # What a lookup failure needs to be told apart (2026-11-19): errno -3 is no answer in
+            # time, -2 an answer that the name does not exist; and when, from which Pod, asking whom.
+            reason = getattr(e, "reason", e)
+            try:
+                with open("/etc/resolv.conf") as fh:
+                    ns = " ".join(l.strip() for l in fh if l.startswith("nameserver"))
+            except OSError:
+                ns = "resolv.conf unreadable"
+            print(f"dns: {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} pod={socket.gethostname()} "
+                  f"errno={getattr(reason, 'errno', None)} {ns}", file=sys.stderr)
             return 1
         if code != 200:
             print(f"ERROR: repository {org}/{repo} → HTTP {code}", file=sys.stderr)
