@@ -28,7 +28,7 @@ spec:
         - record: bifrost_module:mem_working_set_bytes
           expr: sum by (namespace)(container_memory_working_set_bytes{container!="",container!="POD"})
         - record: bifrost_module:fs_write_bytes_per_second
-          expr: sum by (namespace)(rate(container_fs_writes_bytes_total{container!="",container!="POD"}[5m]))
+          expr: sum by (namespace)(rate(container_fs_writes_bytes_total{container!="",container!="POD",device=~"/dev/nvme0n1.*"}[5m]))
         - record: bifrost_module:cpu_requests_by_node_cores
           expr: sum by (namespace,node)(kube_pod_container_resource_requests{resource="cpu"} * on(namespace,pod) group_left() (kube_pod_status_phase{phase="Running"} == 1)) > 0
         # Ratios compare the SAME window on both sides (1h averages), never an instant of requests
@@ -79,14 +79,14 @@ spec:
         - record: bifrost_node:disk_write_budget_ratio_2h
           expr: bifrost_node:disk_written_gb_2h / 75
         - record: bifrost_node:ci_write_gb_1h
-          expr: sum by (node)(increase(container_fs_writes_bytes_total{namespace="cicd",container!="",container!="POD",pod=~".*-pod"}[1h])) / 1e9
-    # CI write volume per task class over the last hour (cadvisor container writes; LVM nodes 01/02/04/05 count about twice).
+          expr: sum by (node)(increase(container_fs_writes_bytes_total{namespace="cicd",container!="",container!="POD",device=~"/dev/nvme0n1.*",pod=~".*-pod"}[1h])) / 1e9
+    # CI write volume per task class over the last hour (cadvisor container writes of the physical device only: on LVM nodes 01/02/04/05 cadvisor also reports the logical dm-0 series, which would double the sum).
     # class = pipeline family / task. Pods that match no class are summed into the series with an empty class label.
     - name: bifrost-compute-ci-writes
       interval: 5m
       rules:
         - record: bifrost_ci:fs_write_gb_1h
-          expr: sum by (class)(label_replace(sum by (pod)(increase(container_fs_writes_bytes_total{namespace="cicd",container!="",container!="POD",pod=~".*-pod"}[1h])), "class", "$1/$3", "pod", "((?:ci-[a-z]+|land|bifrost-deliver-platform(?:-prod)?))-([0-9a-z]{5}|[0-9]{10})-(.*)-pod")) / 1e9
+          expr: sum by (class)(label_replace(sum by (pod)(increase(container_fs_writes_bytes_total{namespace="cicd",container!="",container!="POD",device=~"/dev/nvme0n1.*",pod=~".*-pod"}[1h])), "class", "$1/$3", "pod", "((?:ci-[a-z]+|land|bifrost-deliver-platform(?:-prod)?))-([0-9a-z]{5}|[0-9]{10})-(.*)-pod")) / 1e9
         - record: bifrost_ci:runs_1h
           expr: count by (class)(label_replace(kube_pod_created{namespace="cicd",pod=~".*-pod"} > time()-3600, "class", "$1/$3", "pod", "((?:ci-[a-z]+|land|bifrost-deliver-platform(?:-prod)?))-([0-9a-z]{5}|[0-9]{10})-(.*)-pod"))
         - record: bifrost_ci:fs_write_gb_per_run_1h
