@@ -52,8 +52,13 @@ spec:
   # before it reports ready. Images are the ones the data namespace already
   # runs, pinned by digest.
   volumes:
+    # In memory (2026-11-19): this throwaway database wrote 151 GB of the task's
+    # 277 GB in six hours. The whole suite with the slow tests peaks at 0.42 GiB
+    # of data and WAL. Over the limit its writes fail and the tests say so.
     - name: pgdata
-      emptyDir: {}
+      emptyDir:
+        medium: Memory
+        sizeLimit: 1Gi
     # CI-7: Go's build and module cache, shared by every run on every node
     # (pvc-ci-build-cache.yaml, NFS ReadWriteMany). A Task volume, not a
     # workspace, so the runs' creators pass nothing new.
@@ -72,7 +77,7 @@ spec:
       computeResources:
         requests:
           cpu: 500m
-          memory: 512Mi
+          memory: 768Mi
         limits:
           cpu: "4"
           memory: 2Gi
