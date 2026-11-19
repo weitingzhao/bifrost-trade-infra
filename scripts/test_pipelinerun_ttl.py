@@ -162,7 +162,7 @@ class Janitor(unittest.TestCase):
     def test_pipelineruns(self) -> None:
         # three-days: 2026-11-17, retention went from 7 days to 2 (a run of three days was kept
         # until then; 15,000 TaskRuns without a pod stalled Tekton's controller that night).
-        deleted = self.run_janitor([self.pr("old", 8), self.pr("three-days", 3), self.pr("young", 1.5), self.pr("running", None),
+        deleted = self.run_janitor([self.pr("old", 8), self.pr("three-days", 3), self.pr("young", 0.5), self.pr("running", None),
                                     self.pr("bad", None) | {"status": {"completionTime": "not-a-time"}}], [], [])
         self.assertEqual(deleted, [("pipelinerun", "old", False), ("pipelinerun", "three-days", False)])
 
@@ -187,8 +187,8 @@ class Janitor(unittest.TestCase):
                 self.pvc("ws-old", "old"), self.pvc("gitea-data", None), self.pvc("ws-taskrun", "done-36h", kind="TaskRun"),
                 self.pvc("ws-stranger", "gone")]
         deleted = self.run_janitor(prs, [], [], pvcs=pvcs)
-        self.assertEqual(sorted(deleted), [("pipelinerun", "old", False), ("pvc", "ws-done-36h", False),
-                                           ("pvc", "ws-old", False)])
+        self.assertEqual(sorted(deleted), [("pipelinerun", "done-36h", False), ("pipelinerun", "old", False),
+                                           ("pvc", "ws-done-36h", False), ("pvc", "ws-old", False)])
         self.assertIn("workspace-pvc-ttl done deleted=2 of=7 maxAge=86400s succeededMaxAge=10800s", self.out)
 
     def test_a_succeeded_run_gives_up_its_workspace_after_three_hours(self) -> None:
@@ -200,7 +200,7 @@ class Janitor(unittest.TestCase):
         self.assertEqual(self.run_janitor(prs, [], [], pvcs=pvcs), [("pvc", "ws-ok-4h", False)])
 
     def test_retention_is_the_registered_one(self) -> None:
-        # 2026-11-17: run records 2 days (7 until then). The pods go after an hour, and the
+        # 2026-11-19: run records 1 day (2 until then, 7 until 11-17). The pods go after an hour, and the
         # 15,000 TaskRuns left without one stalled Tekton's controller for 23 minutes that night.
         # TD-492: their local-path workspaces 1 day (ubt-k3s-07's disk),
         # finished pods 1 hour, failed pods 1 day (cards #331/#334, 2026-11-07).
@@ -208,7 +208,7 @@ class Janitor(unittest.TestCase):
         self.assertEqual({k: env[k] for k in ("MAX_AGE_SECONDS", "WORKSPACE_MAX_AGE_SECONDS",
                                               "WORKSPACE_SUCCEEDED_MAX_AGE_SECONDS", "POD_MAX_AGE_SECONDS",
                                               "FAILED_POD_MAX_AGE_SECONDS", "KEEP_PER_TASK")},
-                         {"MAX_AGE_SECONDS": str(2 * DAY), "WORKSPACE_MAX_AGE_SECONDS": str(DAY),
+                         {"MAX_AGE_SECONDS": str(DAY), "WORKSPACE_MAX_AGE_SECONDS": str(DAY),
                           "WORKSPACE_SUCCEEDED_MAX_AGE_SECONDS": str(3 * 3600),
                           "POD_MAX_AGE_SECONDS": "3600", "FAILED_POD_MAX_AGE_SECONDS": str(DAY), "KEEP_PER_TASK": "5"})
         self.assertLessEqual(int(env["WORKSPACE_MAX_AGE_SECONDS"]), int(env["MAX_AGE_SECONDS"]))
@@ -221,7 +221,8 @@ class Janitor(unittest.TestCase):
         deleted = self.run_janitor([self.pr("old", 8), self.pr("done-36h", 1.5)], [self.pod("ok-3d", "Succeeded", 3)],
                                    [self.tr(f"s-{i}", "t", 9 + i) for i in range(6)], dry=True,
                                    pvcs=[self.pvc("ws", "done-36h")])
-        self.assertEqual(len(deleted), 4)
+        # old and done-36h (one day of run records since 2026-11-19), ok-3d, s-0, ws
+        self.assertEqual(len(deleted), 5)
         self.assertTrue(all(dry for _, _, dry in deleted))
 
 
@@ -233,7 +234,7 @@ class Janitor(unittest.TestCase):
         pages of PR_PAGE and never for the whole list (the stand-in exits on that call), and
         passes 1 and 4 see every run, the ones on the last page too."""
         prs = [self.pr("old-%03d" % i, 9) for i in range(120)] + [self.pr("fresh-%03d" % i, 0.1) for i in range(129)]
-        prs.append(self.pr("day-old-last", 1.5))  # on the last page: its workspace goes, the run stays
+        prs.append(self.pr("day-old-last", 0.5, ok=True))  # on the last page: its workspace goes, the run stays
         pvcs = [self.pvc("pvc-day-old-last", "day-old-last"), self.pvc("pvc-fresh", "fresh-000")]
         deleted = self.run_janitor(prs, [], [], pvcs=pvcs)
         pages = [int(x) for x in (self.dir / "pr.pages").read_text().split()]

@@ -1,6 +1,8 @@
 # PipelineRun TTL janitor — Tekton v1.6 CRD rejects spec.ttlSecondsAfterFinished
 # (strict decoding). Hourly CronJob, four passes:
-#  1. deletes terminal PipelineRuns older than 2d (MAX_AGE_SECONDS; 7d until 2026-11-17). The
+#  1. deletes terminal PipelineRuns older than 1d (MAX_AGE_SECONDS; 2d until 2026-11-19, 7d until
+#     2026-11-17: on 2026-11-19 two days were 13,085 TaskRuns, the controller retried about 2,000
+#     missing pods every 3 minutes, and a new TaskRun waited 10.6 minutes, median, to start). The
 #     pods of their tasks go after 1h (pass 2), and a TaskRun whose pod is gone is one the
 #     Tekton controller still walks: on 2026-11-17 00:01 it walked some 15,000 of them, each
 #     an error and a requeue, and no new task got a pod for 23 minutes. Two days of runs is
@@ -108,7 +110,7 @@ spec:
                 - name: NAMESPACE
                   value: cicd
                 - name: MAX_AGE_SECONDS
-                  value: "172800"
+                  value: "86400"
                 - name: POD_MAX_AGE_SECONDS
                   value: "3600"
                 - name: FAILED_POD_MAX_AGE_SECONDS
@@ -136,7 +138,7 @@ spec:
                   set -eu
                   [ -n "${SKIP_APK:-}" ] || apk add --no-cache kubectl jq curl >/dev/null
                   NS="${NAMESPACE:-cicd}"
-                  MAX_AGE_SECONDS="${MAX_AGE_SECONDS:-172800}"
+                  MAX_AGE_SECONDS="${MAX_AGE_SECONDS:-86400}"
                   POD_MAX_AGE_SECONDS="${POD_MAX_AGE_SECONDS:-3600}"
                   FAILED_POD_MAX_AGE_SECONDS="${FAILED_POD_MAX_AGE_SECONDS:-86400}"
                   WORKSPACE_MAX_AGE_SECONDS="${WORKSPACE_MAX_AGE_SECONDS:-86400}"
