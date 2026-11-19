@@ -66,6 +66,20 @@ spec:
           expr: quantile_over_time(0.95, bifrost_node:disk_read_latency_seconds_5m[1h])
         - record: bifrost_node:disk_written_tb_per_day
           expr: increase(node_disk_written_bytes_total{job="node-exporter",device="nvme0n1"}[1d]) / 1e12
+        # Write budget input for the CI node picker (Owner 2026-11-19: SSD wear is a formal indicator).
+        # Budget: 150GB per rolling 6 hours per node, from one case (07 slowed after ~220GB sustained, then recovered when idle).
+        # One sample only: the ratio is a reading for the picker to weigh, not a hard limit.
+        - record: bifrost_node:disk_written_gb_6h
+          expr: increase(node_disk_written_bytes_total{job="node-exporter",device="nvme0n1"}[6h]) / 1e9
+        - record: bifrost_node:disk_write_budget_ratio_6h
+          expr: bifrost_node:disk_written_gb_6h / 150
+        # Same budget over 2 hours (75GB, the 6h figure scaled down): a faster signal for picking nodes.
+        - record: bifrost_node:disk_written_gb_2h
+          expr: increase(node_disk_written_bytes_total{job="node-exporter",device="nvme0n1"}[2h]) / 1e9
+        - record: bifrost_node:disk_write_budget_ratio_2h
+          expr: bifrost_node:disk_written_gb_2h / 75
+        - record: bifrost_node:ci_write_gb_1h
+          expr: sum by (node)(increase(container_fs_writes_bytes_total{namespace="cicd",container!="",container!="POD",pod=~".*-pod"}[1h])) / 1e9
     # CI write volume per task class over the last hour (cadvisor container writes; LVM nodes 01/02/04/05 count about twice).
     # class = pipeline family / task. Pods that match no class are summed into the series with an empty class label.
     - name: bifrost-compute-ci-writes
@@ -77,5 +91,14 @@ spec:
           expr: count by (class)(label_replace(kube_pod_created{namespace="cicd",pod=~".*-pod"} > time()-3600, "class", "$1/$3", "pod", "((?:ci-[a-z]+|land|bifrost-deliver-platform(?:-prod)?))-([0-9a-z]{5}|[0-9]{10})-(.*)-pod"))
         - record: bifrost_ci:fs_write_gb_per_run_1h
           expr: bifrost_ci:fs_write_gb_1h / on(class) bifrost_ci:runs_1h
+    # Temporary files written by PostgreSQL (sorts and hashes over work_mem), per database and instance. Counters are cumulative since the
+    # stats were created (stats_reset is NULL), so only the 1-day increase says anything about the recent rate.
+    - name: bifrost-compute-pg-temp
+      interval: 15m
+      rules:
+        - record: bifrost_pg:temp_gb_1d
+          expr: sum by (datname,pod)(increase(cnpg_pg_stat_database_temp_bytes{datname=~"bifrost.*"}[1d])) / 1e9
+        - record: bifrost_pg:temp_files_1d
+          expr: sum by (datname,pod)(increase(cnpg_pg_stat_database_temp_files{datname=~"bifrost.*"}[1d]))
 # 7 天峰值不单独录，读时用 quantile_over_time(0.95, bifrost_module:cpu_usage_cores[7d]) 一类（录入后才有数据，7 天后可读）。
 # 磁盘的「要」没有来源（Pod 不申报），本组不假装；见 compute/disk-demand-line-2026-11-18.md。
