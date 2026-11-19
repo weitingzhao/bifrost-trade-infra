@@ -31,7 +31,7 @@
 # "node not Ready": wake it first with the platform's wake action, then run the card.
 set -uo pipefail
 VERSION=1
-IMG='192.168.10.73:30500/bifrost-research@sha256:7b1d6423b999b8c78a188bba1ce956245682e5ea8339118e6a33fc4b80e9e656'  # bifrost-research:0.183.0, python:3.11-slim-bookworm base (has nsenter from util-linux)
+IMG='192.168.10.73:30500/bifrost-research@sha256:8cd0b34bbff05e1c6bc21b555e9d196813c484f6d49514583a78def32b4b83c5'  # bifrost-research:0.205.0 (0.183.0's digest left the registry: cards #626-#628 failed on 2026-11-19)
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 die() { echo "node-run: $*" >&2; exit 2; }
@@ -131,6 +131,16 @@ render() {
       [ -n "$podsfile" ] && [ -r "$podsfile" ] || die "tier host needs --pods-file (the card must list the Trade / IB pods on the node)" ;;
     *) die "tier must be device or host" ;;
   esac
+  # The pinned image must still be in the registry, or the card's Pod never starts (2026-11-19,
+  # cards #626-#628). NODE_RUN_SKIP_IMAGE_CHECK=1 is for the selftest, which has no registry.
+  if [ -z "${NODE_RUN_SKIP_IMAGE_CHECK:-}" ]; then
+    local repo digest code
+    repo=${IMG#*/}; repo=${repo%%@*}; digest=${IMG#*@}
+    code=$(curl -s -o /dev/null -w '%{http_code}' -m 10 -I \
+      -H 'Accept: application/vnd.docker.distribution.manifest.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json' \
+      "http://${IMG%%/*}/v2/$repo/manifests/$digest") || code=none
+    [ "$code" = 200 ] || die "the pinned image $IMG is not in the registry (HTTP $code): pin one that is, and keep it in scripts/registry/keepset.py's PINNED_FILES"
+  fi
   echo '#!/usr/bin/env bash'
   if [ "$tier" = host ]; then
     echo "# THIS IS THE NODE'S ROOT: the command below runs in the host namespaces of $node (hostPID + nsenter) as root."
@@ -154,6 +164,7 @@ render() {
 
 # ---- tests that need no cluster ----
 selftest() {
+  export NODE_RUN_SKIP_IMAGE_CHECK=1
   local fails=0 t="$(mktemp -d)"; trap 'rm -rf "$t"' RETURN
   printf 'monitoring node-exporter-x\ndata redis-ib-554d964cb6-bsdc6\nbifrost-prod api-account-x\nbifrost-prod daemon-585fb9d779-bvmx4\nbifrost-stg frontend-y\n' > "$t/pods.txt"
   mkdir -p "$t/bin"; printf '#!/bin/sh\nexit 0\n' > "$t/bin/kubectl"; chmod +x "$t/bin/kubectl"   # a stub: the selftest never talks to a cluster

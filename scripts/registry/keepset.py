@@ -26,7 +26,7 @@ run `registry garbage-collect` (REGISTRY_STORAGE_DELETE_ENABLED is already true)
 Read-only. Needs KUBECONFIG and reachability to the registry NodePort.
 """
 
-import json, subprocess, urllib.request, collections, re
+import json, os, subprocess, urllib.request, collections, re
 
 REG = "http://192.168.10.73:30500"
 ACCEPT = ", ".join([
@@ -69,10 +69,30 @@ def semver_key(t):
     parts = re.findall(r"\d+", t)
     return [int(x) for x in parts] if parts else [-1]
 
+# Files that pin registry images for cards the Owner runs later (2026-11-19: node-run's cards
+# pinned bifrost-research:0.183.0 by digest; once that digest left the registry, cards #626-#628
+# could not start their Pods on 01, 02 and 07). Nothing on the cluster names them until a card runs.
+PINNED_FILES = ("scripts/owner-exec/node-run.sh",)
+PIN_RE = re.compile(r"30500/([a-z0-9._-]+)(?::[A-Za-z0-9._-]+)?@(sha256:[0-9a-f]{64})")
+
+
+def pinned_in_files(root):
+    """The (repo, digest) pairs the files in PINNED_FILES pin, under root."""
+    found = set()
+    for rel in PINNED_FILES:
+        try:
+            text = open(os.path.join(root, rel)).read()
+        except OSError:
+            continue
+        found |= set(PIN_RE.findall(text))
+    return found
+
+
 def main():
     out = subprocess.run(["kubectl","get","deploy,sts,ds,cronjob,job","-A","-o","json"],
                          capture_output=True, text=True).stdout
     referenced, digests = references(json.loads(out)["items"])
+    digests |= pinned_in_files(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 
     repos = get("/v2/_catalog")[0]["repositories"]
     keep, drop_n = collections.defaultdict(set), 0

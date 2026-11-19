@@ -52,8 +52,20 @@ def test_a_repository_named_only_by_digest_is_weighed(monkeypatch, tmp_path, cap
         raise AssertionError(path)
 
     monkeypatch.setattr(keepset, "get", get)
+    monkeypatch.setattr(keepset, "pinned_in_files", lambda root: set())  # the files of this checkout are not this test's
     monkeypatch.chdir(tmp_path)
     keepset.main()
     assert "/v2/digest-only/manifests/" + D in asked
     assert json.loads((tmp_path / "keepset-digests.json").read_text()) == {"digest-only": [D]}
     assert "唯一 blob: 2 个" in capsys.readouterr().out
+
+
+def test_images_pinned_for_owner_cards_are_kept(tmp_path):
+    # 2026-11-19: node-run's cards pinned bifrost-research:0.183.0 by digest; nothing on the
+    # cluster named it, the digest left the registry, and cards #626-#628 could not start.
+    # Positive control: a file not in PINNED_FILES pins nothing.
+    d = "sha256:" + "a" * 64
+    (tmp_path / "scripts" / "owner-exec").mkdir(parents=True)
+    (tmp_path / "scripts" / "owner-exec" / "node-run.sh").write_text(f"IMG='192.168.10.73:30500/bifrost-research@{d}'\n")
+    (tmp_path / "other.sh").write_text(f"IMG='192.168.10.73:30500/bifrost-x@{d}'\n")
+    assert keepset.pinned_in_files(str(tmp_path)) == {("bifrost-research", d)}
