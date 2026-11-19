@@ -7,15 +7,17 @@ FROM golang:1.25-alpine AS builder
 RUN apk add --no-cache git ca-certificates
 
 WORKDIR /build/bifrost-platform/api
-COPY bifrost-platform/api/go.mod bifrost-platform/api/go.sum ./
 ENV GOTOOLCHAIN=auto
-RUN go mod download
 COPY bifrost-platform/api/ ./
-RUN CGO_ENABLED=0 GOOS=linux go build -o /platform-api ./cmd/platform-api
+# One step that leaves only the two binaries (2026-11-19): kaniko writes every step's
+# files to the node's disk as a layer, and this build wrote about 3.8 GB each time,
+# module and build caches included, for a stage nothing but the binaries leaves.
 # owner-exec: the cluster-side runner for owner_run_command cards approved with
 # a one-time code (platform api/internal/ownerexec). Its own Deployment runs
 # this image with command owner-exec; it is never platform-api's entrypoint.
-RUN CGO_ENABLED=0 GOOS=linux go build -o /owner-exec ./cmd/owner-exec
+RUN CGO_ENABLED=0 GOOS=linux go build -o /platform-api ./cmd/platform-api \
+    && CGO_ENABLED=0 GOOS=linux go build -o /owner-exec ./cmd/owner-exec \
+    && go clean -cache -modcache
 # kubectl for the commands owner-exec runs: the cluster's minor version, pinned by checksum.
 RUN wget -q -O /kubectl https://dl.k8s.io/release/v1.35.5/bin/linux/amd64/kubectl \
     && echo "90f75ea6ecc9ea5633262e1c0b83a40560003b30fc94a04cb099404fcef0c224  /kubectl" | sha256sum -c - \
