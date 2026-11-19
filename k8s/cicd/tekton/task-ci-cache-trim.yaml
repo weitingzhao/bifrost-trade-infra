@@ -69,7 +69,11 @@ spec:
         case "${MODE}" in measure|trim) ;; *) echo "unknown mode ${MODE}"; exit 1 ;; esac
         sizes() {
           echo "== $1 (MB)"
-          nice du -sm -- * go/* npm/* go/mod/* 2>/dev/null | sort -k2 || true
+          # One du per directory: du counts an inode once per call, so a parent
+          # listed before its children would hide them.
+          for d in * go/* npm/* go/mod/*; do
+            [ -d "$d" ] && nice du -sm -- "$d" 2>/dev/null || true
+          done
           echo "total $(nice du -sm . | cut -f1)"
           echo "GOCACHE files by age (days since last use: count)"
           for d in 1 3 5 7 14 30; do
