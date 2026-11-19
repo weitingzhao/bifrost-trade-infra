@@ -1,0 +1,60 @@
+# One-shot, read-only size measurement of the three NFS exports behind the nfs-fast / nfs-cold / nfs-hot StorageClasses
+# (LANE-compute, 2026-11-19). Why: volume2 (nfs-fast) is at 468 GB of 984 GB and grows ~13.9 GB/day (about 37 days to full), and
+# kubelet reports the WHOLE export for every NFS PVC, so no PVC's own size (ci-build-cache, gitea-backup, registry-data...) can be read
+# from metrics. This Job mounts each export read-only and prints `du` per top-level directory (each PVC is one directory).
+# Reads only: the volumes are mounted readOnly, the Pod has no token, no Secret, no env. It finishes in minutes and is deleted by TTL.
+# Re-run: delete the finished Job (platform action delete_finished_jobs), then plan_manifest + apply_manifest this file again.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nfs-du-read
+  namespace: cicd
+  labels: {app.kubernetes.io/name: nfs-du-read, bifrost.io/purpose: size-measurement}
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 1200
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: nfs-du-read, bifrost.io/purpose: size-measurement}
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - {key: bifrost.io/batch, operator: NotIn, values: [deny]}
+      containers:
+        - name: du
+          image: 192.168.10.73:30500/bifrost-ci-infra-tools@sha256:4ff505208b6cd977e36b7fb29c0f9faa4824a4ed9f4beb6e2f1ffc94b591a23e
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              for x in fast cold hot; do
+                echo "=== /mnt/$x (MB per top-level directory, largest first)"
+                cd /mnt/$x || continue
+                nice du -sm -- * 2>/dev/null | sort -rn | head -25
+              done
+              echo "=== registry v2 split (MB)"
+              for d in /mnt/cold/cicd-registry-data-*; do
+                nice du -sm "$d/docker/registry/v2/blobs" "$d/docker/registry/v2/repositories" 2>/dev/null
+              done
+              echo DONE
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {cpu: 500m, memory: 128Mi}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, runAsNonRoot: false}
+          volumeMounts:
+            - {name: fast, mountPath: /mnt/fast, readOnly: true}
+            - {name: cold, mountPath: /mnt/cold, readOnly: true}
+            - {name: hot, mountPath: /mnt/hot, readOnly: true}
+      volumes:
+        - name: fast
+          nfs: {server: 192.168.10.20, path: /volume2/k3s-fast, readOnly: true}
+        - name: cold
+          nfs: {server: 192.168.10.20, path: /volume1/k3s-cold, readOnly: true}
+        - name: hot
+          nfs: {server: 192.168.10.20, path: /volume1/k3s-hot, readOnly: true}
