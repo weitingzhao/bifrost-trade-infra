@@ -58,8 +58,8 @@ def trial_run(revision, ui_revision="main"):
                     # under CI, and preferably off the database nodes.
                     "affinity": {"nodeAffinity": {
                         "requiredDuringSchedulingIgnoredDuringExecution": {"nodeSelectorTerms": [
-                            {"matchExpressions": [{"key": "kubernetes.io/hostname", "operator": "NotIn",
-                                                   "values": ["ubt-k3s-01"]}]}]},
+                            {"matchExpressions": [{"key": "node-role.kubernetes.io/etcd", "operator": "NotIn",
+                                                   "values": ["true"]}]}]},
                         "preferredDuringSchedulingIgnoredDuringExecution": [
                             {"weight": 100, "preference": {"matchExpressions": [
                                 {"key": "bifrost.io/batch", "operator": "NotIn", "values": ["deny"]}]}}],
