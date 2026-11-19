@@ -38,10 +38,19 @@
       "Task",
       "TriggerTemplate",
       "TriggerBinding",
-      "EventListener"
+      "EventListener",
+      "CronJob",
+      "Deployment"
     ],
     "field_manager": "bifrost-applier",
     "require_previous_generation": true,
+    "first_creation_kinds": [
+      "Pipeline",
+      "Task",
+      "TriggerTemplate",
+      "TriggerBinding",
+      "EventListener"
+    ],
     "exclude_paths": [
       "k8s/cicd/release-policy/**",
       "k8s/cicd/tekton/task-release-window.yaml",
