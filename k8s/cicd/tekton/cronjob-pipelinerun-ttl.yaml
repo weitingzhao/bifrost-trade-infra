@@ -1,0 +1,246 @@
+# PipelineRun TTL janitor — Tekton v1.6 CRD rejects spec.ttlSecondsAfterFinished
+# (strict decoding). Hourly CronJob, four passes:
+#  1. deletes terminal PipelineRuns older than 1d (MAX_AGE_SECONDS; 2d until 2026-11-19, 7d until
+#     2026-11-17: on 2026-11-19 two days were 13,085 TaskRuns, the controller retried about 2,000
+#     missing pods every 3 minutes, and a new TaskRun waited 10.6 minutes, median, to start). The
+#     pods of their tasks go after 1h (pass 2), and a TaskRun whose pod is gone is one the
+#     Tekton controller still walks: on 2026-11-17 00:01 it walked some 15,000 of them, each
+#     an error and a requeue, and no new task got a pod for 23 minutes. Two days of runs is
+#     about 900 runs and 7,000 TaskRuns where seven was 2,100 and 17,000. What reads a run
+#     older than two days reads the daily snapshot instead (the coordinator's shared notes,
+#     benchmark/daily/). A commit whose ci-* run is older than two days has no run for
+#     release.sh's CI gate to find: run its CI again before releasing it. The run objects are the
+#     record the Promote gate, release.sh's CI gate (TD-357), the Console run list and the
+#     wave review (scripts/release/wave_review.py) read; their workspace PVCs go in pass 4;
+#  2. deletes the pods of finished TaskRuns: a Succeeded pod after 1h (POD_MAX_AGE_SECONDS),
+#     a Failed pod after 1d (FAILED_POD_MAX_AGE_SECONDS: kept to debug a failure; Loki keeps
+#     the step logs 30d). On 2026-10-03 there were 3,248 such pods: kube-state-metrics emitted
+#     206k series for them (a 1.3 MB Prometheus WAL burst every 30s on the etcd disk), and
+#     every cluster-wide cache (CNPG operator, Traefik, …) carried them. Tekton logs one
+#     "pods … not found" reconcile error and one Event per deleted pod, then leaves the
+#     TaskRun Succeeded/Failed as it was. 1h / 1d since cards #331/#334 (2026-11-07);
+#  3. deletes standalone TaskRuns (no tekton.dev/pipelineRun label: github-sync and
+#     mirror-sync from the webhook, the platform's Dockerfile refresh) older than 2d,
+#     keeping the newest KEEP_PER_TASK of each task (W-31 4.6 S7, TD-299: 481 on
+#     2026-10-24, the oldest from 2026-06-17; nothing deleted them);
+#  4. deletes the workspace PVCs (owner: a PipelineRun) of runs that succeeded more than 3h ago
+#     (WORKSPACE_SUCCEEDED_MAX_AGE_SECONDS; 2026-11-19: 653 workspaces, the root disks of four
+#     nodes growing 32-47 GB a day) and of other finished runs after 1d
+#     (WORKSPACE_MAX_AGE_SECONDS), while the run object stays its 2d (TD-492). Each run's
+#     local-path workspace holds about 2 GB of real disk (11-03: 104 volumes freed 215 GB on
+#     ubt-k3s-07) and about two thirds land on ubt-k3s-07's 500 GB root disk; at 60-100
+#     runs a day, 7 days of workspaces is 600-850 GB there. It filled that disk twice
+#     (11-02 #271, 11-07 #331: DiskPressure), and #331 cut MAX_AGE_SECONDS to 1d by
+#     `kubectl set env`, so the run records went after a day as well.
+# Ages are computed in jq (fromdateiso8601), so the same script runs in the test
+# (scripts/test_pipelinerun_ttl.py) as in the Pod. DRY_RUN=1 lists and counts, and sends
+# every delete as a server-side dry run.
+#
+# Apply: plan_manifest + apply_manifest of this file (OWNER_LAW 46, 2026-11-19: a cicd
+# CronJob goes by apply and a record). Its ServiceAccount, Role and RoleBinding stay in
+# pipelinerun-ttl.yaml, which the applier may not write; install-stack-tekton.sh and
+# install-cicd-stack.sh apply both.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: tekton-pipelinerun-ttl
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: pipelinerun-ttl
+spec:
+  schedule: "20 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      ttlSecondsAfterFinished: 86400
+      backoffLimit: 1
+      template:
+        spec:
+          serviceAccountName: tekton-pipelinerun-ttl
+          restartPolicy: OnFailure
+          nodeSelector:
+            kubernetes.io/arch: amd64
+          containers:
+            - name: prune
+              image: docker.io/library/alpine:3.20
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: NAMESPACE
+                  value: cicd
+                - name: MAX_AGE_SECONDS
+                  value: "86400"
+                - name: POD_MAX_AGE_SECONDS
+                  value: "3600"
+                - name: FAILED_POD_MAX_AGE_SECONDS
+                  value: "86400"
+                - name: WORKSPACE_MAX_AGE_SECONDS
+                  value: "86400"
+                - name: WORKSPACE_SUCCEEDED_MAX_AGE_SECONDS
+                  value: "10800"
+                - name: KEEP_PER_TASK
+                  value: "5"
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 300m
+                  # 2Gi since card #586 (2026-11-16), which raised it on the cluster to get the
+                  # job running again before pass 1 was paged. Paged, the job fits the old
+                  # 256Mi; the number stays what the cluster has until it is lowered there.
+                  memory: 2Gi
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  [ -n "${SKIP_APK:-}" ] || apk add --no-cache kubectl jq curl >/dev/null
+                  NS="${NAMESPACE:-cicd}"
+                  MAX_AGE_SECONDS="${MAX_AGE_SECONDS:-86400}"
+                  POD_MAX_AGE_SECONDS="${POD_MAX_AGE_SECONDS:-3600}"
+                  FAILED_POD_MAX_AGE_SECONDS="${FAILED_POD_MAX_AGE_SECONDS:-86400}"
+                  WORKSPACE_MAX_AGE_SECONDS="${WORKSPACE_MAX_AGE_SECONDS:-86400}"
+                  WORKSPACE_SUCCEEDED_MAX_AGE_SECONDS="${WORKSPACE_SUCCEEDED_MAX_AGE_SECONDS:-10800}"
+                  KEEP_PER_TASK="${KEEP_PER_TASK:-5}"
+                  NOW="${NOW_EPOCH:-$(date -u +%s)}"
+                  # DRY_RUN=1: same listing and counts, every delete sent as a server-side dry run.
+                  DRY=""
+                  if [ -n "${DRY_RUN:-}" ]; then DRY="--dry-run=server"; fi
+                  # api_get PATH: one GET of the API server as this Pod's service account, the
+                  # body to stdout. The paged lists below were `kubectl get` with its raw-path
+                  # flag until 2026-11-17: the check at the making of an Owner's execution card
+                  # refuses that flag anywhere in a command (origin #550, a delete with it that a
+                  # dry run did not stop), and this script is applied through such a card. The
+                  # requests and the pages are the same; curl writes a page to its file as it
+                  # arrives and holds none of it.
+                  SA_DIR="${SA_DIR:-/var/run/secrets/kubernetes.io/serviceaccount}"
+                  api_get() {
+                    curl -fsS --cacert "${SA_DIR}/ca.crt" -H "Authorization: Bearer $(cat "${SA_DIR}/token")" \
+                      "https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT}$1"
+                  }
+                  work="$(mktemp -d)"
+                  trap 'rm -rf "${work}"' EXIT
+                  # Pass 1: terminal PipelineRuns older than MAX_AGE_SECONDS. Paged (PR_PAGE runs
+                  # a page) through api_get, as pass 2 is: one `kubectl get pipelinerun -o json`
+                  # of every run was 53 MB on 2026-11-15 and kubectl needed about 563 MB to decode
+                  # it under a 256Mi limit. The job was OOMKilled at this line every hour from
+                  # 04:21Z for 43 hours; nothing after it ran, finished pods piled up to 5,900 and
+                  # workspaces to 717, and their series took PROD's Prometheus down with them.
+                  # Each page leaves only the verdict lines and, for pass 4, uid and completion time.
+                  : >"${work}/pr.sel"
+                  : >"${work}/pr.slim"
+                  cont=""
+                  while :; do
+                    url="/apis/tekton.dev/v1/namespaces/${NS}/pipelineruns?limit=${PR_PAGE:-100}"
+                    [ -n "${cont}" ] && url="${url}&continue=${cont}"
+                    api_get "${url}" >"${work}/page.json"
+                    jq -r --argjson now "${NOW}" --argjson max "${MAX_AGE_SECONDS}" '
+                      .items[]
+                      | select(.status.completionTime != null)
+                      | (try (.status.completionTime | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) catch null) as $done
+                      | if $done != null and ($now - $done) >= $max then "D " + .metadata.name else "K" end
+                    ' "${work}/page.json" >>"${work}/pr.sel"
+                    jq -c '.items[]
+                      | select(.status.completionTime != null and .metadata.uid != null)
+                      | {uid: .metadata.uid, done: .status.completionTime,
+                         ok: ([.status.conditions[]? | select(.type == "Succeeded") | .status] == ["True"])}
+                    ' "${work}/page.json" >>"${work}/pr.slim"
+                    cont="$(jq -r '.metadata.continue // empty | @uri' "${work}/page.json")"
+                    [ -z "${cont}" ] && break
+                  done
+                  deleted=0
+                  while read -r tag name; do
+                    [ "${tag}" = D ] || continue
+                    echo "delete PipelineRun ${name}"
+                    kubectl delete pipelinerun "${name}" -n "${NS}" --wait=false ${DRY}
+                    deleted=$((deleted + 1))
+                  done <"${work}/pr.sel"
+                  kept=$(grep -c '^K' "${work}/pr.sel" || true)
+                  echo "pipelinerun-ttl done${DRY:+ (dry-run)} deleted=${deleted} kept=${kept} maxAge=${MAX_AGE_SECONDS}s"
+                  # Pass 2: pods of finished TaskRuns, Succeeded after POD_MAX_AGE_SECONDS,
+                  # Failed after FAILED_POD_MAX_AGE_SECONDS. Paged (250 pods/page) through the
+                  # raw API and filtered with jq: decoding the whole list in one `kubectl get` was
+                  # OOMKilled at 256Mi with ~3,300 pods.
+                  : >"${work}/pods.del"
+                  pkept=0
+                  cont=""
+                  while :; do
+                    url="/api/v1/namespaces/${NS}/pods?limit=250"
+                    [ -n "${cont}" ] && url="${url}&continue=${cont}"
+                    api_get "${url}" >"${work}/page.json"
+                    jq -r --argjson now "${NOW}" --argjson ok "${POD_MAX_AGE_SECONDS}" --argjson bad "${FAILED_POD_MAX_AGE_SECONDS}" '
+                      .items[]
+                      | select(.metadata.ownerReferences[0].kind? == "TaskRun")
+                      | select(.status.phase == "Succeeded" or .status.phase == "Failed")
+                      | ([.status.containerStatuses[]?.state.terminated.finishedAt // empty] | max) as $f
+                      | select($f != null)
+                      # A pod whose steps all exited 0 is a success even when its phase is Failed:
+                      # Tekton stops a sidecar (the test database) with a signal once the steps end,
+                      # and the pod reads as Failed. On 2026-11-19 846 test-api and 563 unit-run
+                      # pods of runs that passed were kept a day as failures, 1,460 in all.
+                      | ([.status.containerStatuses[]? | select((.name // "") | startswith("step-"))] as $steps
+                         | .status.phase == "Failed" and (($steps | length) == 0 or any($steps[]; .state.terminated.exitCode != 0))) as $failed
+                      | (if $failed then $bad else $ok end) as $max
+                      | (try ($f | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) catch null) as $fe
+                      | if $fe != null and ($now - $fe) >= $max then "D " + .metadata.name else "K" end
+                    ' "${work}/page.json" >"${work}/page.sel"
+                    grep '^D ' "${work}/page.sel" | cut -c3- >>"${work}/pods.del" || true
+                    pkept=$((pkept + $(grep -c '^K' "${work}/page.sel" || true)))
+                    cont="$(jq -r '.metadata.continue // empty | @uri' "${work}/page.json")"
+                    [ -z "${cont}" ] && break
+                  done
+                  pdeleted=$(wc -l <"${work}/pods.del" | tr -d ' ')
+                  xargs -r -n 50 kubectl delete pod -n "${NS}" --wait=false ${DRY} <"${work}/pods.del" >/dev/null
+                  echo "taskrun-pod-ttl done${DRY:+ (dry-run)} deleted=${pdeleted} kept=${pkept} maxAge=${POD_MAX_AGE_SECONDS}s/${FAILED_POD_MAX_AGE_SECONDS}s"
+                  # Pass 3: standalone TaskRuns (no tekton.dev/pipelineRun label) older than
+                  # MAX_AGE_SECONDS, keeping the newest KEEP_PER_TASK finished ones of each task.
+                  # Paged like passes 1 and 2 (950 of them on 2026-11-16, and unit tasks add more
+                  # every run): each page leaves name, task and completion time.
+                  : >"${work}/tr.slim"
+                  ttotal=0
+                  cont=""
+                  while :; do
+                    url="/apis/tekton.dev/v1/namespaces/${NS}/taskruns?labelSelector=%21tekton.dev%2FpipelineRun&limit=${PR_PAGE:-100}"
+                    [ -n "${cont}" ] && url="${url}&continue=${cont}"
+                    api_get "${url}" >"${work}/page.json"
+                    ttotal=$((ttotal + $(jq '.items | length' "${work}/page.json")))
+                    jq -c '.items[]
+                      | select(.status.completionTime != null)
+                      | {name: .metadata.name,
+                         task: (.metadata.labels["tekton.dev/task"] // .spec.taskRef.name // "-"),
+                         done: (try (.status.completionTime | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) catch null)}
+                      | select(.done != null)
+                    ' "${work}/page.json" >>"${work}/tr.slim"
+                    cont="$(jq -r '.metadata.continue // empty | @uri' "${work}/page.json")"
+                    [ -z "${cont}" ] && break
+                  done
+                  jq -r -s --argjson now "${NOW}" --argjson max "${MAX_AGE_SECONDS}" --argjson keep "${KEEP_PER_TASK}" '
+                    group_by(.task)
+                    | map(sort_by(-.done) | .[$keep:] | map(select(($now - .done) >= $max)))
+                    | flatten
+                    | .[].name
+                  ' "${work}/tr.slim" >"${work}/tr.del"
+                  tdeleted=$(wc -l <"${work}/tr.del" | tr -d ' ')
+                  xargs -r -n 50 kubectl delete taskrun -n "${NS}" --wait=false ${DRY} <"${work}/tr.del" >/dev/null
+                  echo "standalone-taskrun-ttl done${DRY:+ (dry-run)} deleted=${tdeleted} of=${ttotal} keepPerTask=${KEEP_PER_TASK} maxAge=${MAX_AGE_SECONDS}s"
+                  # Pass 4: workspace PVCs owned by a PipelineRun that succeeded more than
+                  # WORKSPACE_SUCCEEDED_MAX_AGE_SECONDS ago, or otherwise finished more than
+                  # WORKSPACE_MAX_AGE_SECONDS ago (matched by owner uid; the run object stays).
+                  # Runs pass 1 deleted take their PVCs with them through garbage collection.
+                  kubectl get pvc -n "${NS}" -o json >"${work}/pvc.json"
+                  jq -r --argjson now "${NOW}" --argjson ws "${WORKSPACE_MAX_AGE_SECONDS}" \
+                    --argjson wsok "${WORKSPACE_SUCCEEDED_MAX_AGE_SECONDS}" --slurpfile pr "${work}/pr.slim" '
+                    ([$pr[]
+                      | (try (.done | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) catch null) as $done
+                      | select($done != null and ($now - $done) >= (if .ok then $wsok else $ws end))
+                      | {(.uid): true}] | add // {}) as $old
+                    | .items[]
+                    | select([.metadata.ownerReferences[]? | select(.kind == "PipelineRun" and ($old[.uid] // false))] | length > 0)
+                    | .metadata.name
+                  ' "${work}/pvc.json" >"${work}/pvc.del"
+                  wdeleted=$(wc -l <"${work}/pvc.del" | tr -d ' ')
+                  wtotal=$(jq '.items | length' "${work}/pvc.json")
+                  xargs -r -n 50 kubectl delete pvc -n "${NS}" --wait=false --ignore-not-found ${DRY} <"${work}/pvc.del" >/dev/null
+                  echo "workspace-pvc-ttl done${DRY:+ (dry-run)} deleted=${wdeleted} of=${wtotal} maxAge=${WORKSPACE_MAX_AGE_SECONDS}s succeededMaxAge=${WORKSPACE_SUCCEEDED_MAX_AGE_SECONDS}s"

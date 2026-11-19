@@ -62,6 +62,7 @@ EOF
 fi
 
 echo "==> Gitea Deployment + NodePort ${GITEA_NODE_PORT}"
+kubectl apply -f "${ROOT}/k8s/cicd/gitea/service.yaml"
 kubectl apply -f "${ROOT}/k8s/cicd/gitea/deployment.yaml"
 kubectl rollout status deployment/gitea -n "${CICD_NAMESPACE}" --timeout=300s
 

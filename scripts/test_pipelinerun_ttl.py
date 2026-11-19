@@ -23,6 +23,15 @@ import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 MANIFEST = ROOT / "k8s" / "cicd" / "tekton" / "pipelinerun-ttl.yaml"
+# The CronJob lives in its own file since 2026-11-19 (it goes by apply_manifest; its
+# identity does not). The checks read both as one manifest.
+CRONJOB = ROOT / "k8s" / "cicd" / "tekton" / "cronjob-pipelinerun-ttl.yaml"
+
+
+def manifest_text() -> str:
+    return MANIFEST.read_text() + "\n---\n" + CRONJOB.read_text()
+
+
 NOW = 1_800_000_000  # a fixed clock
 DAY = 86400
 FAKE = r'''#!/usr/bin/env python3
@@ -89,14 +98,14 @@ def iso(epoch: int) -> str:
 
 
 def script() -> str:
-    for doc in yaml.safe_load_all(MANIFEST.read_text()):
+    for doc in yaml.safe_load_all(manifest_text()):
         if doc and doc.get("kind") == "CronJob":
             return doc["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"][0]["command"][2]
     raise AssertionError("no CronJob")
 
 
 def env_defaults() -> dict:
-    for doc in yaml.safe_load_all(MANIFEST.read_text()):
+    for doc in yaml.safe_load_all(manifest_text()):
         if doc and doc.get("kind") == "CronJob":
             env = doc["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"][0]["env"]
             return {e["name"]: e["value"] for e in env}
@@ -227,7 +236,7 @@ class Janitor(unittest.TestCase):
                           "POD_MAX_AGE_SECONDS": "3600", "FAILED_POD_MAX_AGE_SECONDS": str(DAY), "KEEP_PER_TASK": "5"})
         self.assertLessEqual(int(env["WORKSPACE_MAX_AGE_SECONDS"]), int(env["MAX_AGE_SECONDS"]))
         self.assertGreaterEqual(int(env["WORKSPACE_MAX_AGE_SECONDS"]), int(env["FAILED_POD_MAX_AGE_SECONDS"]))
-        role = next(d for d in yaml.safe_load_all(MANIFEST.read_text()) if d and d.get("kind") == "Role")
+        role = next(d for d in yaml.safe_load_all(manifest_text()) if d and d.get("kind") == "Role")
         self.assertIn({"apiGroups": [""], "resources": ["persistentvolumeclaims"], "verbs": ["list", "delete"]},
                       role["rules"])
 
@@ -288,7 +297,7 @@ class CardCommand(unittest.TestCase):
             out += [w for w in ("DROP", "TRUNCATE", "DELETE FROM") if w in text.upper()]
             return out
 
-        doc = next(d for d in MANIFEST.read_text().split("\n---\n") if "\nkind: CronJob\n" in d)
+        doc = next(d for d in manifest_text().split("\n---\n") if "\nkind: CronJob\n" in d)
         self.assertEqual(problems(doc), [])
         self.assertEqual(problems('kubectl get --raw "${url}"'), ["raw"])
         self.assertEqual(problems('DRY="${DRY_RUN:+--dry-run=server}"'), ["dry-run --dry-run=server}"])

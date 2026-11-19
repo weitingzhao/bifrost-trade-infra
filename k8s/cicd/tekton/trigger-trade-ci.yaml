@@ -6,7 +6,7 @@
 #       (a TaskRun that copies main and tags to GitHub; k8s/cicd/github-sync).
 #
 # PipelineRun TTL: Tekton v1.6 CRD rejects spec.ttlSecondsAfterFinished.
-# Finished runs are pruned by k8s/cicd/tekton/pipelinerun-ttl.yaml (7d).
+# Finished runs are pruned by k8s/cicd/tekton/cronjob-pipelinerun-ttl.yaml (1d).
 #
 # Gitea webhook config (per repo):
 #   URL:  http://el-bifrost-ci.cicd.svc.cluster.local:8080

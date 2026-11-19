@@ -71,6 +71,7 @@ if [[ "${SKIP_TEKTON}" != "1" ]]; then
 
   echo "==> PipelineRun TTL janitor (7d; Tekton CRD has no ttlSecondsAfterFinished)"
   kubectl apply -f "${ROOT}/k8s/cicd/tekton/pipelinerun-ttl.yaml"
+  kubectl apply -f "${ROOT}/k8s/cicd/tekton/cronjob-pipelinerun-ttl.yaml"
 fi
 
 # Tekton build pipeline manifests (applied fully in install-bifrost-stg.sh Session S4)

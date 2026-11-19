@@ -101,5 +101,6 @@ fi
 
 echo "==> PipelineRun TTL janitor (7d; Tekton CRD has no ttlSecondsAfterFinished)"
 kubectl apply -f "${ROOT}/k8s/cicd/tekton/pipelinerun-ttl.yaml"
+kubectl apply -f "${ROOT}/k8s/cicd/tekton/cronjob-pipelinerun-ttl.yaml"
 
 echo "Tekton stack ready."
