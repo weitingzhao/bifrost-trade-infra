@@ -196,9 +196,13 @@ def test_the_builds_get_their_dockerfile_from_this_runs_infra_clone():
         # The pipeline does not point the build at another Dockerfile.
         assert [x["name"] for x in build["params"]] == ["image"]
         task = task_object("task-kaniko-platform-%s-stg.yaml" % kind)["spec"]
-        filename = "Dockerfile.platform-%s-stg" % kind
-        stage, check, kaniko = task["steps"]
+        # 2026-11-19: the api build compiles in a step of its own with the delivery's Go cache,
+        # and kaniko packages the binaries (Dockerfile.platform-api-prebuilt).
+        filename = "Dockerfile.platform-api-prebuilt" if kind == "api" else "Dockerfile.platform-%s-stg" % kind
+        steps = [step for step in task["steps"] if step["name"] != "compile" or kind != "api"]
+        stage, check, kaniko = steps
         assert (stage["name"], check["name"], kaniko["name"]) == ("stage-dockerfile", "assert-context", "build-and-push")
+        assert [step["name"] for step in task["steps"]][2:3] == (["compile"] if kind == "api" else ["build-and-push"])
         assert all("onError" not in step for step in task["steps"])
         # The copy the pipeline task stage-<kind>-dockerfile made, line for line.
         assert stage["image"] == "alpine:3.20"

@@ -1,0 +1,27 @@
+# Go build and module cache of the STG platform delivery's platform-api build
+# (task-kaniko-platform-api-stg.yaml, step compile). Only that Task mounts it.
+# It is apart from ci-build-cache on purpose (2026-11-19): CI runs code from
+# ready/ branches before review and writes its cache; a release binary must not
+# be linked from entries such code could have written. The delivery builds only
+# commits of main.
+#
+# Go trims the build cache itself (entries unused for 5 days); the module cache
+# goes by month as in CI (the compile step deletes months before last).
+# The size is a request, not a quota (nfs-subdir does not enforce it).
+#
+# Not under Argo, and apply_manifest does not write a claim in cicd: apply it
+# before the Task that mounts it (a Pod whose claim is missing stays Pending).
+#   kubectl apply -f k8s/cicd/tekton/pvc-deliver-build-cache.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: deliver-build-cache
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: platform-deliver
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: nfs-fast
+  resources:
+    requests:
+      storage: 20Gi

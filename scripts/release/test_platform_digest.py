@@ -34,7 +34,6 @@ DIGEST_RESULT = {
 # clones instead of for that task. The equality still holds every other line.
 MAINLINE = {
     "api": """\
-# Kaniko build bifrost-platform-api from Gitea clone workspace.
 apiVersion: tekton.dev/v1
 kind: Task
 metadata:
@@ -44,49 +43,91 @@ metadata:
     bifrost.io/purpose: platform-deliver
 spec:
   params:
-    - name: image
-      type: string
-      default: registry.cicd.svc.cluster.local:5000/bifrost-platform-api:stg
-    - name: dockerfile
-      type: string
-      default: Dockerfile.platform-api-stg
+  - name: image
+    type: string
+    default: registry.cicd.svc.cluster.local:5000/bifrost-platform-api:stg
+  - name: dockerfile
+    type: string
+    default: Dockerfile.platform-api-prebuilt
   workspaces:
-    - name: source
+  - name: source
+  volumes:
+  - name: go-cache
+    persistentVolumeClaim:
+      claimName: deliver-build-cache
   steps:
-    - name: stage-dockerfile
-      image: alpine:3.20
-      script: |
-        #!/usr/bin/env sh
-        set -eu
-        cp "$(workspaces.source.path)/bifrost-trade-infra/k8s/cicd/docker/Dockerfile.platform-api-stg" "$(workspaces.source.path)/Dockerfile.platform-api-stg"
-        echo "=== Dockerfile.platform-api-stg from this run's infra clone ==="
-        cat "$(workspaces.source.path)/Dockerfile.platform-api-stg"
-    - name: assert-context
-      image: alpine:3.20
-      script: |
-        #!/usr/bin/env sh
-        set -eu
-        root="$(workspaces.source.path)"
-        test -f "${root}/Dockerfile.platform-api-stg"
-        test -f "${root}/bifrost-platform/api/go.mod"
-        echo "Platform API build context OK"
-    - name: build-and-push
-      image: gcr.io/kaniko-project/executor:v1.23.2
-      args:
-        - --dockerfile=$(params.dockerfile)
-        - --context=$(workspaces.source.path)
-        - --destination=$(params.image)
-        - --custom-platform=linux/amd64
-        - --insecure
-        - --skip-tls-verify
-        - --insecure-registry=registry.cicd.svc.cluster.local:5000
-      computeResources:
-        requests:
-          cpu: "2"
-          memory: 2560Mi
-        limits:
-          cpu: "4"
-          memory: 3Gi
+  - name: stage-dockerfile
+    image: alpine:3.20
+    script: |
+      #!/usr/bin/env sh
+      set -eu
+      cp "$(workspaces.source.path)/bifrost-trade-infra/k8s/cicd/docker/Dockerfile.platform-api-prebuilt" "$(workspaces.source.path)/Dockerfile.platform-api-prebuilt"
+      echo "=== Dockerfile.platform-api-prebuilt from this run's infra clone ==="
+      cat "$(workspaces.source.path)/Dockerfile.platform-api-prebuilt"
+  - name: assert-context
+    image: alpine:3.20
+    script: |
+      #!/usr/bin/env sh
+      set -eu
+      root="$(workspaces.source.path)"
+      test -f "${root}/Dockerfile.platform-api-prebuilt"
+      test -f "${root}/bifrost-platform/api/go.mod"
+      echo "Platform API build context OK"
+  - name: compile
+    image: golang:1.25-alpine
+    env:
+    - name: CGO_ENABLED
+      value: '0'
+    - name: GOOS
+      value: linux
+    - name: GOARCH
+      value: amd64
+    - name: GOTOOLCHAIN
+      value: auto
+    volumeMounts:
+    - name: go-cache
+      mountPath: /go-cache
+    computeResources:
+      requests:
+        cpu: '2'
+        memory: 1Gi
+      limits:
+        cpu: '4'
+        memory: 3Gi
+    script: |
+      #!/usr/bin/env sh
+      set -eu
+      root="$(workspaces.source.path)"
+      month="$(date -u +%Y-%m)"
+      export GOCACHE=/go-cache/build GOMODCACHE="/go-cache/mod/${month}"
+      mkdir -p "${GOCACHE}" "${GOMODCACHE}" "${root}/platform-bin"
+      # The module cache goes by month; a delivery deletes the months before last.
+      year="${month%-*}" mon="${month#*-}"
+      if [ "${mon}" = 01 ]; then last="$((year - 1))-12"; else last="$(printf '%s-%02d' "${year}" "$((${mon#0} - 1))")"; fi
+      for old in /go-cache/mod/*; do
+        case "${old##*/}" in "${month}"|"${last}") ;; *) rm -rf "${old}" ;; esac
+      done
+      cd "${root}/bifrost-platform/api"
+      go build -o "${root}/platform-bin/platform-api" ./cmd/platform-api
+      go build -o "${root}/platform-bin/owner-exec" ./cmd/owner-exec
+      ls -l "${root}/platform-bin"
+  - name: build-and-push
+    image: gcr.io/kaniko-project/executor:v1.23.2
+    args:
+    - --dockerfile=$(params.dockerfile)
+    - --context=$(workspaces.source.path)
+    - --destination=$(params.image)
+    - --custom-platform=linux/amd64
+    - --insecure
+    - --skip-tls-verify
+    - --insecure-registry=registry.cicd.svc.cluster.local:5000
+    computeResources:
+      requests:
+        cpu: '2'
+        memory: 2560Mi
+      limits:
+        cpu: '4'
+        memory: 3Gi
 """,
     "console": """\
 # Kaniko build bifrost-platform-console (requires bifrost-ui sibling).

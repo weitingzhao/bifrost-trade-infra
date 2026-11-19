@@ -1,0 +1,27 @@
+# The platform-api image from binaries compiled before this build (2026-11-19):
+# the Task's compile step builds platform-api and owner-exec into
+# platform-bin/ with a Go cache kept between deliveries, so kaniko no longer
+# compiles from nothing. Same binaries and same runtime layer as
+# Dockerfile.platform-api-stg, which stays for builds without that step.
+FROM alpine:3.20 AS tools
+# kubectl for the commands owner-exec runs: the cluster's minor version, pinned by checksum.
+RUN wget -q -O /kubectl https://dl.k8s.io/release/v1.35.5/bin/linux/amd64/kubectl \
+    && echo "90f75ea6ecc9ea5633262e1c0b83a40560003b30fc94a04cb099404fcef0c224  /kubectl" | sha256sum -c - \
+    && chmod 0755 /kubectl
+
+FROM alpine:3.20
+# git: the STG landing drill (W-31 4.1 S2) clones, replays and pushes land/stg/**
+# with the git binary (landinggit); PROD runs the same image and never enables it.
+# deploy_agentd already invokes ssh; include its runtime client.
+# bash, curl, python3 and kubectl: what the commands owner-exec runs have used
+# (36 retained owner_run_command cards, 2026-11-13: kubectl 28, git 12, python 11).
+RUN apk add --no-cache ca-certificates git openssh-client bash curl python3
+COPY platform-bin/platform-api /usr/local/bin/platform-api
+COPY platform-bin/owner-exec /usr/local/bin/owner-exec
+COPY --from=tools /kubectl /usr/local/bin/kubectl
+
+ENV PLATFORM_CONFIG=/app/config/environments.yaml
+WORKDIR /app
+
+EXPOSE 8780
+ENTRYPOINT ["platform-api"]
