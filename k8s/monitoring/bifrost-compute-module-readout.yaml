@@ -100,5 +100,22 @@ spec:
           expr: sum by (datname,pod)(increase(cnpg_pg_stat_database_temp_bytes{datname=~"bifrost.*"}[1d])) / 1e9
         - record: bifrost_pg:temp_files_1d
           expr: sum by (datname,pod)(increase(cnpg_pg_stat_database_temp_files{datname=~"bifrost.*"}[1d]))
+    # Meta-alert (LANE-compute, 2026-11-19). On 2026-11-14 the live PrometheusRule bifrost-alerting-rules lost its `release: kube-prometheus-stack`
+    # label (a single-file kubectl apply does that, see kustomization.yaml), Prometheus' ruleSelector stopped selecting it and all 71 of its rules
+    # (BifrostClusterNodeDown, BifrostProdWorkloadUnavailable, the elastic-standby marker...) were silently not evaluated for about 4.5 days.
+    # This fires when one group of each of the two big alert files is not loaded. It lives in a different file on purpose.
+    - name: bifrost-compute-rule-load
+      rules:
+        - alert: BifrostAlertRuleFileNotLoaded
+          expr: |
+            absent(prometheus_rule_group_rules{rule_group=~".*monitoring-bifrost-alerting-rules.*;bifrost-infrastructure"})
+            or
+            absent(prometheus_rule_group_rules{rule_group=~".*monitoring-bifrost-host-rules.*;bifrost-hosts"})
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "A Bifrost alert rule file is not loaded by Prometheus"
+            description: "No rules of bifrost-alerting-rules (group bifrost-infrastructure) or bifrost-host-rules (group bifrost-hosts) are loaded. Most likely the PrometheusRule lost its label release=kube-prometheus-stack: kubectl -n monitoring get prometheusrule <name> --show-labels. Re-apply the file from k8s/monitoring with plan_manifest / apply_manifest."
 # 7 天峰值不单独录，读时用 quantile_over_time(0.95, bifrost_module:cpu_usage_cores[7d]) 一类（录入后才有数据，7 天后可读）。
 # 磁盘的「要」没有来源（Pod 不申报），本组不假装；见 compute/disk-demand-line-2026-11-18.md。
