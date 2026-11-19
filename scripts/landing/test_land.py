@@ -952,6 +952,21 @@ def test_a_landing_opens_its_pull_request_only_when_first_in_line():
     assert seen == [0, 0, 0]
 
 
+# 2026-11-19: eight infra landings queued; one 50-minute budget covered both the wait for the
+# turn and the work after it, so land-vzmdw was refused before its turn and land-m7wt8 timed out
+# after it, and each push again went to the back of the queue. The wait now has its own limit.
+# Positive control: setting deadline before the wait (as before) refuses this landing.
+def test_waiting_for_the_turn_does_not_spend_the_budget():
+    import time
+    gitea = Gitea()
+    start = time.time()
+
+    def turn():
+        return time.time() - start > 1.5
+
+    assert run_land(gitea, turn=turn, budget=1) == ("landed", "")
+
+
 # Same origin: a refused landing left its pull request open for Gitea to keep testing.
 # Positive control: dropping the alive check closes the running branch too.
 def test_abandoned_landing_pull_requests_are_closed_and_running_ones_kept():

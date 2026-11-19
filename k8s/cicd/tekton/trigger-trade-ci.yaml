@@ -102,6 +102,9 @@ spec:
       spec:
         pipelineRef:
           name: bifrost-land
+        # Tekton's default is 60 min; land's task may wait 3 h for its turn (pipeline-land.yaml).
+        timeouts:
+          pipeline: 4h0m0s
         params:
           - name: repo
             value: $(tt.params.repo)

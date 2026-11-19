@@ -55,7 +55,8 @@ spec:
     # Inline, so that no TaskRun can call it with a commit of the caller's choosing.
     - name: land
       runAfter: [freeze-check]
-      timeout: 55m0s
+      # Up to 3 h waiting for its turn (land's queue), then 50 min of work (budget).
+      timeout: 3h55m0s
       params:
         - name: repo
           value: $(params.repo)
@@ -580,7 +581,7 @@ spec:
                   return ''
 
               def land(token, table, policy, repo, ref, commit, wait=ci_wait, gitea=GITEA, tries=24, pause=5,
-                       budget=50 * 60, push=None, turn=lambda: True, tidy=lambda api: None):
+                       budget=50 * 60, push=None, turn=lambda: True, tidy=lambda api: None, queue=3 * 60 * 60):
                   """(what landed, refusal): ({'outcome': 'landed', 'commit': ..., 'change-ids': ...}, '') or
                   ({}, why not). One push is one run: a branch behind main is rebased by Gitea and this
                   run goes on with the new commit, as often as main moves, until it is merged or the
@@ -593,12 +594,16 @@ spec:
                       return {}, 'refused: this repository is not in LANDING_REPOS (pipeline-land.yaml)'
                   branch, api = found.group(1), gitea + '/api/v1/repos/bifrost/' + repo
                   # The pull request is opened only at this run's turn: every open one is tested
-                  # again by Gitea whenever main moves.
-                  deadline = time.time() + budget
+                  # again by Gitea whenever main moves. The wait for the turn has its own limit and
+                  # budget starts at the turn (2026-11-19: with eight infra landings queued, one budget
+                  # for both refused land-vzmdw before its turn and timed out land-m7wt8 after it,
+                  # and each push again went to the back of the queue).
+                  waited = time.time() + queue
                   while not turn():
-                      if time.time() >= deadline:
-                          return {}, 'refused: older landings took %d minutes; push ready/ again' % (budget // 60)
+                      if time.time() >= waited:
+                          return {}, 'refused: older landings took %d minutes; push ready/ again' % (queue // 60)
                       time.sleep(pause * 3)
+                  deadline = time.time() + budget
                   tidy(api)
                   pull, problem = pull_request(token, api, branch, commit, repo)
                   ids, commits, seen = [], [], set()
