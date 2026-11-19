@@ -341,12 +341,20 @@ maintainers:
     detected_by: BifrostMaintainerChecklistProberStale
     status: active
   - id: platform/prod/release-recorder
-    what: "In-cluster default (PLATFORM_RELEASE_RECORDER unset). Every 5m it records PipelineRuns from release-rules.yaml. First tick logged on 2026-10-07. STG sets the recorder off."
+    what: "In-cluster default (PLATFORM_RELEASE_RECORDER unset). Every 5m it records PipelineRuns from release-rules.yaml. First tick logged on 2026-10-07. STG runs its own (platform/stg/release-recorder)."
     runs_on: cluster:bifrost-platform-prod/platform-workers
     schedule: "every 5m"
     env: prod
     max_tier: B
     detected_by: BifrostMaintainerReleaseRecorderStale
+    status: active
+  - id: platform/stg/release-recorder
+    what: "PLATFORM_RELEASE_RECORDER=rows on STG workers since 2026-11-18 (88ea0824): every 5m it writes STG's release records into the table, so STG has its own source. Found by the 2026-11-19 07:00 reconcile as an extra series."
+    runs_on: cluster:bifrost-platform-stg/platform-workers
+    schedule: "every 5m"
+    env: shared
+    max_tier: B
+    detected_by: "none: STG has no stale alert for it; the reconcile sees its series"
     status: active
   - id: platform/prod/release-policy-expiry
     what: "Hourly release-policy check on PROD workers (W-42). Pushes the Owner 14d, 3d and 1d before the signed policy expires, and again when a release waits on an expired one. No policy installed = it records a pass and pushes nothing. STG sets PLATFORM_RELEASE_POLICY_REMINDERS=off."
