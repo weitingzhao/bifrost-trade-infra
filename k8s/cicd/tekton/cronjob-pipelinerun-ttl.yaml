@@ -55,7 +55,11 @@ spec:
   jobTemplate:
     spec:
       ttlSecondsAfterFinished: 86400
-      backoffLimit: 1
+      # 3, not 1 (2026-11-19): at 15:20, 16:20 and 18:20Z the pod was stopped two seconds
+      # after it started (by whom is not known: the events had expired) and the Job failed
+      # with nothing deleted; 17:20 and 19:20 ran clean. Every pass only deletes what is
+      # due, so running again is safe, and with restartPolicy OnFailure a restart counts.
+      backoffLimit: 3
       template:
         spec:
           serviceAccountName: tekton-pipelinerun-ttl
