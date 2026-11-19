@@ -39,6 +39,7 @@ description: >-
 | 不建重复卡；卡失败了先读日志 | 重复卡他要批两次，失败的卡再批也是失败 | #638 批了仍失败：批之前 main 又动过这个文件，平台按「渲染结果不同」拒绝了。要按 main 头重新 plan、建新卡（#639），不在失败的卡上反复批 |
 | 卡里钉的镜像，渲染时核对 registry 里还在 | 卡等批的时候镜像可能已被清掉，批了也跑不起来 | node-run 渲染时会做这个检查（`NODE_RUN_SKIP_IMAGE_CHECK` 只给 selftest 用）；记忆 `lesson_deferred_cards_pin_must_be_checked` |
 | `owner_run_command` 的 `params` 里要有 `reason`（一句英文） | 没有它建卡会被 400 拒 | 11-19 #640 第一次建卡 |
+| 执行口写得了这个对象：集群级对象它只许写 PriorityClass 和 Node（准入策略 `bifrost-owner-exec-no-trade`），ClusterRole、ClusterRoleBinding 之类会被拒；能用命名空间里的 Role 就用 Role | 批了也执行失败，白等一轮 | #640（11-19）改 ClusterRole 被拒，改成 cicd 里的 Role |
 | 命令自带内容（heredoc），不引用仓库里的文件 | 执行口手里没有任何检出 | OWNER_EXEC.md「命令在哪里跑」 |
 | 命令能重跑，结论放在最后几行 | 卡只存输出最后 2048 字节；执行口中途没了会再跑 | 同上 |
 
