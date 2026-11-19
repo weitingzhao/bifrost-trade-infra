@@ -379,6 +379,8 @@ hold_window() {
   HOLD_PID=$!
   for _ in $(seq 1 30); do
     if grep -q '^holding ConfigMap' "$TMPD/hold.log"; then
+      # The hold names its own who (a suffix per process); window_ours compares it.
+      WHO=$(sed -n 's/^holding ConfigMap .* as \([^ ]*\) (ttl.*/\1/p' "$TMPD/hold.log")
       say "release window held for ubt-k3s-06"
       return
     fi

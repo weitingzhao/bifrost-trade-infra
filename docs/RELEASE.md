@@ -37,6 +37,8 @@ scripts/release/release.sh dev                          # make dev-sync-backend-
 1. **窗口** ConfigMap `cicd/bifrost-release-window`（who / what / env / started_at / expires_at）。
    `PUT /api/v1/delivery/release-window`，ttl 5 分钟，持有期间每分钟续期；别人持有就拒绝。
    脚本退出时以持有者身份释放。过期的窗口视为空。
+   持有者名字是 `--who` 的值加一段每个进程不同的随机后缀，`release.sh hold` 打印完整的值，`start_pipeline_run` 的 `who` 用它。
+   所以两个会话写同一个 `--who`（或都用默认值）也不会同时持有（2026-11-19 01:39Z 两条 PROD 相隔 8 秒的教训）。
 2. **并发**：任何 `bifrost-deliver-*` run 处于 Unknown，或 2 分钟内刚建过，就拒绝（09-27 两个会话相隔 16 秒发同一版的教训）。
    起 run 前会再查一次。
 3. **PROD 专有**：`--from-stg <run>` 必须是 `bifrost-deliver-stg` 的 run、Succeeded，且

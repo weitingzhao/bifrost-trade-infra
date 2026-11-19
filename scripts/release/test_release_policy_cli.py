@@ -6,6 +6,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import tempfile
 import threading
@@ -24,6 +25,7 @@ class FakePlatform:
         self.status_http = 200
         self.status = {"valid": False, "remaining_seconds": 0, "allow": [], "frozen": False,
                        "reasons": ["no signed policy"], "anchor_fingerprint": ""}
+        self.window_who = ""
         fake = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -42,7 +44,7 @@ class FakePlatform:
                 self.end_headers()
                 self.wfile.write(raw)
 
-            do_GET = do_PUT = do_POST = _serve
+            do_GET = do_PUT = do_POST = do_DELETE = _serve
 
         self.server = HTTPServer(("127.0.0.1", 0), Handler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
@@ -50,6 +52,15 @@ class FakePlatform:
         self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
 
     def answer(self, method: str, path: str, body: dict) -> tuple[int, dict]:
+        if path == "/api/v1/delivery/release-window" and method == "PUT":
+            # As the platform decides: the same who may take a live window again.
+            if self.window_who and self.window_who != body["who"]:
+                return 409, {"error": f"release window held by {self.window_who}"}
+            self.window_who = body["who"]
+            return 200, {"open": True}
+        if path == "/api/v1/delivery/release-window" and method == "DELETE":
+            self.window_who = ""
+            return 200, {"open": False}
         if method == "GET" and path == "/api/v1/release-policy":
             if self.status_http != 200:
                 return self.status_http, {"error": "unavailable"}
@@ -100,6 +111,36 @@ class ReleasePolicyCLITests(unittest.TestCase):
     def run_sh(self, *args: str) -> subprocess.CompletedProcess:
         return subprocess.run(["bash", str(RELEASE_SH), *args], env=self.env, capture_output=True, text=True,
                               timeout=60, check=False)
+
+    def start_hold(self, who: str) -> tuple[subprocess.Popen, str]:
+        proc = subprocess.Popen(["bash", str(RELEASE_SH), "hold", "--what", "bifrost-platform", "--who", who],
+                                env=self.env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                                start_new_session=True)
+        self.addCleanup(self.stop_hold, proc)
+        return proc, proc.stdout.readline()
+
+    def stop_hold(self, proc: subprocess.Popen) -> None:
+        # SIGKILL: a TERM waits behind the hold's sleep (TD-269); the lease is what frees it.
+        if proc.poll() is None:
+            os.killpg(proc.pid, signal.SIGKILL)
+        proc.wait(timeout=20)
+        proc.stdout.close()
+
+    def test_two_holds_with_one_who_do_not_both_get_the_window(self) -> None:
+        # 2026-11-19 01:39Z: two sessions on the default who both held the window
+        # and started PROD 8 s apart; the second run failed at gitops-sync.
+        first, line = self.start_hold("same")
+        held = re.search(r" as (same\.[0-9a-f]{6}) \(ttl", line)
+        self.assertIsNotNone(held, line)
+        self.assertEqual(self.fake.window_who, held.group(1))
+        second, line = self.start_hold("same")
+        self.assertEqual(second.wait(timeout=20), 2, line)
+        self.assertEqual(self.fake.window_who, held.group(1))
+        # Positive control for the refusal above: once the first's lease is gone, the same who gets it.
+        self.stop_hold(first)
+        self.fake.window_who = ""
+        _, line = self.start_hold("same")
+        self.assertIn("holding ConfigMap", line)
 
     def test_status_reads_the_platform_with_the_viewer_token(self) -> None:
         res = self.run_sh("policy", "status")

@@ -212,7 +212,7 @@ bifrost-trade-infra/scripts/release/release.sh window   # 没有窗口 exit 0；
 ```
 
 Research 与插件发布用**同一个**窗口：ConfigMap `cicd/bifrost-release-window`，由 `PUT /api/v1/delivery/release-window` 写入（ttl 5 分钟，持有期间每分钟续期）。`what` 是仓库名（逗号分隔）。
-先 `release.sh hold --what <repo>`。
+先 `release.sh hold --what <repo>`，起 run 时 `who` 用它打印的值（每个进程不同）。
 deliver-research、build-research-dagster、build-market-data、build-ib-gateway 四条流水线在 freeze-check 之后有一步 release-window 读它：窗口不是这个仓库的就拒绝。
 deliver-stg / prod / platform / platform-prod 没有这一步，窗口靠起 run 的一方守：platform-api `start_pipeline_run` 要求请求里的 `who` 等于窗口持有者
 （Owner 在 Console 批卡发版时由平台替这次 run 占窗口），`push-main.sh` 与 `release.sh` 自己查窗口。

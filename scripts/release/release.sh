@@ -20,6 +20,7 @@
 #          --what <repos>    comma-separated repo names in the window (default: the Trade repos)
 #          --allow-red <why> ship stg/prod even if a SHA's CI is red or missing (Owner)
 #          --who <name>      who releases (default $BIFROST_RELEASE_WHO, else user@host)
+#                            the window is held as <name>.<random>, new for each process
 #          --timeout <s>     how long to wait for the run (default 3600)
 #          --reason <text>   prod: the approval's reason — what approving it ships, and which
 #                            checks were not done (CLAUDE.md §5); "prod pinned from <run>" follows
@@ -273,6 +274,11 @@ window_close() {
 window_open() {
   mkdir -p "${RELEASE_HOME}"
   window_migrate_local
+  # The platform lets the same who take a live window again (that is how the
+  # lease renews), so the who has to belong to this process alone. 2026-11-19
+  # 01:39Z: two sessions on the default user@host both held the window and
+  # started PROD 8 s apart; the second failed at gitops-sync.
+  WHO="${WHO}.$(python3 -c 'import secrets; print(secrets.token_hex(3))')"
   window_put "${WHAT}" "${WHO}" "${WINDOW_REASON:-${ENV_NAME}}" "${ENV_NAME}" || rel_die "REFUSED: another release holds the window" 2
   if [[ "${DRY_RUN:-0}" -eq 1 ]]; then
     return 0
