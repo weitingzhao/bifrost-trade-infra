@@ -230,6 +230,9 @@ spec:
   # quick list leaves out. TRIAL (2026-11-13): onError continue, so a failure here is
   # reported and does not fail the run, until every test passes in this image; then the
   # line goes and the stage gates like the others.
+  # Not on a landing (2026-11-19): it gates nothing and nothing reads it, yet each landing
+  # waited 200-550 s and about 1,200 CPU seconds for it once the Task on the cluster got
+  # this step (03:47Z). The push to main after a landing runs it and shows its result.
   - name: release
     onError: continue
     image: 192.168.10.73:30500/bifrost-ci-infra-tools@sha256:4ff505208b6cd977e36b7fb29c0f9faa4824a4ed9f4beb6e2f1ffc94b591a23e
@@ -256,6 +259,7 @@ spec:
     script: |
       #!/usr/bin/env bash
       set -euo pipefail
+      if [[ "$PURPOSE" == landing ]]; then echo "release: not on a landing; the push to main runs it"; exit 0; fi
       ws="$(workspaces.source.path)"
       entry="$ws/base/bifrost-trade-infra/scripts/landing/ci-infra.sh"
       if [[ "$PURPOSE" == push && -z "$BASE" ]]; then entry="$ws/cand/bifrost-trade-infra/scripts/landing/ci-infra.sh"; fi

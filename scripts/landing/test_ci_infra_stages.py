@@ -264,3 +264,18 @@ def test_no_base_push_explicit_skip(ci_workspace, capsys):
     args.purpose = 'landing'
     with pytest.raises(C.Error, match='base_missing'):
         C.check_workspace(args)
+
+
+def test_the_release_suite_does_not_run_on_a_landing():
+    # 2026-11-19: once the cluster's Task got the release step (03:47Z), every infra landing
+    # waited 200-550 s for a suite that gates nothing and that nothing reads. Positive
+    # control: the push to main still runs it.
+    import subprocess, yaml
+    task = yaml.safe_load((ROOT / "k8s/cicd/tekton/task-ci-infra-check.yaml").read_text())
+    (step,) = [s for s in task["spec"]["steps"] if s["name"] == "release"]
+    script = step["script"].replace("$(workspaces.source.path)", "/nonexistent")
+    for purpose, skipped in (("landing", True), ("push", False)):
+        done = subprocess.run(["bash", "-c", script], env={"PURPOSE": purpose, "BASE": "", "PATH": "/usr/bin:/bin"},
+                              capture_output=True, text=True)
+        assert ("not on a landing" in done.stdout) == skipped, (purpose, done.stdout, done.stderr)
+        assert (done.returncode == 0) == skipped, (purpose, done.returncode)
