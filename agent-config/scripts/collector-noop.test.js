@@ -191,23 +191,3 @@ test('credential files: a reporter token on disk, and a collector token file tha
   assert.ok((await equivalent('collector-unreadable', events, noEnv, collectorFile('collector-x\n', 0o000))) > 0)
   assert.equal(await equivalent('no-token', events, noEnv, seedHome), 0, 'no token: neither version sends anything')
 })
-
-async function runWrapper(variant) {
-  const home = h.tmpHome(`noop-run-${variant}`)
-  const srv = await h.fakeServer(respond)
-  try {
-    const env = h.cleanEnv(home, srv.url, { PLATFORM_REPORTER_TOKEN: h.REPORTER, NODE_OPTIONS: `--require ${PRELOAD}`, COLLECTOR_TEST_SEED: 'run' })
-    const r = await h.runNode([path.join(VARIANTS[variant], 'thread-heartbeat.js'), 'run', 'claude', '--', process.execPath, '-e', 'process.exit(3)'], { env })
-    assert.equal(r.code, 3)
-    await h.settle(srv, home, 2)
-    return srv.got.map(({ method, url, auth, raw }) => ({ method, url, auth, raw }))
-  } finally {
-    srv.close()
-  }
-}
-
-test('the run wrapper sends what the baseline sends', async () => {
-  const before = await runWrapper('baseline')
-  assert.equal(before.length, 2)
-  assert.deepEqual(await runWrapper('current'), before)
-})

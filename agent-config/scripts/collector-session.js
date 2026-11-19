@@ -148,11 +148,6 @@ function identity(vendor, payload, env = process.env, now = new Date()) {
   return out
 }
 
-/** The identity fields of a `run` wrapper's own beat: it is no vendor session. */
-function runIdentity(now = new Date()) {
-  return { client_bind: { state: 'unlinked', reason: 'no_vendor_session', at: now.toISOString() }, host_id_source: hostIdentity().source }
-}
-
 function diagnose() {
   const off = process.env.BIFROST_HEARTBEAT === 'off'
   const collector = collectorToken() !== ''
@@ -180,7 +175,6 @@ module.exports = {
   eventMap,
   sideReason,
   identity,
-  runIdentity,
   clientBind,
   transition: epochs.transition,
   resolve: epochs.resolve,

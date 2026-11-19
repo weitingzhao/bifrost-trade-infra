@@ -92,10 +92,9 @@ cd /path/to/stocks && AC=bifrost-trade-infra/agent-config && \
 
 - **`claude/settings.json` 里的 hook 命令用本目录的绝对真实路径**，不经符号链接 —— 少一层解析、少一个故障点。
   换机器时这些绝对路径需要改（见上方 `AC` 变量）。
-- **线程心跳**（W-54）：`scripts/thread-heartbeat.js` 是共用的心跳钩子，`claude/settings.json`、`codex/README.md` 里的 `~/.codex/hooks.json` 各接一份；Cursor 的无头运行（06 上 agentd 的 `exec:cursor`）用下面的 `run` 包装。
+- **线程心跳**（W-54）：`scripts/thread-heartbeat.js` 是共用的心跳钩子，`claude/settings.json`、`codex/README.md` 里的 `~/.codex/hooks.json` 各接一份（Cursor 已退役；无头 `run` 包装与它的进度拍 2026-11-19 删除，见平台去向表 X-B2）。
   回合开始、工具调用前后、回合结束各 POST 到 PROD `POST /api/v1/agent/threads/heartbeat`（TD-197 的上报令牌，没有令牌就不发）；钩子不输出、不报错、永远 exit 0。第一次登记，以及服务端尚未确认的 `turn_start`，在钩子进程里同步发送；其余发送交给脱离的子进程。钩子从进入起只有一个单调时钟截止时间，5 秒；每一次锁等待只用截止前剩下的时间，进程在该截止时间退出。
-  无头运行（`cursor-agent -p` 不触发 stop 钩子）一律这样启动：`node scripts/thread-heartbeat.js run cursor -- cursor-agent -p …`。
-  收集员模式（R5:5.5-12 S1-4）默认关闭：配了收集员令牌（`PLATFORM_COLLECTOR_TOKEN` 或 `~/.config/bifrost/collector.token`）才打开，没配时，`scripts/collector-noop.test.js` 对所列输入（S1-0 全部夹具、工具/等待/Cursor/Codex 事件、run 包装器、进度、宿主心跳、令牌文件缺失/空/不可读）逐项比对基线：请求逐字节相同、家目录下的落盘文件相同（时间字段规范化）、stdout/stderr 为空；耗时不比（新接的四个事件会多起一次 node 进程，只查上限），假服务器一律回 202，不含平台的状态机。打开后心跳改用收集员令牌和主机号（`BIFROST_HOST_ID` 或 `~/.config/bifrost/host-id`，都没有退回 OS 短名并记 `host_id_source: hostname`），不带标题，带原始厂商会话号 `session`、世代 `epoch`、`client_bind`、`host_id_source`；另接 SessionStart、PreCompact、SessionEnd（带 timeout）、StopFailure 与 Cursor 的 `sessionStart`。事件表见 `scripts/collector-session.js` 文件头，世代与结束协议见 `scripts/collector-epochs.js` 文件头（结束只在意图落盘后发；拿不到锁时先存待发记录、下次补；认不出进程的结束不关任何世代；补发失败可重试，有上限）；`node scripts/collector-session.js diagnose` 打印模式、主机号来源与问题（不含令牌）。进度文档仍用上报令牌。
+  收集员模式（R5:5.5-12 S1-4）默认关闭：配了收集员令牌（`PLATFORM_COLLECTOR_TOKEN` 或 `~/.config/bifrost/collector.token`）才打开，没配时，`scripts/collector-noop.test.js` 对所列输入（S1-0 全部夹具、工具/等待/Cursor/Codex 事件、令牌文件缺失/空/不可读）逐项比对基线：请求逐字节相同、家目录下的落盘文件相同（时间字段规范化）、stdout/stderr 为空；耗时不比（新接的四个事件会多起一次 node 进程，只查上限），假服务器一律回 202，不含平台的状态机。打开后心跳改用收集员令牌和主机号（`BIFROST_HOST_ID` 或 `~/.config/bifrost/host-id`，都没有退回 OS 短名并记 `host_id_source: hostname`），不带标题，带原始厂商会话号 `session`、世代 `epoch`、`client_bind`、`host_id_source`；另接 SessionStart、PreCompact、SessionEnd（带 timeout）、StopFailure 与 Cursor 的 `sessionStart`。事件表见 `scripts/collector-session.js` 文件头，世代与结束协议见 `scripts/collector-epochs.js` 文件头（结束只在意图落盘后发；拿不到锁时先存待发记录、下次补；认不出进程的结束不关任何世代；补发失败可重试，有上限）；`node scripts/collector-session.js diagnose` 打印模式、主机号来源与问题（不含令牌）。进度文档仍用上报令牌。
 - **`scripts/` 下的脚本自行向上查找工作区根**（标记 `bifrost-platform/config/ops-context.yaml`），
   因此无论从符号链接路径还是真实路径调用都能工作。两条路径都在回归测试覆盖内。
 
@@ -110,7 +109,7 @@ cd /path/to/stocks && AC=bifrost-trade-infra/agent-config && \
 ```bash
 bash scripts/check-governance-consistency.sh   # 在工作区根；infra 根的旧入口 make check-agent-parity 仍可用
 node scripts/agent-guard/test.js   # 硬边界回归 25 例
-node scripts/thread-heartbeat.test.js   # 心跳：事件映射、节流、钩子失败不拦工具调用、无头包装
+node scripts/thread-heartbeat.test.js   # 心跳：事件映射、节流、钩子失败不拦工具调用
 node --test scripts/collector-session.test.js scripts/collector-hooks.test.js scripts/collector-noop.test.js scripts/source-capability-witness.test.js scripts/collector-mutation.test.js   # 收集员模式：世代、钩子进程、与基线比对、S1-0 夹具见证、变异检查
 python3 -m unittest discover -s scripts -p test_check_session_hooks.py   # 治理一致性检查里会话钩子与 SessionEnd timeout 的规则
 ```

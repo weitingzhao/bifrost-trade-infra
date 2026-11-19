@@ -132,34 +132,6 @@ test('fork opens epoch 1 of a new session; a stray InstructionsLoaded opens noth
   }
 })
 
-test('nested under the run wrapper: run-thread transport, raw session, its own epoch, no title', async () => {
-  const home = h.tmpHome('nested')
-  const srv = await h.fakeServer()
-  try {
-    const child = path.join(home, 'child.js')
-    fs.writeFileSync(child, `
-const { spawnSync } = require('node:child_process')
-for (const [ev, extra] of [['SessionStart', { source: 'startup' }], ['UserPromptSubmit', {}], ['SessionEnd', { reason: 'other' }]]) {
-  const r = spawnSync(process.execPath, [${JSON.stringify(HB)}, 'hook', 'claude'], { input: JSON.stringify({ session_id: ${JSON.stringify(S)}, hook_event_name: ev, ...extra }), env: { ...process.env, CLAUDE_PID: '42001' } })
-  if (r.status !== 0 || String(r.stdout)) process.exit(9)
-  spawnSync('/bin/sleep', ['0.4'])
-}
-`)
-    const env = h.collectorEnv(home, srv.url, { BIFROST_HEARTBEAT_TITLE: 'W-54 nightly', CLAUDE_CODE_HOST_SESSION_ID: 'local_parent' })
-    const r = await h.runNode([HB, 'run', 'claude', '--', process.execPath, child], { env })
-    assert.equal(r.code, 0, r.err)
-    await h.settle(srv, home, 5)
-    const rows = srv.got.map(x => [x.body.thread.startsWith('run-'), x.body.event, x.body.session || '', x.body.epoch || 0])
-    assert.deepEqual(rows, [[true, 'turn_start', '', 0], [true, 'session_start', S, 1], [true, 'turn_start', S, 1], [true, 'turn_end', S, 1], [true, 'turn_end', '', 0]])
-    assert.equal(new Set(srv.got.map(x => x.body.thread)).size, 1, 'one transport thread')
-    assert.deepEqual(srv.got[0].body.client_bind.reason, 'no_vendor_session')
-    assert.ok(srv.got.every(x => x.body.sidebar === 'local_parent'), '§12 D6: a nested session reports the sidebar it inherited')
-    h.noTitle(srv)
-  } finally {
-    srv.close()
-  }
-})
-
 test('lock contention: a held epoch lock costs at most its cap, and the beat still goes', async () => {
   const t = await session('lock')
   try {
@@ -259,9 +231,8 @@ test('collector mode never sends a title; reporter mode still does (positive con
     for (const event of ['SessionStart', 'UserPromptSubmit', 'Stop', 'SessionEnd']) await send('claude', h.claudePayload(event, S, { source: 'startup' }), collector)
     await send('codex', { session_id: 'codex-1', hook_event_name: 'UserPromptSubmit' }, collector)
     await send('cursor', { conversation_id: 'cur-1', hook_event_name: 'sessionStart' }, collector)
-    await h.runNode([HB, 'run', 'cursor', '--', process.execPath, '-e', '0'], { env: collector })
-    await h.settle(srv, home, 8)
-    assert.equal(srv.got.length, 8)
+    await h.settle(srv, home, 6)
+    assert.equal(srv.got.length, 6)
     h.noTitle(srv)
     assert.ok(srv.got.every(r => r.body.work === undefined), 'no work number is read from a title either')
     const reporter = h.cleanEnv(home, srv.url, { PLATFORM_REPORTER_TOKEN: h.REPORTER })
