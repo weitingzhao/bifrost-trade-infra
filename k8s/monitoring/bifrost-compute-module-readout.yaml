@@ -1,0 +1,41 @@
+# Compute line: per-module "ask / use / given / from where" readings (record rules only; no alerts, nobody is paged).
+# Module = namespace (an approximation, not a contract-level module). ask = requests of Running pods;
+# use = container usage; given = requests are the reservation; from where = requests split by node.
+# Series: about 9 rules x 18 namespaces + ~42 per-node pairs, roughly 190 series (~1.3MB).
+# Disk "ask" has no source (pods do not declare it); see compute notes, not faked here.
+# Apply: plan_manifest + apply_manifest (monitoring is level C). Rollback: delete this PrometheusRule.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: bifrost-compute-module-readout
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: bifrost
+    release: kube-prometheus-stack
+    app.kubernetes.io/component: recording
+spec:
+  groups:
+    - name: bifrost-compute-module
+      interval: 5m
+      rules:
+        - record: bifrost_module:cpu_requests_cores
+          expr: sum by (namespace)(kube_pod_container_resource_requests{resource="cpu"} * on(namespace,pod) group_left() (kube_pod_status_phase{phase="Running"} == 1))
+        - record: bifrost_module:mem_requests_bytes
+          expr: sum by (namespace)(kube_pod_container_resource_requests{resource="memory"} * on(namespace,pod) group_left() (kube_pod_status_phase{phase="Running"} == 1))
+        - record: bifrost_module:cpu_usage_cores
+          expr: sum by (namespace)(rate(container_cpu_usage_seconds_total{container!="",container!="POD"}[5m]))
+        - record: bifrost_module:mem_working_set_bytes
+          expr: sum by (namespace)(container_memory_working_set_bytes{container!="",container!="POD"})
+        - record: bifrost_module:fs_write_bytes_per_second
+          expr: sum by (namespace)(rate(container_fs_writes_bytes_total{container!="",container!="POD"}[5m]))
+        - record: bifrost_module:cpu_requests_by_node_cores
+          expr: sum by (namespace,node)(kube_pod_container_resource_requests{resource="cpu"} * on(namespace,pod) group_left() (kube_pod_status_phase{phase="Running"} == 1)) > 0
+        - record: bifrost_module:cpu_request_over_usage_ratio
+          expr: bifrost_module:cpu_requests_cores / clamp_min(bifrost_module:cpu_usage_cores, 0.01)
+        - record: bifrost_module:mem_request_over_usage_ratio
+          expr: bifrost_module:mem_requests_bytes / clamp_min(bifrost_module:mem_working_set_bytes, 1)
+        - record: bifrost_node:cpu_requests_share
+          expr: sum by (node)(kube_pod_container_resource_requests{resource="cpu"} * on(namespace,pod) group_left() (kube_pod_status_phase{phase="Running"} == 1)) / on(node) kube_node_status_allocatable{resource="cpu"}
+# 7 天峰值不单独录，读时用 quantile_over_time(0.95, bifrost_module:cpu_usage_cores[7d]) 一类（录入后才有数据，7 天后可读）。
+# 磁盘的「要」没有来源（Pod 不申报），本组不假装；见 compute/disk-demand-line-2026-11-18.md。
