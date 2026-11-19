@@ -136,6 +136,9 @@ spec:
         - --insecure
         - --skip-tls-verify
         - --insecure-registry=registry.cicd.svc.cluster.local:5000
+        - --cache=true
+        - --cache-repo=registry.cicd.svc.cluster.local:5000/cache/bifrost-platform-console
+        - --cache-ttl=168h
       computeResources:
         requests:
           cpu: 500m

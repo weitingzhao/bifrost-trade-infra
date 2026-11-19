@@ -53,6 +53,14 @@ spec:
         - --insecure
         - --skip-tls-verify
         - --insecure-registry=registry.cicd.svc.cluster.local:5000
+        # Layer cache (2026-11-19): of a 394 s build, 223 s were the snapshot after
+        # `npm ci` of the console's dependencies, which change only with its
+        # package-lock. A cached RUN layer is taken from the registry (on NFS)
+        # instead of being run and snapshotted again on the node's disk. The cache
+        # repository holds no image anything runs, so it can be emptied whole.
+        - --cache=true
+        - --cache-repo=registry.cicd.svc.cluster.local:5000/cache/bifrost-platform-console
+        - --cache-ttl=168h
       computeResources:
         requests:
           cpu: 500m
