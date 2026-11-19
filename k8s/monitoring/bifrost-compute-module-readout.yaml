@@ -137,5 +137,50 @@ spec:
           annotations:
             summary: "A Bifrost alert rule file is not loaded by Prometheus"
             description: "No rules of bifrost-alerting-rules (group bifrost-infrastructure) or bifrost-host-rules (group bifrost-hosts) are loaded. Most likely the PrometheusRule lost its label release=kube-prometheus-stack: kubectl -n monitoring get prometheusrule <name> --show-labels. Re-apply the file from k8s/monitoring with plan_manifest / apply_manifest."
+    # Pain lines of the database homes (OWNER_LAW 43, LANE-compute). The thresholds are the ones guardwatch measured by hand since 11-18
+    # (disk flush >5ms, replication flush >50ms, PROD CPU throttling >2%), now as rules so a breach is an alert.rule.fired event.
+    # Node pressure alone is NOT a pain line: 04 showed cpu pressure 0.22 from a Grafana burst while every database line was green.
+    - name: bifrost-compute-pain
+      rules:
+        - alert: ComputePainDbDiskFlush
+          expr: |
+            max by (instance)(rate(node_disk_flush_requests_time_seconds_total{job="node-exporter",device="nvme0n1",instance=~"192.168.10.(70|75):9100"}[5m])
+              / rate(node_disk_flush_requests_total{job="node-exporter",device="nvme0n1",instance=~"192.168.10.(70|75):9100"}[5m])) * 1000 > 5
+          for: 10m
+          labels:
+            severity: warning
+            home: database
+          annotations:
+            summary: "A database node's disk flush is slower than 5 ms"
+            description: "Disk flush latency on {{ $labels.instance }} (02 primary / 04 standby) has been above 5 ms for 10m. Guests on that node (CI, monitoring) are the first to move; the database never is."
+        - alert: ComputePainDbReplication
+          expr: max_over_time(max(cnpg_pg_stat_replication_flush_lag_seconds)[5m:15s]) * 1000 > 50
+          for: 10m
+          labels:
+            severity: warning
+            home: database
+          annotations:
+            summary: "Postgres replication flush lag is above 50 ms"
+            description: "The standby is behind the primary by more than 50 ms of flush for 10m. Check what else runs on 02 and 04 (write budget, CI test jobs)."
+        - alert: ComputePainProdThrottle
+          expr: |
+            100 * sum(rate(container_cpu_cfs_throttled_periods_total{namespace=~"bifrost-prod|bifrost-prod-.*"}[5m]))
+              / sum(rate(container_cpu_cfs_periods_total{namespace=~"bifrost-prod|bifrost-prod-.*"}[5m])) > 2
+          for: 10m
+          labels:
+            severity: warning
+            home: ci
+          annotations:
+            summary: "Trade PROD is being CPU-throttled above 2%"
+            description: "Trade PROD pods share node 07 with CI. If this holds, new CI work must stop landing on 07 and rerunnable guests are reclaimed."
+        - alert: ComputePainDbGuestLoad
+          expr: bifrost_node:pressure_cpu_waiting_ratio_5m{instance=~"192.168.10.(70|75):9100"} > 0.2
+          for: 15m
+          labels:
+            severity: info
+            home: database
+          annotations:
+            summary: "Guests on a database node keep its CPU waiting"
+            description: "CPU pressure on {{ $labels.instance }} has been above 0.2 for 15m. Audit only: it does not reclaim anything unless a database line above is also breached."
 # 7 天峰值不单独录，读时用 quantile_over_time(0.95, bifrost_module:cpu_usage_cores[7d]) 一类（录入后才有数据，7 天后可读）。
 # 磁盘的「要」没有来源（Pod 不申报），本组不假装；见 compute/disk-demand-line-2026-11-18.md。
