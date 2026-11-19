@@ -137,8 +137,9 @@ class Janitor(unittest.TestCase):
         return [tuple(json.loads(x)) for x in f.read_text().splitlines()] if f.exists() else []
 
     @staticmethod
-    def pr(name: str, age_days: float | None) -> dict:
-        status = {} if age_days is None else {"completionTime": iso(int(NOW - age_days * DAY))}
+    def pr(name: str, age_days: float | None, ok: bool = False) -> dict:
+        status = {} if age_days is None else {"completionTime": iso(int(NOW - age_days * DAY)),
+                                              "conditions": [{"type": "Succeeded", "status": "True" if ok else "False"}]}
         return {"metadata": {"name": name, "uid": "uid-" + name}, "status": status}
 
     @staticmethod
@@ -188,7 +189,15 @@ class Janitor(unittest.TestCase):
         deleted = self.run_janitor(prs, [], [], pvcs=pvcs)
         self.assertEqual(sorted(deleted), [("pipelinerun", "old", False), ("pvc", "ws-done-36h", False),
                                            ("pvc", "ws-old", False)])
-        self.assertIn("workspace-pvc-ttl done deleted=2 of=7 maxAge=86400s", self.out)
+        self.assertIn("workspace-pvc-ttl done deleted=2 of=7 maxAge=86400s succeededMaxAge=10800s", self.out)
+
+    def test_a_succeeded_run_gives_up_its_workspace_after_three_hours(self) -> None:
+        # 2026-11-19: 653 workspaces, 632 of them new in a day, and the root disks of four
+        # nodes growing 32-47 GB a day. A failed run keeps its workspace a day, to be looked
+        # at. Positive control: the same age failed, and a success younger than the limit.
+        prs = [self.pr("ok-4h", 4 / 24, ok=True), self.pr("ok-2h", 2 / 24, ok=True), self.pr("bad-4h", 4 / 24)]
+        pvcs = [self.pvc("ws-ok-4h", "ok-4h"), self.pvc("ws-ok-2h", "ok-2h"), self.pvc("ws-bad-4h", "bad-4h")]
+        self.assertEqual(self.run_janitor(prs, [], [], pvcs=pvcs), [("pvc", "ws-ok-4h", False)])
 
     def test_retention_is_the_registered_one(self) -> None:
         # 2026-11-17: run records 2 days (7 until then). The pods go after an hour, and the
@@ -196,9 +205,11 @@ class Janitor(unittest.TestCase):
         # TD-492: their local-path workspaces 1 day (ubt-k3s-07's disk),
         # finished pods 1 hour, failed pods 1 day (cards #331/#334, 2026-11-07).
         env = env_defaults()
-        self.assertEqual({k: env[k] for k in ("MAX_AGE_SECONDS", "WORKSPACE_MAX_AGE_SECONDS", "POD_MAX_AGE_SECONDS",
+        self.assertEqual({k: env[k] for k in ("MAX_AGE_SECONDS", "WORKSPACE_MAX_AGE_SECONDS",
+                                              "WORKSPACE_SUCCEEDED_MAX_AGE_SECONDS", "POD_MAX_AGE_SECONDS",
                                               "FAILED_POD_MAX_AGE_SECONDS", "KEEP_PER_TASK")},
                          {"MAX_AGE_SECONDS": str(2 * DAY), "WORKSPACE_MAX_AGE_SECONDS": str(DAY),
+                          "WORKSPACE_SUCCEEDED_MAX_AGE_SECONDS": str(3 * 3600),
                           "POD_MAX_AGE_SECONDS": "3600", "FAILED_POD_MAX_AGE_SECONDS": str(DAY), "KEEP_PER_TASK": "5"})
         self.assertLessEqual(int(env["WORKSPACE_MAX_AGE_SECONDS"]), int(env["MAX_AGE_SECONDS"]))
         self.assertGreaterEqual(int(env["WORKSPACE_MAX_AGE_SECONDS"]), int(env["FAILED_POD_MAX_AGE_SECONDS"]))

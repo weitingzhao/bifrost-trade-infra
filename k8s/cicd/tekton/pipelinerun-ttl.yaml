@@ -21,7 +21,9 @@
 #     mirror-sync from the webhook, the platform's Dockerfile refresh) older than 2d,
 #     keeping the newest KEEP_PER_TASK of each task (W-31 4.6 S7, TD-299: 481 on
 #     2026-10-24, the oldest from 2026-06-17; nothing deleted them);
-#  4. deletes the workspace PVCs (owner: a PipelineRun) of runs finished more than 1d ago
+#  4. deletes the workspace PVCs (owner: a PipelineRun) of runs that succeeded more than 3h ago
+#     (WORKSPACE_SUCCEEDED_MAX_AGE_SECONDS; 2026-11-19: 653 workspaces, the root disks of four
+#     nodes growing 32-47 GB a day) and of other finished runs after 1d
 #     (WORKSPACE_MAX_AGE_SECONDS), while the run object stays its 2d (TD-492). Each run's
 #     local-path workspace holds about 2 GB of real disk (11-03: 104 volumes freed 215 GB on
 #     ubt-k3s-07) and about two thirds land on ubt-k3s-07's 500 GB root disk; at 60-100
@@ -113,6 +115,8 @@ spec:
                   value: "86400"
                 - name: WORKSPACE_MAX_AGE_SECONDS
                   value: "86400"
+                - name: WORKSPACE_SUCCEEDED_MAX_AGE_SECONDS
+                  value: "10800"
                 - name: KEEP_PER_TASK
                   value: "5"
               resources:
@@ -136,6 +140,7 @@ spec:
                   POD_MAX_AGE_SECONDS="${POD_MAX_AGE_SECONDS:-3600}"
                   FAILED_POD_MAX_AGE_SECONDS="${FAILED_POD_MAX_AGE_SECONDS:-86400}"
                   WORKSPACE_MAX_AGE_SECONDS="${WORKSPACE_MAX_AGE_SECONDS:-86400}"
+                  WORKSPACE_SUCCEEDED_MAX_AGE_SECONDS="${WORKSPACE_SUCCEEDED_MAX_AGE_SECONDS:-10800}"
                   KEEP_PER_TASK="${KEEP_PER_TASK:-5}"
                   NOW="${NOW_EPOCH:-$(date -u +%s)}"
                   # DRY_RUN=1: same listing and counts, every delete sent as a server-side dry run.
@@ -177,7 +182,8 @@ spec:
                     ' "${work}/page.json" >>"${work}/pr.sel"
                     jq -c '.items[]
                       | select(.status.completionTime != null and .metadata.uid != null)
-                      | {uid: .metadata.uid, done: .status.completionTime}
+                      | {uid: .metadata.uid, done: .status.completionTime,
+                         ok: ([.status.conditions[]? | select(.type == "Succeeded") | .status] == ["True"])}
                     ' "${work}/page.json" >>"${work}/pr.slim"
                     cont="$(jq -r '.metadata.continue // empty | @uri' "${work}/page.json")"
                     [ -z "${cont}" ] && break
@@ -251,14 +257,16 @@ spec:
                   tdeleted=$(wc -l <"${work}/tr.del" | tr -d ' ')
                   xargs -r -n 50 kubectl delete taskrun -n "${NS}" --wait=false ${DRY} <"${work}/tr.del" >/dev/null
                   echo "standalone-taskrun-ttl done${DRY:+ (dry-run)} deleted=${tdeleted} of=${ttotal} keepPerTask=${KEEP_PER_TASK} maxAge=${MAX_AGE_SECONDS}s"
-                  # Pass 4: workspace PVCs owned by a PipelineRun that finished more than
+                  # Pass 4: workspace PVCs owned by a PipelineRun that succeeded more than
+                  # WORKSPACE_SUCCEEDED_MAX_AGE_SECONDS ago, or otherwise finished more than
                   # WORKSPACE_MAX_AGE_SECONDS ago (matched by owner uid; the run object stays).
                   # Runs pass 1 deleted take their PVCs with them through garbage collection.
                   kubectl get pvc -n "${NS}" -o json >"${work}/pvc.json"
-                  jq -r --argjson now "${NOW}" --argjson ws "${WORKSPACE_MAX_AGE_SECONDS}" --slurpfile pr "${work}/pr.slim" '
+                  jq -r --argjson now "${NOW}" --argjson ws "${WORKSPACE_MAX_AGE_SECONDS}" \
+                    --argjson wsok "${WORKSPACE_SUCCEEDED_MAX_AGE_SECONDS}" --slurpfile pr "${work}/pr.slim" '
                     ([$pr[]
                       | (try (.done | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) catch null) as $done
-                      | select($done != null and ($now - $done) >= $ws)
+                      | select($done != null and ($now - $done) >= (if .ok then $wsok else $ws end))
                       | {(.uid): true}] | add // {}) as $old
                     | .items[]
                     | select([.metadata.ownerReferences[]? | select(.kind == "PipelineRun" and ($old[.uid] // false))] | length > 0)
@@ -267,4 +275,4 @@ spec:
                   wdeleted=$(wc -l <"${work}/pvc.del" | tr -d ' ')
                   wtotal=$(jq '.items | length' "${work}/pvc.json")
                   xargs -r -n 50 kubectl delete pvc -n "${NS}" --wait=false --ignore-not-found ${DRY} <"${work}/pvc.del" >/dev/null
-                  echo "workspace-pvc-ttl done${DRY:+ (dry-run)} deleted=${wdeleted} of=${wtotal} maxAge=${WORKSPACE_MAX_AGE_SECONDS}s"
+                  echo "workspace-pvc-ttl done${DRY:+ (dry-run)} deleted=${wdeleted} of=${wtotal} maxAge=${WORKSPACE_MAX_AGE_SECONDS}s succeededMaxAge=${WORKSPACE_SUCCEEDED_MAX_AGE_SECONDS}s"
