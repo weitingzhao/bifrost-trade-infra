@@ -35,6 +35,8 @@ def rb(env, role, ns):
 
 
 POLICY = OUT.parent / "cicd" / "tekton" / "apply-manifest" / "actuation-policy.yaml"
+# cicd kinds that stay in the ClusterRole bifrost-applier-cicd (applier_file).
+TEKTON_GROUPS = ("tekton.dev", "triggers.tekton.dev")
 
 
 def parse_policy(text):
@@ -121,11 +123,25 @@ def applier_file(apply_ns, resources, cicd_resources, delivery_ns):
         "  name: bifrost-applier\n  labels: {app.kubernetes.io/part-of: bifrost-platform}\nrules:\n"
         + rule_block(resources)
     )
+    # The Tekton kinds stay in the ClusterRole bound in cicd since 2026-10. The
+    # rest (CronJob and Deployment from 2026-11-19, OWNER_LAW 46) go in a Role
+    # of cicd: owner-exec, which applies this file, may not write cluster-scoped
+    # RBAC (card #640 failed on bifrost-owner-exec-no-trade), and an added Role
+    # and binding change nothing the applier holds while they are applied.
+    tekton = [r for r in cicd_resources if r.get("group") in TEKTON_GROUPS]
+    workloads = [r for r in cicd_resources if r.get("group") not in TEKTON_GROUPS]
     docs.append(
         "apiVersion: rbac.authorization.k8s.io/v1\nkind: ClusterRole\nmetadata:\n"
         "  name: bifrost-applier-cicd\n  labels: {app.kubernetes.io/part-of: bifrost-platform}\nrules:\n"
-        + rule_block(cicd_resources)
+        + rule_block(tekton)
     )
+    if workloads:
+        docs.append(
+            "apiVersion: rbac.authorization.k8s.io/v1\nkind: Role\nmetadata:\n"
+            f"  name: bifrost-applier-cicd-workloads\n  namespace: {delivery_ns}\n"
+            "  labels: {app.kubernetes.io/part-of: bifrost-platform}\nrules:\n"
+            + rule_block(workloads)
+        )
     # TD-275: the check reads a rendered Namespace's live labels to decide
     # whether it can be dropped from the apply. Read-only; no write on Namespaces.
     docs.append(
@@ -167,6 +183,14 @@ def applier_file(apply_ns, resources, cicd_resources, delivery_ns):
         "roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: bifrost-applier-cicd}\n"
         f"subjects: {subject}\n"
     )
+    if workloads:
+        docs.append(
+            "apiVersion: rbac.authorization.k8s.io/v1\nkind: RoleBinding\nmetadata:\n"
+            f"  name: bifrost-applier-cicd-workloads\n  namespace: {delivery_ns}\n"
+            "  labels: {app.kubernetes.io/part-of: bifrost-platform}\n"
+            "roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: bifrost-applier-cicd-workloads}\n"
+            f"subjects: {subject}\n"
+        )
     docs.append(
         "apiVersion: rbac.authorization.k8s.io/v1\nkind: RoleBinding\nmetadata:\n"
         "  name: bifrost-applier-read\n  namespace: cicd\n"

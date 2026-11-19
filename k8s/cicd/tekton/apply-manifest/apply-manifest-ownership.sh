@@ -56,7 +56,7 @@ while [ "$i" -lt "$count" ]; do
   eligible=false
   # The policy checker has already verified group/kind against cicd_resources.
   case "$ns/$kind" in
-    cicd/Pipeline|cicd/Task|cicd/TriggerTemplate|cicd/TriggerBinding|cicd/EventListener) eligible=true ;;
+    cicd/Pipeline|cicd/Task|cicd/TriggerTemplate|cicd/TriggerBinding|cicd/EventListener|cicd/CronJob|cicd/Deployment) eligible=true ;;
   esac
   classify
   jq --arg ns "$ns" --arg kind "$kind" --arg name "$name" --arg ownership "$ownership" '
