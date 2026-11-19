@@ -1,0 +1,41 @@
+# The platform reads cicd's trigger objects (2026-11-19). The release policy's
+# apply section covers TriggerTemplate, TriggerBinding and EventListener when
+# the applier applied the object before; the platform checks that by reading
+# the object as its own identity (bifrost-platform api/internal/workactions
+# LiveManagers), and had no read on triggers.tekton.dev, so every trigger plan
+# was judged "cannot be read" and went to the Owner (7 cards on 11-18/19).
+#
+# A Role in cicd, not a rule in bifrost-platform-observer: the plans it judges
+# are in cicd, and owner-exec may not write cluster-scoped RBAC (card #640
+# failed on the bifrost-owner-exec-no-trade policy). Read only.
+#
+# Manual apply with the rest of k8s/platform-rbac. Way back: delete the three
+# objects; trigger plans then wait for a card again.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: bifrost-platform-triggers-read
+  namespace: cicd
+  labels: {app.kubernetes.io/part-of: bifrost-platform}
+rules:
+  - apiGroups: ["triggers.tekton.dev"]
+    resources: [triggertemplates, triggerbindings, eventlisteners]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: bifrost-platform-triggers-read-prod
+  namespace: cicd
+  labels: {app.kubernetes.io/part-of: bifrost-platform}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: bifrost-platform-triggers-read}
+subjects: [{kind: ServiceAccount, name: bifrost-platform, namespace: bifrost-platform-prod}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: bifrost-platform-triggers-read-stg
+  namespace: cicd
+  labels: {app.kubernetes.io/part-of: bifrost-platform}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: bifrost-platform-triggers-read}
+subjects: [{kind: ServiceAccount, name: bifrost-platform, namespace: bifrost-platform-stg}]

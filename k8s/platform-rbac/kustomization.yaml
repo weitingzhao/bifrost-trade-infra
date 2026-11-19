@@ -12,3 +12,4 @@ resources:
   - 46-cicd-configmaps.yaml
   - 47-platform-deployments.yaml
   - 48-ci-node.yaml
+  - 49-triggers-read.yaml
