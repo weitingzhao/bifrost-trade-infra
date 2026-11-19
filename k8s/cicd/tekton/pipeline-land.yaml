@@ -165,6 +165,7 @@ spec:
               import json
               import os
               import re
+              import socket
               import ssl
               import subprocess
               import sys
@@ -189,12 +190,28 @@ spec:
                   found = table.get(repo) if isinstance(repo, str) and re.fullmatch(r'[a-z0-9-]{1,100}', repo) else None
                   return found if isinstance(found, dict) and isinstance(found.get('ci'), dict) else None
 
+              def opened(req, **kw):
+                  """urlopen, tried again when the request never left: a name that did not resolve or a
+                  refused connection (2026-11-19: land-pcs8m and land-grklw died on one DNS failure, and
+                  the queue behind the first waited for its hour). A timeout is not retried: a merge may
+                  have happened."""
+                  for attempt in range(4):
+                      try:
+                          return urllib.request.urlopen(req, **kw)
+                      except urllib.error.HTTPError:
+                          raise
+                      except urllib.error.URLError as err:
+                          if attempt == 3 or not isinstance(err.reason, (socket.gaierror, ConnectionRefusedError)):
+                              raise
+                          print('%s: %s; trying again' % (req.full_url.split('?')[0], err.reason))
+                          time.sleep(5 * (attempt + 1))
+
               def call(token, method, url, body=None):
                   data = None if body is None else json.dumps(body).encode()
                   req = urllib.request.Request(url, method=method, data=data, headers={
                       'Authorization': 'token ' + token, 'Content-Type': 'application/json'})
                   try:
-                      with urllib.request.urlopen(req, timeout=30) as response:
+                      with opened(req, timeout=30) as response:
                           raw = response.read()
                           return response.status, (json.loads(raw) if raw.strip() else None)
                   except urllib.error.HTTPError as err:
@@ -245,7 +262,7 @@ spec:
                   ctx = ssl.create_default_context(cafile=SA + 'ca.crt')
                   req = urllib.request.Request(RUNS + '?labelSelector=tekton.dev%2Fpipeline%3D' + pipeline,
                                                headers={'Authorization': 'Bearer ' + token})
-                  with urllib.request.urlopen(req, context=ctx, timeout=30) as response:
+                  with opened(req, context=ctx, timeout=30) as response:
                       listing = json.load(response)
                   if listing.get('metadata', {}).get('continue'):
                       raise SystemExit('refused: the run list is paged; this check reads one page only')

@@ -988,3 +988,45 @@ def test_the_first_in_line_is_the_oldest_unfinished_landing_of_the_repository():
         raise OSError("api away")
 
     assert first("b", PLATFORM, runs=broken)
+
+
+def test_a_request_that_never_left_is_tried_again():
+    # 2026-11-19: land-pcs8m and land-grklw died on one "Temporary failure in name
+    # resolution", and the infra queue behind the first waited for its hour. Positive
+    # control: a timeout (the request may have arrived) is raised at once.
+    import socket
+    import urllib.error
+    m = module()
+    calls = []
+
+    class Fake:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def flaky(req, **kw):
+        calls.append(1)
+        if len(calls) < 3:
+            raise urllib.error.URLError(socket.gaierror(-3, "Temporary failure in name resolution"))
+        return Fake()
+
+    m["urllib"].request.urlopen, saved = flaky, m["urllib"].request.urlopen
+    m["time"].sleep, saved_sleep = (lambda s: None), m["time"].sleep
+    try:
+        req = m["urllib"].request.Request("http://example.invalid/x")
+        assert isinstance(m["opened"](req, timeout=1), Fake) and len(calls) == 3
+        calls.clear()
+
+        def slow(req, **kw):
+            calls.append(1)
+            raise urllib.error.URLError(socket.timeout("timed out"))
+        m["urllib"].request.urlopen = slow
+        try:
+            m["opened"](req, timeout=1)
+            raise AssertionError("a timeout was retried")
+        except urllib.error.URLError:
+            assert len(calls) == 1
+    finally:
+        m["urllib"].request.urlopen, m["time"].sleep = saved, saved_sleep
