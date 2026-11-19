@@ -216,7 +216,13 @@ spec:
                       | select(.status.phase == "Succeeded" or .status.phase == "Failed")
                       | ([.status.containerStatuses[]?.state.terminated.finishedAt // empty] | max) as $f
                       | select($f != null)
-                      | (if .status.phase == "Failed" then $bad else $ok end) as $max
+                      # A pod whose steps all exited 0 is a success even when its phase is Failed:
+                      # Tekton stops a sidecar (the test database) with a signal once the steps end,
+                      # and the pod reads as Failed. On 2026-11-19 846 test-api and 563 unit-run
+                      # pods of runs that passed were kept a day as failures, 1,460 in all.
+                      | ([.status.containerStatuses[]? | select((.name // "") | startswith("step-"))] as $steps
+                         | .status.phase == "Failed" and (($steps | length) == 0 or any($steps[]; .state.terminated.exitCode != 0))) as $failed
+                      | (if $failed then $bad else $ok end) as $max
                       | (try ($f | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) catch null) as $fe
                       | if $fe != null and ($now - $fe) >= $max then "D " + .metadata.name else "K" end
                     ' "${work}/page.json" >"${work}/page.sel"

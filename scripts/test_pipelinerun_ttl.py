@@ -172,6 +172,20 @@ class Janitor(unittest.TestCase):
                                         self.pod("running", "Running", 9)], [])
         self.assertEqual(sorted(n for _, n, _ in deleted), ["bad-2d", "ok-2h"])
 
+    def test_a_pod_whose_steps_passed_is_not_kept_as_a_failure(self) -> None:
+        # 2026-11-19: a sidecar stopped at the end of the steps leaves the pod Failed, and
+        # 1,460 such pods of passing runs were kept a day. Positive control: a failed step
+        # keeps its pod the day, and so does a Failed pod that lists no steps.
+        def pod(name, codes):
+            return {"metadata": {"name": name, "ownerReferences": [{"kind": "TaskRun"}]},
+                    "status": {"phase": "Failed", "containerStatuses": [
+                        {"name": n, "state": {"terminated": {"finishedAt": iso(int(NOW - 2 / 24 * DAY)), "exitCode": c}}}
+                        for n, c in codes]}}
+        deleted = self.run_janitor([], [pod("sidecar-only", [("step-go-test", 0), ("sidecar-postgres", 137)]),
+                                        pod("step-failed", [("step-go-test", 1), ("sidecar-postgres", 137)]),
+                                        self.pod("no-steps", "Failed", 2 / 24)], [])
+        self.assertEqual(sorted(n for _, n, _ in deleted), ["sidecar-only"])
+
     def test_standalone_taskruns_keep_the_newest_five_per_task(self) -> None:
         trs = [self.tr(f"sync-{i}", "bifrost-github-sync", 8 + i) for i in range(8)]  # all older than 2 days
         trs += [self.tr("mirror-young", "bifrost-gitea-mirror-sync", 1), self.tr("mirror-old", "bifrost-gitea-mirror-sync", 30),
