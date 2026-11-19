@@ -58,6 +58,11 @@ def stage_script(kind):
     return step["script"]
 
 
+def dockerfile_name(kind: str) -> str:
+    # The api image is packaged from binaries the compile step built (5a348081).
+    return "Dockerfile.platform-api-prebuilt" if kind == "api" else f"Dockerfile.platform-{kind}-stg"
+
+
 class PlatformDockerfiles(unittest.TestCase):
     def test_no_configmap_dockerfiles_in_either_pipeline_or_referenced_tasks(self):
         task_specs = {}
@@ -108,8 +113,11 @@ class PlatformDockerfiles(unittest.TestCase):
                 self.assertEqual(tasks["clone-infra"]["workspaces"], [{"name": "output", "workspace": "build-context"}])
                 self.assertNotIn("dockerfile", [p["name"] for p in build["params"]])
                 spec = build_task_spec(kind)
-                filename = f"Dockerfile.platform-{kind}-stg"
-                self.assertEqual([s["name"] for s in spec["steps"]], ["stage-dockerfile", "assert-context", "build-and-push"])
+                filename = dockerfile_name(kind)
+                # 2026-11-19 / api build cache (5a348081): the api Task compiles in its own step
+                # with the delivery's Go cache, and kaniko only packages the binaries.
+                steps = ["stage-dockerfile", "assert-context"] + (["compile"] if kind == "api" else []) + ["build-and-push"]
+                self.assertEqual([s["name"] for s in spec["steps"]], steps)
                 self.assertTrue(all("onError" not in s for s in spec["steps"]))
                 self.assertIn(
                     f'cp "$(workspaces.source.path)/bifrost-trade-infra/k8s/cicd/docker/{filename}" '
@@ -117,7 +125,7 @@ class PlatformDockerfiles(unittest.TestCase):
                 )
                 dockerfile = {p["name"]: p["default"] for p in spec["params"]}["dockerfile"]
                 self.assertEqual(dockerfile, filename)
-                kaniko = spec["steps"][2]
+                kaniko = spec["steps"][-1]
                 self.assertIn("--dockerfile=$(params.dockerfile)", kaniko["args"])
                 self.assertIn("--context=$(workspaces.source.path)", kaniko["args"])
 
@@ -125,7 +133,7 @@ class PlatformDockerfiles(unittest.TestCase):
         for kind in KINDS:
             with self.subTest(kind=kind), tempfile.TemporaryDirectory(prefix="td448 workspace ") as tmp:
                 root = Path(tmp)
-                filename = f"Dockerfile.platform-{kind}-stg"
+                filename = dockerfile_name(kind)
                 source = root / "bifrost-trade-infra/k8s/cicd/docker" / filename
                 source.parent.mkdir(parents=True)
                 content = f"# TD-448 changed {kind} Dockerfile\nFROM scratch\n"

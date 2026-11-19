@@ -82,7 +82,7 @@ spec:
         year="${month%-*}" mon="${month#*-}"
         if [ "${mon}" = 01 ]; then last="$((year - 1))-12"; else last="$(printf '%s-%02d' "${year}" "$((${mon#0} - 1))")"; fi
         for old in /go-cache/mod/*; do
-          case "${old##*/}" in "${month}"|"${last}") ;; *) rm -rf "${old}" ;; esac
+          case "${old##*/}" in "${month}"|"${last}") ;; *) chmod -R u+w "${old}" 2>/dev/null || true; rm -rf "${old}" ;; esac
         done
         cd "${root}/bifrost-platform/api"
         go build -o "${root}/platform-bin/platform-api" ./cmd/platform-api
