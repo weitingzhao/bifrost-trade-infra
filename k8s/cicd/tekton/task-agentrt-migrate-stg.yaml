@@ -62,7 +62,9 @@ spec:
         spec:
           backoffLimit: 0
           activeDeadlineSeconds: 900
-          ttlSecondsAfterFinished: 604800
+          # A day (2026-11-19): every STG delivery leaves one, and seven days had piled
+          # 427 finished Jobs into bifrost-platform-stg. The step logs stay in Loki.
+          ttlSecondsAfterFinished: 86400
           template:
             metadata:
               labels:
