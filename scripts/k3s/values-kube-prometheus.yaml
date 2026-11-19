@@ -202,7 +202,8 @@ alertmanager:
           - elastic_standby="true"
         target_matchers:
           - alertname="TargetDown"
-          - job=~".*(node-exporter|kubelet).*"
+          # promtail and node-reboot-required are DaemonSets too: their gpu-server pods read down while it sleeps (LANE-compute, 2026-11-19).
+          - job=~".*(node-exporter|kubelet|promtail|node-reboot-required).*"
     receivers:
       # `default` is gone: an unconfigured receiver is a silent drop, and the
       # root now names the webhook directly.
