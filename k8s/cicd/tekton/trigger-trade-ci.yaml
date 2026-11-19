@@ -359,6 +359,9 @@ spec:
             # Never ubt-k3s-01: CI there went with etcd's WAL fsync P99 at 109 ms against 8
             # idle (2026-11-18). A run's affinity replaces the default template's, so the
             # preference for nodes outside batch=deny is repeated here.
+            # Nor ubt-k3s-02 (2026-11-19): the run's test database is in memory and the
+            # database primary has none to spare. Hard, because a run with no chosen
+            # node is left to the scheduler.
             affinity:
               nodeAffinity:
                 requiredDuringSchedulingIgnoredDuringExecution:
@@ -366,7 +369,7 @@ spec:
                     - matchExpressions:
                         - key: kubernetes.io/hostname
                           operator: NotIn
-                          values: [ubt-k3s-01]
+                          values: [ubt-k3s-01, ubt-k3s-02]
                 preferredDuringSchedulingIgnoredDuringExecution:
                   - weight: 100
                     preference:
