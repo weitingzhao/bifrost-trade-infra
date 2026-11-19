@@ -59,6 +59,13 @@ spec:
       emptyDir:
         medium: Memory
         sizeLimit: 1Gi
+    # Go's work directory in memory (2026-11-19): the go-test step wrote 111 GB in
+    # six hours, mostly test binaries linked there and deleted at once. Measured
+    # locally, the whole suite peaks at 0.49 GiB in it.
+    - name: gotmp
+      emptyDir:
+        medium: Memory
+        sizeLimit: 1Gi
     # CI-7: Go's build and module cache, shared by every run on every node
     # (pvc-ci-build-cache.yaml, NFS ReadWriteMany). A Task volume, not a
     # workspace, so the runs' creators pass nothing new.
@@ -180,15 +187,19 @@ spec:
       volumeMounts:
         - name: build-cache
           mountPath: /ci-cache
+        - name: gotmp
+          mountPath: /gotmp
       # Go runs as many tests at once as it has CPUs (GOMAXPROCS follows this
       # limit); most of them wait on the database above (R5:5.7 CI time).
+      # The limit is 4Gi since the work directory moved into memory: the step's
+      # working set peaked at 1.81 GiB and the directory adds up to 1 GiB.
       computeResources:
         requests:
           cpu: 1000m
           memory: 1536Mi
         limits:
           cpu: "4"
-          memory: 3Gi
+          memory: 4Gi
       script: |
         #!/usr/bin/env bash
         set -euo pipefail
@@ -222,6 +233,7 @@ spec:
         year="${month%-*}" mon="${month#*-}"
         if [ "${mon}" = 01 ]; then last="$((year - 1))-12"; else last="$(printf '%s-%02d' "${year}" "$((10#${mon} - 1))")"; fi
         export GOCACHE="${cache}/build" GOMODCACHE="${cache}/mod/${month}"
+        if [ -d /gotmp ]; then export GOTMPDIR=/gotmp; fi   # the memory volume above; absent where the script runs elsewhere
         mkdir -p "${GOCACHE}" "${GOMODCACHE}"
         for old in "${cache}/mod"/*; do
           case "${old##*/}" in "${month}"|"${last}") continue ;; esac
