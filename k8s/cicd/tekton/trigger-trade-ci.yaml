@@ -517,6 +517,9 @@ spec:
                 body.repository.name == 'bifrost-platform'
       bindings:
         - ref: bifrost-gitea-push-platform
+        # 2026-11-19: without it every run of a push to main went to the slow disks
+        # of 05 and 07 (build-node "none"), about 13% of all CI pods on 05.
+        - ref: bifrost-ci-node
       template:
         ref: bifrost-ci-platform-template
     # Owner 2026-11-12: a push to ready/<name> is the request to land that commit. Two runs
