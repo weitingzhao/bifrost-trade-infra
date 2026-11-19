@@ -628,6 +628,9 @@ spec:
     value: $(body.before)
   - name: purpose
     value: push
+  # The pushed ref: the infra check leaves its release suite to a push to main (2026-11-19).
+  - name: ref
+    value: $(body.ref)
 
 ---
 apiVersion: triggers.tekton.dev/v1beta1
@@ -640,6 +643,8 @@ spec:
   - name: revision
   - name: base
   - name: purpose
+  - name: ref
+    default: ''
   resourcetemplates:
   - apiVersion: tekton.dev/v1
     kind: PipelineRun
@@ -661,6 +666,8 @@ spec:
         value: $(tt.params.base)
       - name: purpose
         value: $(tt.params.purpose)
+      - name: ref
+        value: $(tt.params.ref)
       - name: platformRevision
         value: ''
       - name: generation

@@ -274,8 +274,10 @@ def test_the_release_suite_does_not_run_on_a_landing():
     task = yaml.safe_load((ROOT / "k8s/cicd/tekton/task-ci-infra-check.yaml").read_text())
     (step,) = [s for s in task["spec"]["steps"] if s["name"] == "release"]
     script = step["script"].replace("$(workspaces.source.path)", "/nonexistent")
-    for purpose, skipped in (("landing", True), ("push", False)):
-        done = subprocess.run(["bash", "-c", script], env={"PURPOSE": purpose, "BASE": "", "PATH": "/usr/bin:/bin"},
+    # Every infra CI run has purpose push; the ref tells a ready/ branch from main (the first
+    # version keyed on purpose landing and never skipped).
+    for ref, skipped in (("refs/heads/ready/x", True), ("refs/heads/main", False), ("", False)):
+        done = subprocess.run(["bash", "-c", script], env={"PURPOSE": "push", "REF": ref, "BASE": "", "PATH": "/usr/bin:/bin"},
                               capture_output=True, text=True)
-        assert ("not on a landing" in done.stdout) == skipped, (purpose, done.stdout, done.stderr)
-        assert (done.returncode == 0) == skipped, (purpose, done.returncode)
+        assert ("not on a landing" in done.stdout) == skipped, (ref, done.stdout, done.stderr)
+        assert (done.returncode == 0) == skipped, (ref, done.returncode)

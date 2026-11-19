@@ -16,6 +16,9 @@ spec:
     type: string
   - name: purpose
     type: string
+  - name: ref
+    type: string
+    default: ''
   results:
   - name: tools-from
   - name: doc-policy
@@ -245,6 +248,8 @@ spec:
       value: $(params.platformRevision)
     - name: PURPOSE
       value: $(params.purpose)
+    - name: REF
+      value: $(params.ref)
     - name: GENERATION
       value: $(params.generation)
     - name: CI_INFRA_RELEASE_WORKERS
@@ -259,7 +264,7 @@ spec:
     script: |
       #!/usr/bin/env bash
       set -euo pipefail
-      if [[ "$PURPOSE" == landing ]]; then echo "release: not on a landing; the push to main runs it"; exit 0; fi
+      if [[ "$REF" == refs/heads/ready/* ]]; then echo "release: not on a landing ($REF); the push to main runs it"; exit 0; fi
       ws="$(workspaces.source.path)"
       entry="$ws/base/bifrost-trade-infra/scripts/landing/ci-infra.sh"
       if [[ "$PURPOSE" == push && -z "$BASE" ]]; then entry="$ws/cand/bifrost-trade-infra/scripts/landing/ci-infra.sh"; fi

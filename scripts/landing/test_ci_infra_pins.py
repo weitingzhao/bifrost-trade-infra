@@ -66,7 +66,7 @@ def test_pipeline_parameters_results_and_dependencies():
     for name in ('pipeline-ci-infra.yaml', 'pipeline-build-ci-infra-tools.yaml'):
         assert read_yaml(name)['metadata']['annotations']['bifrost.io/run-arch'] == 'amd64'
     p = read_yaml('pipeline-ci-infra.yaml')['spec']
-    assert {v['name'] for v in p['params']} == {'revision', 'base', 'platformRevision', 'generation', 'purpose'}
+    assert {v['name'] for v in p['params']} == {'revision', 'base', 'platformRevision', 'generation', 'purpose', 'ref'}
     assert {v['name'] for v in p['results']} == {
         'infra-commit', 'base-commit', 'platform-commit', 'infra-tree', 'platform-tree', 'tools-from', 'doc-policy', 'purpose'}
     tasks = {t['name']: t for t in p['tasks']}
@@ -92,7 +92,7 @@ def test_trigger_contract_and_no_rbac_expansion():
     docs = list(yaml.safe_load_all((TEKTON / 'trigger-trade-ci.yaml').read_text()))
     byname = {d['metadata']['name']: d for d in docs}
     binding = byname['bifrost-gitea-push-infra']['spec']['params']
-    assert {p['name']: p['value'] for p in binding} == {'revision': '$(body.after)', 'base': '$(body.before)', 'purpose': 'push'}
+    assert {p['name']: p['value'] for p in binding} == {'revision': '$(body.after)', 'base': '$(body.before)', 'purpose': 'push', 'ref': '$(body.ref)'}
     el = byname['bifrost-ci']['spec']
     infra = next(x for x in el['triggers'] if x['name'] == 'infra-ci')
     f = infra['interceptors'][0]['params'][0]['value']

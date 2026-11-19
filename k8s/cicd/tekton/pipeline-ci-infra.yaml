@@ -22,6 +22,10 @@ spec:
   - name: purpose
     type: string
     default: push
+  # The pushed ref (refs/heads/<branch>), from the trigger; '' for a run the platform starts.
+  - name: ref
+    type: string
+    default: ''
   workspaces:
   - name: source
   results:
@@ -83,6 +87,8 @@ spec:
       value: $(params.generation)
     - name: purpose
       value: $(params.purpose)
+    - name: ref
+      value: $(params.ref)
     runAfter:
     - clone
     workspaces:
