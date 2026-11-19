@@ -89,12 +89,15 @@ spec:
               port: 3000
             initialDelaySeconds: 15
             periodSeconds: 10
+          # 2026-11-19: at 2 CPUs Gitea used all of them (p95 1.99 over six hours) and
+          # was throttled in 31% of periods; every clone and landing goes through it.
+          # One step at a time: it shares ubt-k3s-01 with etcd.
           resources:
             requests:
-              cpu: 100m
+              cpu: "1"
               memory: 256Mi
             limits:
-              cpu: "2"
+              cpu: "3"
               memory: 2Gi
       volumes:
         - name: gitea-data
