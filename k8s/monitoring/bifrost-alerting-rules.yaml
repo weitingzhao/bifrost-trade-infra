@@ -972,14 +972,27 @@ spec:
           # platform-api runs two replicas and each publishes the same plugin
           # state, so the raw series would alert once per pod for one outage.
           # max: fire only when no replica sees the slot connected.
+          # The secondary slot is left down on purpose (Owner 2026-11-12, and again 2026-11-19: "only a notice, nothing for me to act on"),
+          # so only the other slots page here; the secondary has its own warning-level alert below. When the secondary is repaired,
+          # drop the slot!="secondary" filter and the warning rule. On 2026-11-14..16 the host slot was down ~50 h with this alert unloaded.
           expr: |
-            max by (slot) (bifrost_ib_gateway_slot_connected) == 0
+            max by (slot) (bifrost_ib_gateway_slot_connected{slot!="secondary"}) == 0
           for: 15m
           labels:
             severity: critical
           annotations:
             summary: "IB gateway slot {{ $labels.slot }} has no TWS session"
             description: "The {{ $labels.slot }} slot has held no live TWS session for 15m. Positions, account values and live streams all stop behind this. Check the ib-gateway pod logs in the data namespace for repeated 'API connection failed' against the Windows TWS host, then Ops Console → IB Gateway."
+
+        - alert: BifrostIBGatewaySecondaryDisconnected
+          expr: |
+            max by (slot) (bifrost_ib_gateway_slot_connected{slot="secondary"}) == 0
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "IB gateway secondary slot has no TWS session (left down on purpose)"
+            description: "The secondary slot holds no TWS session. The Owner shelved this on 2026-11-12 (the login drops daily; fixing it comes last), so this is a notice at warning level and does not page. The host slot has its own critical alert."
 
         - alert: BifrostIBGatewayIngestSilent
           expr: |
