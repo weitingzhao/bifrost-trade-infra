@@ -56,6 +56,14 @@ rules:
   - apiGroups: [tekton.dev]
     resources: [pipelines, pipelineruns, tasks, taskruns]
     verbs: [get, list, watch]
+  # The release policy's apply section covers these three kinds when the
+  # applier applied the object before, read from the cluster as this identity
+  # (bifrost-platform api/internal/workactions LiveManagers). Without the read
+  # every trigger plan was refused as "cannot be read" and went to the Owner:
+  # 7 cards for k8s/cicd/tekton/trigger-trade-ci.yaml on 2026-11-18/19.
+  - apiGroups: [triggers.tekton.dev]
+    resources: [triggertemplates, triggerbindings, eventlisteners]
+    verbs: [get, list, watch]
   - apiGroups: [argoproj.io]
     resources: [applications]
     verbs: [get, list, watch]
