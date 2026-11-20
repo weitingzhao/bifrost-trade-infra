@@ -27,7 +27,7 @@ spec:
   - name: source
   steps:
   - name: tools
-    image: 192.168.10.73:30500/bifrost-ci-infra-tools@sha256:4ff505208b6cd977e36b7fb29c0f9faa4824a4ed9f4beb6e2f1ffc94b591a23e
+    image: 192.168.10.73:30500/bifrost-ci-infra-tools@sha256:ea560791e982c6341ee41194930f8db0348b042c3e003464d85ec74a70740c28
     env:
     - name: REVISION
       value: $(params.revision)
@@ -56,7 +56,7 @@ spec:
         --revision "$REVISION" --base-sha "$BASE" --platform-revision "$PLATFORM_REVISION" \
         --purpose "$PURPOSE" --generation "$GENERATION" --results-dir /tekton/results
   - name: consumers
-    image: 192.168.10.73:30500/bifrost-ci-infra-tools@sha256:4ff505208b6cd977e36b7fb29c0f9faa4824a4ed9f4beb6e2f1ffc94b591a23e
+    image: 192.168.10.73:30500/bifrost-ci-infra-tools@sha256:ea560791e982c6341ee41194930f8db0348b042c3e003464d85ec74a70740c28
     env:
     - name: REVISION
       value: $(params.revision)
@@ -85,7 +85,7 @@ spec:
         --revision "$REVISION" --base-sha "$BASE" --platform-revision "$PLATFORM_REVISION" \
         --purpose "$PURPOSE" --generation "$GENERATION" --results-dir /tekton/results
   - name: doc-policy
-    image: 192.168.10.73:30500/bifrost-ci-infra-tools@sha256:4ff505208b6cd977e36b7fb29c0f9faa4824a4ed9f4beb6e2f1ffc94b591a23e
+    image: 192.168.10.73:30500/bifrost-ci-infra-tools@sha256:ea560791e982c6341ee41194930f8db0348b042c3e003464d85ec74a70740c28
     env:
     - name: REVISION
       value: $(params.revision)
@@ -114,7 +114,7 @@ spec:
         --revision "$REVISION" --base-sha "$BASE" --platform-revision "$PLATFORM_REVISION" \
         --purpose "$PURPOSE" --generation "$GENERATION" --results-dir /tekton/results
   - name: quick
-    image: 192.168.10.73:30500/bifrost-ci-infra-tools@sha256:4ff505208b6cd977e36b7fb29c0f9faa4824a4ed9f4beb6e2f1ffc94b591a23e
+    image: 192.168.10.73:30500/bifrost-ci-infra-tools@sha256:ea560791e982c6341ee41194930f8db0348b042c3e003464d85ec74a70740c28
     env:
     - name: REVISION
       value: $(params.revision)
@@ -143,7 +143,7 @@ spec:
         --revision "$REVISION" --base-sha "$BASE" --platform-revision "$PLATFORM_REVISION" \
         --purpose "$PURPOSE" --generation "$GENERATION" --results-dir /tekton/results
   - name: statics
-    image: 192.168.10.73:30500/bifrost-ci-infra-tools@sha256:4ff505208b6cd977e36b7fb29c0f9faa4824a4ed9f4beb6e2f1ffc94b591a23e
+    image: 192.168.10.73:30500/bifrost-ci-infra-tools@sha256:ea560791e982c6341ee41194930f8db0348b042c3e003464d85ec74a70740c28
     env:
     - name: REVISION
       value: $(params.revision)
@@ -172,7 +172,7 @@ spec:
         --revision "$REVISION" --base-sha "$BASE" --platform-revision "$PLATFORM_REVISION" \
         --purpose "$PURPOSE" --generation "$GENERATION" --results-dir /tekton/results
   - name: kustomize
-    image: 192.168.10.73:30500/bifrost-ci-infra-tools@sha256:4ff505208b6cd977e36b7fb29c0f9faa4824a4ed9f4beb6e2f1ffc94b591a23e
+    image: 192.168.10.73:30500/bifrost-ci-infra-tools@sha256:ea560791e982c6341ee41194930f8db0348b042c3e003464d85ec74a70740c28
     env:
     - name: REVISION
       value: $(params.revision)
@@ -201,7 +201,7 @@ spec:
         --revision "$REVISION" --base-sha "$BASE" --platform-revision "$PLATFORM_REVISION" \
         --purpose "$PURPOSE" --generation "$GENERATION" --results-dir /tekton/results
   - name: parity-static
-    image: 192.168.10.73:30500/bifrost-ci-infra-tools@sha256:4ff505208b6cd977e36b7fb29c0f9faa4824a4ed9f4beb6e2f1ffc94b591a23e
+    image: 192.168.10.73:30500/bifrost-ci-infra-tools@sha256:ea560791e982c6341ee41194930f8db0348b042c3e003464d85ec74a70740c28
     env:
     - name: REVISION
       value: $(params.revision)
@@ -238,7 +238,7 @@ spec:
   # this step (03:47Z). The push to main after a landing runs it and shows its result.
   - name: release
     onError: continue
-    image: 192.168.10.73:30500/bifrost-ci-infra-tools@sha256:4ff505208b6cd977e36b7fb29c0f9faa4824a4ed9f4beb6e2f1ffc94b591a23e
+    image: 192.168.10.73:30500/bifrost-ci-infra-tools@sha256:ea560791e982c6341ee41194930f8db0348b042c3e003464d85ec74a70740c28
     env:
     - name: REVISION
       value: $(params.revision)

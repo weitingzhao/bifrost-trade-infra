@@ -98,7 +98,7 @@ spec:
         steps:
           - name: land
             # The CI tools image: this step needs git beside python, to push the tested commit.
-            image: 192.168.10.73:30500/bifrost-ci-infra-tools@sha256:4ff505208b6cd977e36b7fb29c0f9faa4824a4ed9f4beb6e2f1ffc94b591a23e
+            image: 192.168.10.73:30500/bifrost-ci-infra-tools@sha256:ea560791e982c6341ee41194930f8db0348b042c3e003464d85ec74a70740c28
             volumeMounts:
               - name: gitea-merger
                 mountPath: /etc/gitea-merger
