@@ -94,6 +94,21 @@ def _baseline(name: str) -> int:
     return int(m.group(1))
 
 
+
+def _stopped(pid: int) -> bool:
+    """Gone, or a zombie nobody has reaped yet. 2026-11-20 (TD-586): in CI's container
+    PID 1 does not reap orphans, so a killed test's child stays a zombie and kill(pid, 0)
+    still succeeds; it runs no more, which is what the deadline promises."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return True
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text()
+    except OSError:
+        return False
+    return stat.rsplit(")", 1)[1].split()[0] == "Z"
+
 def _git(cwd: Path, *args: str) -> str:
     env = {
         **os.environ,
@@ -864,8 +879,7 @@ class PushMain(_Fixture):
         self.assertIn("push-main: FAILED scripts/agentrt/test_hang.py (did not finish within the deadline", r.stdout)
         self.assertEqual(_git(origin, "rev-parse", "main"), before)
         for n in pid.read_text().split():
-            with self.assertRaises(ProcessLookupError):
-                os.kill(int(n), 0)
+            self.assertTrue(_stopped(int(n)), f"process {n} is still running")
 
     def test_stopping_a_group_left_with_zombies_does_not_crash_the_runner(self) -> None:
         # macOS answers EPERM to a KILL for a group whose members are all zombies; the runner

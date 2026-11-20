@@ -5,13 +5,14 @@
 # a later build changes the base (design §5.3).
 FROM python:3.12-slim-bookworm@sha256:e697c81897302a4c4333bade000d98038fbb21eb064f8ee1fd42d02ebcd9d337
 
-# openssh-client (ssh-keygen) and nodejs: the release step's tests sign a
-# policy with ssh-keygen and run agent-config/scripts/hook.test.js with node
-# (TD-586, 2026-11-20: 12 tests red on every push to main for want of them).
+# openssh-client (ssh-keygen), curl and nodejs: the release step's tests sign
+# a policy with ssh-keygen, call the platform through release.sh (curl) and
+# run agent-config/scripts/hook.test.js with node (TD-586, 2026-11-20: tests
+# red on every push to main for want of them).
 # Versions as bookworm resolved them on 2026-11-20.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git=1:2.39.5-0+deb12u3 bash=5.2.15-2+b13 ca-certificates=20250419~deb12u2 \
-    openssh-client=1:9.2p1-2+deb12u10 nodejs=18.20.4+dfsg-1~deb12u3 \
+    openssh-client=1:9.2p1-2+deb12u10 nodejs=18.20.4+dfsg-1~deb12u3 curl=7.88.1-10+deb12u15 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY docker/ci-infra/fetch_tools.py /opt/ci-infra/fetch_tools.py

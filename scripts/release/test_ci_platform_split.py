@@ -27,16 +27,16 @@ def test_the_two_parts_run_every_package_once_and_vet_in_rest(tmp_path):
     assert sorted(p.name for p in ran.iterdir()) == ["store"] and "==> go vet" not in r.stdout
     r, ran = run_api(tmp_path, api, "full", "rest")
     assert r.returncode == 0, r.stdout + r.stderr
-    assert sorted(p.name for p in ran.iterdir()) == ["cluster", "other", "rules", "s5check"]
+    assert sorted(p.name for p in ran.iterdir()) == ["cluster", "effect", "other", "repoguard", "rules", "s5check"]
     assert "==> go vet ./..." in r.stdout and "every one but example.invalid/scope/internal/agentrt/store (part rest)" in r.stdout
     r, ran = run_api(tmp_path, api, "full")
-    assert r.returncode == 0 and sorted(p.name for p in ran.iterdir()) == ["cluster", "other", "rules", "s5check", "store"]
+    assert r.returncode == 0 and sorted(p.name for p in ran.iterdir()) == ["cluster", "effect", "other", "repoguard", "rules", "s5check", "store"]
     # Console scope: the scope check passes on this tree, so part store runs nothing and
     # part rest runs the listed packages, as the whole task did.
     r, ran = run_api(tmp_path, api, "console", "store")
     assert r.returncode == 0 and "part store runs no test" in r.stdout and not list(ran.iterdir()), r.stdout
     r, ran = run_api(tmp_path, api, "console", "rest")
-    assert r.returncode == 0 and sorted(p.name for p in ran.iterdir()) == ["cluster", "rules", "s5check"], r.stdout
+    assert r.returncode == 0 and sorted(p.name for p in ran.iterdir()) == ["cluster", "effect", "repoguard", "rules", "s5check"], r.stdout
     # An unknown part runs nothing and fails the task.
     r, ran = run_api(tmp_path, api, "full", "Store")
     assert r.returncode != 0 and "unknown part Store" in r.stdout and not list(ran.iterdir())
