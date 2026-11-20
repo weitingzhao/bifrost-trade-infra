@@ -1,0 +1,36 @@
+# Drill (LANE-metrics, TD-588), 2026-11-20. NOT part of kustomization.yaml: applied on its own
+# by one card, deleted afterwards. It proves the delivery path of BifrostBusRelayErrors end to end
+# without stopping the bus: rule -> Alertmanager -> platform webhook -> alert.rule.fired ->
+# subscription row alert-bus-relay-to-comm -> the communication line's inbox.
+#
+# Same alertname and namespace as the real rule (bifrost-bus-rules.yaml), because the subscription
+# row matches on the name; drill="true" tells it apart in Alertmanager. warning, so it does not go
+# to the Owner's phone (only severity=critical does). It fires only before 2026-11-20 10:00Z
+# (unix 1795168800) and resolves by itself after that; an apply after that time fires nothing.
+# Why not stop NATS or break the relay: that would be a real outage of the bus. Why not post to the
+# webhook directly: it needs the Secret bearer token, which no agent reads.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: bifrost-bus-alert-delivery-drill
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: bifrost
+    release: kube-prometheus-stack
+    app.kubernetes.io/component: alerting
+spec:
+  groups:
+    - name: bifrost-bus-drill
+      rules:
+        - alert: BifrostBusRelayErrors
+          expr: |
+            label_replace(vector(1), "namespace", "bifrost-platform-prod", "", "")
+            and on () (vector(time()) < 1795168800)
+          for: 1m
+          labels:
+            severity: warning
+            drill: "true"
+          annotations:
+            summary: "DRILL - bus relay alert delivery test (TD-588)"
+            description: "This is a drill, not a relay failure. It proves the alert reaches the communication line. It stops by itself at 2026-11-20 10:00Z."
