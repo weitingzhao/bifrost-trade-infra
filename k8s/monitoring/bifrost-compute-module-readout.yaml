@@ -103,7 +103,7 @@ spec:
     # Pain readings and "whose home is this node" (OWNER_LAW 43, home / borrow / reclaim). Stage 1 = readings only, nothing reads them to act yet.
     # Kernel pressure (PSI) share of time some task waited, 5m rate, per node (instance): io is the disk wait that only 07/05 show today.
     # Home registry: one series per node, value 1; adding or removing a machine edits only this list. Owners: DB homes (02, 04) and the
-    # CI home (07) get to say "it hurts"; 01 is control plane (never a guest); 05 is general. Registry is data, not a contract.
+    # CI homes (07, and 08 since 2026-11-20) get to say "it hurts"; 01 is control plane (never a guest); 05 is general. Registry is data, not a contract.
     - name: bifrost-compute-pain-home
       interval: 1m
       rules:
@@ -120,6 +120,7 @@ spec:
             or label_replace(label_replace(vector(1), "instance", "192.168.10.75:9100", "", ""), "home", "database-standby", "", "")
             or label_replace(label_replace(vector(1), "instance", "192.168.10.77:9100", "", ""), "home", "general", "", "")
             or label_replace(label_replace(vector(1), "instance", "192.168.10.80:9100", "", ""), "home", "ci", "", "")
+            or label_replace(label_replace(vector(1), "instance", "192.168.10.81:9100", "", ""), "home", "ci", "", "")
     # Meta-alert (LANE-compute, 2026-11-19). On 2026-11-14 the live PrometheusRule bifrost-alerting-rules lost its `release: kube-prometheus-stack`
     # label (a single-file kubectl apply does that, see kustomization.yaml), Prometheus' ruleSelector stopped selecting it and all 71 of its rules
     # (BifrostClusterNodeDown, BifrostProdWorkloadUnavailable, the elastic-standby marker...) were silently not evaluated for about 4.5 days.
