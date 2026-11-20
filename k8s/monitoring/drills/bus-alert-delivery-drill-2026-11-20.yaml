@@ -5,8 +5,8 @@
 #
 # Same alertname and namespace as the real rule (bifrost-bus-rules.yaml), because the subscription
 # row matches on the name; drill="true" tells it apart in Alertmanager. warning, so it does not go
-# to the Owner's phone (only severity=critical does). It fires only before 2026-11-20 10:00Z
-# (unix 1795168800) and resolves by itself after that; an apply after that time fires nothing.
+# to the Owner's phone (only severity=critical does). It fires only before 2026-11-21 12:00Z
+# (unix 1795262400) and resolves by itself after that; an apply after that time fires nothing.
 # Why not stop NATS or break the relay: that would be a real outage of the bus. Why not post to the
 # webhook directly: it needs the Secret bearer token, which no agent reads.
 apiVersion: monitoring.coreos.com/v1
@@ -26,11 +26,11 @@ spec:
         - alert: BifrostBusRelayErrors
           expr: |
             label_replace(vector(1), "namespace", "bifrost-platform-prod", "", "")
-            and on () (vector(time()) < 1795168800)
+            and on () (vector(time()) < 1795262400)
           for: 1m
           labels:
             severity: warning
             drill: "true"
           annotations:
             summary: "DRILL - bus relay alert delivery test (TD-588)"
-            description: "This is a drill, not a relay failure. It proves the alert reaches the communication line. It stops by itself at 2026-11-20 10:00Z."
+            description: "This is a drill, not a relay failure. It proves the alert reaches the communication line. It stops by itself at 2026-11-21 12:00Z."
