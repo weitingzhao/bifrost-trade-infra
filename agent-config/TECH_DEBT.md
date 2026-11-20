@@ -336,8 +336,36 @@
 | [TD-584](#td-584) | P3 | platform | 两轮计划决定同时跑时，同一张卡的确认记录可能写两条 | 不用批 |
 | [TD-585](#td-585) | P3 | owner-exec | 节点执行工具 `node-run.sh` 的 selftest 没进 CI | 不用批 |
 | [TD-586](#td-586) | P3 | infra-ci | infra CI 的 release 试行步有 4 个测试文件一直红 | 不用批 |
+| [TD-587](#td-587) | P2 | platform | 总线以外 12 个包直接引用总线内部包，不是只走合约 | 要你批（加领域墙） |
+| [TD-588](#td-588) | P2 | monitoring | 总线中继报错、NATS 不可用没有任何告警 | 不用批 |
 
 ## 条目
+
+### TD-588
+
+**P2 · infra `k8s/monitoring/` · 总线中继报错、NATS 不可用没有任何告警**
+
+- **状态**：未开始（2026-11-20）。归属：指标线（开线前暂由算力线代管 k8s/monitoring）；登记的是沟通线。
+- **出处**：2026-11-20 02:55–04:10Z 总线停了约 75 分钟（ubt-k3s-05 被 drain，NATS 的盘在 05 上，Pending）。是沟通线在 Bus 页 EFFECT 区看到「326 errors」才发现，没有任何告警响。
+- **证据**：`k8s/monitoring` 里没有一条规则读 `bifrost_bus_relay_errors_total` 或 NATS 的指标（11-20 用 git grep 核过）；那 1 小时 PROD workers 中继报错 332 次（系统存档）。
+- **现在会不会发生**：会。总线再停，照样只有恰好打开 Bus 页的人知道；席位叫醒、告警转信、卡片通知全停，没人知道。
+- **修法**：加两条规则：中继 5 分钟内报错数大于 0，持续 5 分钟；NATS 的 Pod 不就绪，持续 5 分钟。都送到沟通线。
+- **防线**：用一次演练证明（把中继指向不存在的地址，或缩 NATS 到 0），5 分钟内告警送到。
+- **验收**：演练时 `ALERTS{alertname=~"BifrostBusRelay.*|BifrostNats.*"}` 在 10 分钟内出现，并在沟通线信箱收到 alert 信。
+
+### TD-587
+
+**P2 · platform `api/internal/bus/` · 总线以外 12 个包（17 个文件）直接 import 总线内部包，不是只走合约**
+
+- **状态**：未开始（2026-11-20）。归属：沟通线（总线），领域墙归解耦线；收法要 Owner 定（加领域墙算改裁判，法 29、33）。
+- **违反的标准**：OWNER_LAW #28「领域之间只通过合约说话，别的领域只用合约里的东西」。
+- **出处**：2026-11-20 回答 Owner「沟通层有没有做到黑盒隔离」时，在 platform origin/main 上现算。
+- **证据**：总线外 import 总线内部包的文件有：`agentrt/artifact/refused.go`、`agentrt/coord/{claims,letters,problemloop,problems_route}.go`、`agentrt/coordapi/seats.go`、`agentrt/loopalert/loopalert.go`、`agentrt/questionbridge/bridge.go`、`agentrt/schemawatch/watch.go`、`cirunview/{scope_shadow_wire,summary_loop}.go`、`delivery/run_cache.go`、`headrelease/waker.go`、`releasetable/releasetable.go`、`unitwatch/{daily,unitwatch}.go`、`versionedread/versionedread.go`（server/ 的接线不算）。被引用的内部包包括 alerts、observe、problemloop、readerseen、regressions、releases、ownerq、drift、runhooks、gatecluster、hook；registry、relay 相当于发布用的 SDK。
+- **现在会不会发生**：会。总线内部一改，这些包可能跟着坏；它们的测试也只能对着总线的内部写。
+- **后果**：总线不能按合约单独评判和替换。
+- **修法**：把别的领域能用的东西收成一个对外包（发布、读游标、标记已读、读登记表），其余内部包只许总线自己用；17 个文件改 import。
+- **防线**：import 墙：总线内部包只许 `api/internal/bus/**` 和 `api/internal/server/` 引用。这是加检查，按法 29 交 Owner 定。
+- **验收**：`go list -deps` 扫描，总线外除对外包以外不再引用 `api/internal/bus/` 下的包。
 
 ### TD-586
 
