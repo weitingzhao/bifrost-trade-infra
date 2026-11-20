@@ -371,7 +371,7 @@
 
 **P3 · infra `k8s/cicd/tekton/task-ci-infra-check.yaml` 的 release 步 · 4 个测试文件一直红，没人看**
 
-- **状态**：未开始（2026-11-19）。归属：CI 线（箭3）。
+- **状态**：修复已上，等推 main 那次 CI 核对（2026-11-20）。归属：CI 线（箭3）。四个文件都修了：apply-step0.sh 退役（dcc45a40）、只改界面时的跑测名单补齐（61974505）、ci-infra-tools 镜像补 ssh-keygen、node、curl（930cd0f0、167feafc，镜像 9d80f7f1 由 ce52635f 钉住，5 个任务 07:10Z 已 apply）、截止测试把僵尸算作已停止、拆分测试的包列表跟上（167feafc）。11-20 06:5x 那次推 main 的 release 步还剩 3 个（缺 curl、僵尸、包列表），都在 167feafc 修了；之后 infra 没再推过 main。
 - **出处**：2026-11-19 这一步第一次在集群跑起来（03:47Z）后，读 ci-infra-xxjqj 的日志发现。
 - **证据**：`FAIL release_tests_failed` 列出 6 个文件。test_platform_prod_gate、test_platform_digest 是 CI 线和算力线这两天的改动弄红的，已在 ready/release-tests-green 修好；还剩 4 个：`scripts/gitea/test_gitea_scripts.py`（9 个失败，单文件跑 200 秒）、`scripts/release/test_push_main.py`（3 个，`hook.test.js` 的输出对不上）、`scripts/release/test_ci_platform_scope.py`（1 个）、`scripts/release/test_release_policy_cli.py`（8 个，可能是 CI 镜像里缺 ssh-keygen）。
 - **现在会不会发生**：会。这一步失败不挡运行，从 2026-11-19 起只在推 main 那次跑，所以红了只有看日志的人知道。
