@@ -5,7 +5,7 @@
 #   release.sh prod --from-stg <run> [options]   bifrost-deliver-prod at that STG run's six commits
 #   release.sh dev  [options]                    make dev-sync-backend-images RESTART=1 (:stg -> :dev, backend + frontend)
 #   release.sh window [--clear]                  show the release window (exit 1 while one is open)
-#   release.sh hold --what <repo>[,<repo>...]    hold that same window until this process exits
+#   release.sh hold --what <repo>[,<repo>...] [--reason <text>]  hold that same window until this process exits
 #   release.sh db-steps [<env>]                  list one-off DB steps and their state
 #   release.sh db-done <env> <step-id>           record that the Owner ran a step
 #   release.sh policy status                     the signed release policy and the freeze, as platform-api sees them
@@ -201,7 +201,9 @@ sys.exit(1)
 window_put() {
   local what="$1" who="$2" reason="$3" env="$4"
   local body
-  body="$(python3 -c 'import json,sys; print(json.dumps({"what":sys.argv[1],"who":sys.argv[2],"reason":sys.argv[3],"env":sys.argv[4],"ttl_minutes":int(sys.argv[5])}))' \
+  # reason and rollback reach the action record (法 46: a reversible act is
+  # done and recorded); a renewal is not recorded again (platform side).
+  body="$(python3 -c 'import json,sys; print(json.dumps({"what":sys.argv[1],"who":sys.argv[2],"reason":sys.argv[3],"env":sys.argv[4],"ttl_minutes":int(sys.argv[5]),"rollback":"the window frees itself %s minutes after the last renewal, and at once when the holding process exits" % sys.argv[5]}))' \
     "${what}" "${who}" "${reason}" "${env}" "${WINDOW_TTL_MINUTES}")"
   if [[ "${DRY_RUN:-0}" -eq 1 ]]; then
     platform_preview PUT /api/v1/delivery/release-window "${body}"
@@ -212,7 +214,7 @@ window_put() {
 
 window_delete() {
   local body
-  body="$(python3 -c 'import json,sys; print(json.dumps({"who":sys.argv[1]}))' "${WHO}")"
+  body="$(python3 -c 'import json,sys; print(json.dumps({"who":sys.argv[1],"reason":"the release that held the window for %s ended" % sys.argv[2],"rollback":"take it again with release.sh hold --what %s" % sys.argv[2]}))' "${WHO}" "${WHAT}")"
   if [[ "${DRY_RUN:-0}" -eq 1 ]]; then
     platform_preview DELETE /api/v1/delivery/release-window "${body}"
     return 0
@@ -255,7 +257,7 @@ window_migrate_local() {
 window_renew_loop() {
   while true; do
     sleep "${WINDOW_RENEW_SECONDS}"
-    window_put "${WHAT}" "${WHO}" "${WINDOW_REASON:-hold}" "${ENV_NAME}" || echo "window: renew failed" >&2
+    window_put "${WHAT}" "${WHO}" "${WINDOW_REASON}" "${ENV_NAME}" || echo "window: renew failed" >&2
   done
 }
 
@@ -796,17 +798,19 @@ case "${1:-}" in
     WHO="${BIFROST_RELEASE_WHO:-${USER}@$(hostname -s)}"
     DRY_RUN=0
     ENV_NAME="hold"
-    WINDOW_REASON="hold"
+    WINDOW_REASON=""
     while [[ $# -gt 0 ]]; do
       case "$1" in
         --what) WHAT="${2:?--what needs a repo}"; shift 2 ;;
         --who) WHO="${2:?}"; shift 2 ;;
+        --reason) WINDOW_REASON="${2:?--reason needs a text}"; shift 2 ;;
         *) rel_die "unknown argument: $1" ;;
       esac
     done
     [[ -n "${WHAT}" ]] || rel_die "hold needs --what <repo>[,<repo>...] (repo names, no spaces)"
     python3 -c 'import re,sys; sys.exit(0 if re.fullmatch(r"[a-z0-9-]+(,[a-z0-9-]+)*", sys.argv[1]) else 1)' "${WHAT}" \
       || rel_die "--what must be comma-separated repo names (got '${WHAT}')"
+    WINDOW_REASON="${WINDOW_REASON:-hold the release window for ${WHAT} (release.sh hold by ${WHO})}"
     window_open
     echo "holding ConfigMap ${CICD_NAMESPACE}/${WINDOW_CM} for ${WHAT} as ${WHO} (ttl ${WINDOW_TTL_MINUTES}m, renew every ${WINDOW_RENEW_SECONDS}s)"
     echo "start_pipeline_run for that repo must send who=${WHO}. Ctrl-C closes the window."
@@ -843,6 +847,7 @@ fi
 [[ "${ENV_NAME}" == "prod" || -z "${FROM_STG}" ]] || rel_die "--from-stg is for prod only"
 [[ "${ENV_NAME}" == "prod" || -z "${REASON}" ]] || rel_die "--reason is for prod only (it is the PROD approval's reason)"
 WHAT="${WHAT:-${TRADE_WHAT}}"
+WINDOW_REASON="release.sh ${ENV_NAME} of ${WHAT}"
 python3 -c 'import re,sys; sys.exit(0 if re.fullmatch(r"[a-z0-9-]+(,[a-z0-9-]+)*", sys.argv[1]) else 1)' "${WHAT}" \
   || rel_die "--what must be comma-separated repo names (got '${WHAT}')"
 if [[ "${ENV_NAME}" != "dev" || "${DRY_RUN}" -eq 0 ]]; then
