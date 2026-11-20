@@ -389,7 +389,10 @@ spec:
         # other tests read are under console/src/api and config/, which are always full.
         # Before it narrows, the run checks that this still holds for this checkout
         # (scope-check below); a reader it does not know turns the run to full.
-        CONSOLE_SCOPE_PACKAGES="./internal/agentrt/rules/... ./internal/cluster"
+        # bus/effect checks that retired console files stay absent and repoguard walks the
+        # whole repository: a console-scope change can change their answer, so they run too
+        # (2026-11-20: the self-check found them unknown and every console-scope run went full).
+        CONSOLE_SCOPE_PACKAGES="./internal/agentrt/rules/... ./internal/cluster ./internal/bus/effect ./internal/repoguard"
         # Reads outside api/ that touch nothing a console-scope change can, one file and the one
         # target it may reach (file=target); any other target of the same file counts as new:
         # devsession/catalog_repo_test.go joins ../../.. (".") with config/sessions-catalog.yaml;
@@ -398,8 +401,12 @@ spec:
         # "." (manifest_guard_test.go) and run the entry scripts in scripts/ci
         # (unit_go_test_test.go), none of which a console-scope change touches;
         # outsideinput's test runs scripts/ci/outside_inputs.sh from "." and checks that the
-        # top-level entries other tests declare exist (a console-scope change removes none).
-        CONSOLE_SCOPE_KNOWN="api/internal/devsession/catalog_repo_test.go=. api/internal/codehealth/scanner.go=. api/internal/unitscript/manifest_guard_test.go=. api/internal/unitscript/unit_go_test_test.go=scripts/ci api/internal/outsideinput/outsideinput_test.go=."
+        # top-level entries other tests declare exist (a console-scope change removes none);
+        # codeguard's test_only_exports_test.go and tests_have_owner_test.go and
+        # server/domain_ownership_test.go walk api/ and read config/domain-ownership.json;
+        # domainscore_test.go reads config/quality-ruler.json and the wall tests under api/;
+        # instruments_test.go reads mcp/platform/src (2026-11-20).
+        CONSOLE_SCOPE_KNOWN="api/internal/devsession/catalog_repo_test.go=. api/internal/codehealth/scanner.go=. api/internal/unitscript/manifest_guard_test.go=. api/internal/unitscript/unit_go_test_test.go=scripts/ci api/internal/outsideinput/outsideinput_test.go=. api/internal/codeguard/test_only_exports_test.go=. api/internal/codeguard/tests_have_owner_test.go=. api/internal/server/domain_ownership_test.go=. api/internal/domainscore/domainscore_test.go=. api/internal/instruments/instruments_test.go=mcp/platform/src"
         if [ "${API_SCOPE:-full}" = "console" ] && [ -z "${LANDING_BASE:-}" ] && [ "${API_SCOPE_REQUEST:-}" != full ]; then
           scope_check="$(mktemp -d)"
           cat > "${scope_check}/main.go" <<'GO'

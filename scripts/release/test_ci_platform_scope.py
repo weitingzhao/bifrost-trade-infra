@@ -458,7 +458,8 @@ def module(tmp_path: Path, extra: dict[str, str] | None = None) -> Path:
     api = tmp_path / "bifrost-platform/api"
     api.mkdir(parents=True)
     (api / "go.mod").write_text("module example.invalid/scope\n\ngo 1.21\n")
-    listed = {"internal/agentrt/rules": "rules", "internal/agentrt/rules/s5check": "s5check", "internal/cluster": "cluster"}
+    listed = {"internal/agentrt/rules": "rules", "internal/agentrt/rules/s5check": "s5check", "internal/cluster": "cluster",
+              "internal/bus/effect": "effect", "internal/repoguard": "repoguard"}
     for rel, pkg in listed.items():
         (api / rel).mkdir(parents=True)
         (api / rel / "a_test.go").write_text(
@@ -491,9 +492,9 @@ def test_console_scope_runs_only_the_listed_packages(tmp_path):
     api = module(tmp_path)
     r, ran = run_api(tmp_path, api, "console")
     assert r.returncode == 0, r.stdout + r.stderr
-    assert "==> console scope: go test ./internal/agentrt/rules/... ./internal/cluster" in r.stdout
+    assert "==> console scope: go test ./internal/agentrt/rules/... ./internal/cluster ./internal/bus/effect ./internal/repoguard" in r.stdout
     assert "==> go vet" not in r.stdout
-    assert sorted(p.name for p in ran.iterdir()) == ["cluster", "rules", "s5check"]
+    assert sorted(p.name for p in ran.iterdir()) == ["cluster", "effect", "repoguard", "rules", "s5check"]
     # Positive control: every other scope runs every package, and the red one stops it.
     for scope in ("full", "", "Console", "console "):
         r, _ = run_api(tmp_path, api, scope)
@@ -538,6 +539,13 @@ BASE_TREE = {
     "api/internal/unitscript/manifest_guard_test.go": 'root := filepath.Join(filepath.Dir(file), "..", "..", "..")\n',
     "api/internal/unitscript/unit_go_test_test.go": 'p := filepath.Join(filepath.Dir(file), "..", "..", "..", "scripts", "ci", name)\n',
     "api/internal/outsideinput/outsideinput_test.go": 'return filepath.Join(filepath.Dir(file), "..", "..", "..")\n',
+    "api/internal/bus/effect/a_test.go": 'r := filepath.Join(filepath.Dir(file), "../../../..")\n',
+    "api/internal/repoguard/a_test.go": 'root := filepath.Clean(filepath.Join(filepath.Dir(source), "../../.."))\n',
+    "api/internal/codeguard/test_only_exports_test.go": 'root, err := filepath.Abs(filepath.Join("..", "..", ".."))\n',
+    "api/internal/codeguard/tests_have_owner_test.go": 'root, err := filepath.Abs(filepath.Join("..", "..", ".."))\n',
+    "api/internal/server/domain_ownership_test.go": 'root := filepath.Join("..", "..", "..")\n',
+    "api/internal/domainscore/domainscore_test.go": 'root := filepath.Join("..", "..", "..")\n',
+    "api/internal/instruments/instruments_test.go": 'dir := filepath.Join("..", "..", "..", "mcp", "platform", "src")\n',
     "api/internal/store/f_test.go": 'const f = "../../../console/src/api/__fixtures__/x.json"\n',
     "api/internal/delivery/c_test.go": 'dir := "../../../../bifrost-trade-infra/k8s/cicd/tekton"\n',
     "api/cmd/agentd/install_test.go": 'filepath.Abs("../../../agent/deploy/install-agentd.sh")\n',
