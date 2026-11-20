@@ -335,7 +335,6 @@
 | [TD-583](#td-583) | P3 | platform | 测试 TestCursorAtReadsFromATime 在全量并行时会红：要等全库最老事务让路，15 秒等不到 | 不用批 |
 | [TD-584](#td-584) | P3 | platform | 两轮计划决定同时跑时，同一张卡的确认记录可能写两条 | 不用批 |
 | [TD-585](#td-585) | P3 | owner-exec | 节点执行工具 `node-run.sh` 的 selftest 没进 CI | 不用批 |
-| [TD-586](#td-586) | P3 | infra-ci | infra CI 的 release 试行步有 4 个测试文件一直红 | 不用批 |
 | [TD-587](#td-587) | P2 | platform | 总线以外 12 个包直接引用总线内部包，不是只走合约 | 要你批（加领域墙） |
 | [TD-588](#td-588) | P2 | monitoring | 总线中继报错、NATS 不可用没有任何告警 | 不用批 |
 
@@ -366,19 +365,6 @@
 - **修法**：把别的领域能用的东西收成一个对外包（发布、读游标、标记已读、读登记表），其余内部包只许总线自己用；17 个文件改 import。
 - **防线**：import 墙：总线内部包只许 `api/internal/bus/**` 和 `api/internal/server/` 引用。这是加检查，按法 29 交 Owner 定。
 - **验收**：`go list -deps` 扫描，总线外除对外包以外不再引用 `api/internal/bus/` 下的包。
-
-### TD-586
-
-**P3 · infra `k8s/cicd/tekton/task-ci-infra-check.yaml` 的 release 步 · 4 个测试文件一直红，没人看**
-
-- **状态**：修复已上，等推 main 那次 CI 核对（2026-11-20）。归属：CI 线（箭3）。四个文件都修了：apply-step0.sh 退役（dcc45a40）、只改界面时的跑测名单补齐（61974505）、ci-infra-tools 镜像补 ssh-keygen、node、curl（930cd0f0、167feafc，镜像 9d80f7f1 由 ce52635f 钉住，5 个任务 07:10Z 已 apply）、截止测试把僵尸算作已停止、拆分测试的包列表跟上（167feafc）。11-20 06:5x 那次推 main 的 release 步还剩 3 个（缺 curl、僵尸、包列表），都在 167feafc 修了；之后 infra 没再推过 main。
-- **出处**：2026-11-19 这一步第一次在集群跑起来（03:47Z）后，读 ci-infra-xxjqj 的日志发现。
-- **证据**：`FAIL release_tests_failed` 列出 6 个文件。test_platform_prod_gate、test_platform_digest 是 CI 线和算力线这两天的改动弄红的，已在 ready/release-tests-green 修好；还剩 4 个：`scripts/gitea/test_gitea_scripts.py`（9 个失败，单文件跑 200 秒）、`scripts/release/test_push_main.py`（3 个，`hook.test.js` 的输出对不上）、`scripts/release/test_ci_platform_scope.py`（1 个）、`scripts/release/test_release_policy_cli.py`（8 个，可能是 CI 镜像里缺 ssh-keygen）。
-- **现在会不会发生**：会。这一步失败不挡运行，从 2026-11-19 起只在推 main 那次跑，所以红了只有看日志的人知道。
-- **后果**：这些脚本（Gitea 运维、push-main、发布策略 CLI）坏了没人发现；等这一步要转成挡运行时才会一次性爆出来。
-- **修法**：逐个修绿；镜像缺工具的，在 ci-infra-tools 镜像里补。
-- **防线**：全绿后去掉 `onError: continue`，让它像其他步一样挡运行。那是加检查，按法 29 交 Owner 定。
-- **验收**：推 main 那次 CI 的 release 步日志里没有 `FAIL release_tests_failed`。
 
 ### TD-585
 
