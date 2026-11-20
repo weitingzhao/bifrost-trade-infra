@@ -1,0 +1,77 @@
+# Metrics line (LANE-metrics), 2026-11-20. Metric coverage of every running workload, as an
+# archived reading instead of a hand count.
+#
+# Origin: Owner 2026-11-20, "one place to see the whole elephant; every module's metrics show up
+# in the metrics line". The first count (05:29Z) was done by hand: 84 workloads, 36 with their own
+# metrics. These records compute the same thing every evaluation.
+#
+# Key: <namespace>/<workload>, the runtime key agreed with the foundation line (its domain map will
+# carry the same key). workload is the Deployment, StatefulSet, DaemonSet or CNPG Cluster that owns
+# a Running pod. Tekton affinity-assistant StatefulSets are per-run and left out.
+#
+# Tiers (only A is computed here; P "reported by another component" is a later hand-kept map):
+#   bifrost_metrics:workload_info       1 per running workload (every workload has at least
+#                                       kube-state-metrics + cAdvisor, tier K)
+#   bifrost_metrics:workload_scraped    1 per running workload whose own pod is a scrape target
+#                                       (value = max up, so 0 means configured but down) - tier A
+#   bifrost_metrics:coverage_ratio      share of running workloads with tier A, by scope
+#                                       (bifrost = namespaces Bifrost runs, infra = the rest)
+# No alert reads these. Rule test: rule-tests/metrics-coverage.test.yaml.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: bifrost-metrics-coverage-rules
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: bifrost
+    release: kube-prometheus-stack
+    app.kubernetes.io/component: alerting
+spec:
+  groups:
+    - name: bifrost-metrics-coverage
+      interval: 5m
+      rules:
+        - record: bifrost_metrics:pod_workload
+          # Deployment pods go through their ReplicaSet; the rest name their owner directly.
+          expr: |
+            label_replace(
+              max by (namespace, pod, owner_name) (
+                label_replace(kube_pod_owner{owner_kind="ReplicaSet"}, "replicaset", "$1", "owner_name", "(.+)")
+                * on (namespace, replicaset) group_left (owner_name)
+                max by (namespace, replicaset, owner_name) (kube_replicaset_owner{owner_kind="Deployment"})
+              ), "workload", "$1", "owner_name", "(.+)")
+            or
+            label_replace(
+              max by (namespace, pod, owner_name) (
+                kube_pod_owner{owner_kind=~"StatefulSet|DaemonSet|Cluster", owner_name!~"affinity-assistant-.*"}
+              ), "workload", "$1", "owner_name", "(.+)")
+
+        - record: bifrost_metrics:workload_info
+          expr: |
+            max by (namespace, workload) (
+              max by (namespace, pod, workload) (bifrost_metrics:pod_workload)
+              * on (namespace, pod) group_left ()
+              max by (namespace, pod) (kube_pod_status_phase{phase="Running"} == 1)
+            )
+
+        - record: bifrost_metrics:workload_scraped
+          expr: |
+            max by (namespace, workload) (
+              max by (namespace, pod, workload) (bifrost_metrics:pod_workload)
+              * on (namespace, pod) group_left ()
+              max by (namespace, pod) (up{pod!=""})
+            )
+            and on (namespace, workload) bifrost_metrics:workload_info
+
+        - record: bifrost_metrics:coverage_ratio
+          expr: |
+            label_replace(
+              count(bifrost_metrics:workload_scraped{namespace=~"bifrost-.*|data|plugin-.*|research|finance-.*"})
+              / count(bifrost_metrics:workload_info{namespace=~"bifrost-.*|data|plugin-.*|research|finance-.*"}),
+              "scope", "bifrost", "", "")
+            or
+            label_replace(
+              count(bifrost_metrics:workload_scraped{namespace!~"bifrost-.*|data|plugin-.*|research|finance-.*"})
+              / count(bifrost_metrics:workload_info{namespace!~"bifrost-.*|data|plugin-.*|research|finance-.*"}),
+              "scope", "infra", "", "")

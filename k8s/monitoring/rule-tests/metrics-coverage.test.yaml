@@ -1,0 +1,77 @@
+# promtool test for the metric-coverage records (LANE-metrics, 2026-11-20).
+# Origin: Owner 2026-11-20 "see the whole elephant"; the first coverage count was by hand
+# (84 workloads, 36 with own metrics, 05:29Z) and the same expressions run live on PROD gave
+# 46/26 (bifrost) and 38/10 (infra) - that live run is the positive control for these cases.
+# Run: make check-alert-rules.
+rule_files:
+  - bifrost-metrics-coverage-rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  - name: deployment via replicaset, statefulset direct, affinity-assistant left out, scraped only when its pod is a target
+    interval: 1m
+    input_series:
+      # platform-api: Deployment, scraped
+      - series: 'kube_pod_owner{namespace="bifrost-platform-prod",pod="platform-api-rs1-a",owner_kind="ReplicaSet",owner_name="platform-api-rs1"}'
+        values: '1x10'
+      - series: 'kube_replicaset_owner{namespace="bifrost-platform-prod",replicaset="platform-api-rs1",owner_kind="Deployment",owner_name="platform-api"}'
+        values: '1x10'
+      - series: 'kube_pod_status_phase{namespace="bifrost-platform-prod",pod="platform-api-rs1-a",phase="Running"}'
+        values: '1x10'
+      - series: 'up{namespace="bifrost-platform-prod",pod="platform-api-rs1-a",job="platform-api"}'
+        values: '1x10'
+      # platform-console: Deployment, not scraped (tier K)
+      - series: 'kube_pod_owner{namespace="bifrost-platform-prod",pod="platform-console-rs2-b",owner_kind="ReplicaSet",owner_name="platform-console-rs2"}'
+        values: '1x10'
+      - series: 'kube_replicaset_owner{namespace="bifrost-platform-prod",replicaset="platform-console-rs2",owner_kind="Deployment",owner_name="platform-console"}'
+        values: '1x10'
+      - series: 'kube_pod_status_phase{namespace="bifrost-platform-prod",pod="platform-console-rs2-b",phase="Running"}'
+        values: '1x10'
+      # nats: StatefulSet, not scraped
+      - series: 'kube_pod_owner{namespace="data",pod="nats-0",owner_kind="StatefulSet",owner_name="nats"}'
+        values: '1x10'
+      - series: 'kube_pod_status_phase{namespace="data",pod="nats-0",phase="Running"}'
+        values: '1x10'
+      # tekton per-run affinity assistant: ignored
+      - series: 'kube_pod_owner{namespace="cicd",pod="affinity-assistant-abc-0",owner_kind="StatefulSet",owner_name="affinity-assistant-abc"}'
+        values: '1x10'
+      - series: 'kube_pod_status_phase{namespace="cicd",pod="affinity-assistant-abc-0",phase="Running"}'
+        values: '1x10'
+      # gitea: Deployment in infra scope, scraped but down (still counts as configured)
+      - series: 'kube_pod_owner{namespace="cicd",pod="gitea-rs3-c",owner_kind="ReplicaSet",owner_name="gitea-rs3"}'
+        values: '1x10'
+      - series: 'kube_replicaset_owner{namespace="cicd",replicaset="gitea-rs3",owner_kind="Deployment",owner_name="gitea"}'
+        values: '1x10'
+      - series: 'kube_pod_status_phase{namespace="cicd",pod="gitea-rs3-c",phase="Running"}'
+        values: '1x10'
+      - series: 'up{namespace="cicd",pod="gitea-rs3-c",job="gitea"}'
+        values: '0x10'
+    promql_expr_test:
+      - expr: bifrost_metrics:workload_info
+        eval_time: 5m
+        exp_samples:
+          - labels: 'bifrost_metrics:workload_info{namespace="bifrost-platform-prod",workload="platform-api"}'
+            value: 1
+          - labels: 'bifrost_metrics:workload_info{namespace="bifrost-platform-prod",workload="platform-console"}'
+            value: 1
+          - labels: 'bifrost_metrics:workload_info{namespace="data",workload="nats"}'
+            value: 1
+          - labels: 'bifrost_metrics:workload_info{namespace="cicd",workload="gitea"}'
+            value: 1
+      - expr: bifrost_metrics:workload_scraped
+        eval_time: 5m
+        exp_samples:
+          - labels: 'bifrost_metrics:workload_scraped{namespace="bifrost-platform-prod",workload="platform-api"}'
+            value: 1
+          - labels: 'bifrost_metrics:workload_scraped{namespace="cicd",workload="gitea"}'
+            value: 0
+      - expr: bifrost_metrics:coverage_ratio
+        eval_time: 5m
+        exp_samples:
+          # bifrost: platform-api of {platform-api, platform-console, nats}
+          - labels: 'bifrost_metrics:coverage_ratio{scope="bifrost"}'
+            value: 0.3333333333333333
+          # infra: gitea of {gitea}
+          - labels: 'bifrost_metrics:coverage_ratio{scope="infra"}'
+            value: 1

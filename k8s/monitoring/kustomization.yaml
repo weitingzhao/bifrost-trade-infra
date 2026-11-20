@@ -27,6 +27,7 @@ resources:
   - traefik.yaml
   - bifrost-alerting-rules.yaml
   - bifrost-bus-rules.yaml
+  - bifrost-metrics-coverage-rules.yaml
   - bifrost-db-role-matrix.yaml
   # td-d2-postgres-rules.yaml stays out of this kustomization: BifrostPostgresWalDailyHigh
   # waits until a full day has passed under the TD-134 parameters.
