@@ -28,6 +28,7 @@ resources:
   - traefik.yaml
   - bifrost-alerting-rules.yaml
   - bifrost-bus-rules.yaml
+  - bifrost-logs.yaml
   - bifrost-metrics-coverage-rules.yaml
   - bifrost-db-role-matrix.yaml
   # td-d2-postgres-rules.yaml stays out of this kustomization: BifrostPostgresWalDailyHigh

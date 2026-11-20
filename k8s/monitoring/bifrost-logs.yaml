@@ -1,0 +1,76 @@
+# Metrics line (LANE-metrics), 2026-11-20. Log collection: scrape Loki itself and two alerts.
+#
+# Protects: cluster log collection (promtail -> Loki), which the Console log view and the
+# release gate's loki_gate.py read.
+# Why: on 2026-11-20 loki-0 was not ready from 02:56Z to 18:44Z (15 h 48 min, system
+# archive: kube_pod_status_ready_time) because its local-path volume sat on the shut-down
+# ubt-k3s-05; promtail dropped the lines (ingester_error) and nothing fired. Prometheus
+# had no loki_* series at all: no ServiceMonitor matched the chart's Service.
+# Who receives: Alertmanager -> platform webhook -> alert.rule.fired, subject
+# "<alertname>@monitoring". Rule test: rule-tests/logs.test.yaml.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: bifrost-loki
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: bifrost
+    release: kube-prometheus-stack
+    app.kubernetes.io/component: logging
+spec:
+  namespaceSelector:
+    matchNames:
+      - monitoring
+  selector:
+    # The chart's Service "loki": not the headless one, not the two memcached caches.
+    matchLabels:
+      app.kubernetes.io/name: loki
+      app.kubernetes.io/instance: loki
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: DoesNotExist
+      - key: variant
+        operator: DoesNotExist
+  endpoints:
+    - port: http-metrics
+      path: /metrics
+      interval: 30s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: bifrost-logs-rules
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: bifrost
+    release: kube-prometheus-stack
+    app.kubernetes.io/component: alerting
+spec:
+  groups:
+    - name: bifrost-logs
+      rules:
+        # From kube-state-metrics, not from Loki's own metrics: a Loki that is down
+        # exports nothing (the same reason as BifrostNatsUnavailable).
+        - alert: BifrostLokiNotReady
+          expr: |
+            max(kube_statefulset_status_replicas_ready{namespace="monitoring",statefulset="loki"}) < 1
+            or
+            absent(kube_statefulset_status_replicas_ready{namespace="monitoring",statefulset="loki"})
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Loki has no ready replica"
+            description: "StatefulSet monitoring/loki has had no ready pod for 10 minutes: cluster logs are not being kept and cannot be recovered later. Check where loki-0 is scheduled and its volume (loki-data-nfs): kubectl -n monitoring describe pod loki-0."
+        # Promtail keeps reading but Loki refuses the lines: the logs of that time are lost.
+        - alert: BifrostPromtailDroppingLogs
+          expr: |
+            sum(rate(promtail_dropped_entries_total{namespace="monitoring"}[10m])) > 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Promtail is dropping log lines"
+            description: "Promtail has dropped lines for 15 minutes (promtail_dropped_entries_total, by reason ingester_error, rate_limited, stream_limited or line_too_long). Those lines are not in Loki. With BifrostLokiNotReady it is Loki being down; alone, read the reason label."
