@@ -1,0 +1,19 @@
+# Loki's data on the NAS (nfs-hot, reclaim Retain). Mounted at /var/loki by the loki StatefulSet
+# (scripts/k3s/values-loki.yaml: singleBinary.extraVolumes). It replaces the local-path PVC
+# storage-loki-0, which is bound to ubt-k3s-05 and keeps the logs from before 2026-11-20;
+# that PVC is not deleted here.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: loki-data-nfs
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: loki
+    app.kubernetes.io/component: single-binary
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: nfs-hot
+  resources:
+    requests:
+      storage: 20Gi

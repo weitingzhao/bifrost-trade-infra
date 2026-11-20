@@ -12,6 +12,7 @@ resources:
   - bifrost-trade-daemon.yaml
   - bifrost-redis.yaml
   - bifrost-nats.yaml
+  - loki-data-nfs-pvc.yaml
   - bifrost-postgres.yaml
   - bifrost-minio-nas.yaml
   # W-68 B4 ①: hosts outside the cluster, and the Gitea probe.

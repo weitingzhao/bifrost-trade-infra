@@ -45,16 +45,24 @@ singleBinary:
   extraEnv:
     - name: GOMEMLIMIT
       value: 900MiB
-  # Keep Loki's disk and memory off the Postgres nodes; local-path pins it to the node of first bind.
+  # Keep Loki's disk and memory off the Postgres nodes.
   nodeSelector:
     bifrost.io/workload-pool: general
+  # Data on the NAS (nfs-hot), not local-path: the local-path PVC storage-loki-0 was bound to
+  # ubt-k3s-05, and when 05 was shut down for a disk swap (2026-11-20) loki-0 sat Pending about
+  # 14 hours and no logs were collected. The chart's volumeClaimTemplate would claim that same
+  # PVC again, so persistence is off and the data volume is a PVC the repo owns
+  # (k8s/monitoring/loki-data-nfs-pvc.yaml), mounted where the chart mounts storage.
+  # storage-loki-0 and its PV are left as they are: the logs before 2026-11-20 are on 05's disk.
   persistence:
-    enabled: true
-    size: 20Gi
-    storageClass: local-path
-    # Chart default deletes the PVC with the StatefulSet; keep the logs.
-    whenDeleted: Retain
-    whenScaled: Retain
+    enabled: false
+  extraVolumes:
+    - name: data
+      persistentVolumeClaim:
+        claimName: loki-data-nfs
+  extraVolumeMounts:
+    - name: data
+      mountPath: /var/loki
 
 gateway:
   enabled: false
