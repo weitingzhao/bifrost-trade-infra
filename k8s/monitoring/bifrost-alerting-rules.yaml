@@ -622,9 +622,14 @@ spec:
             summary: "Prod pods cannot be scheduled"
             description: "{{ $value }} pod(s) in bifrost-prod have been unschedulable for 5 minutes — usually the node they are pinned to is gone, or the cluster has no node matching their placement rules."
 
+        # The exporter has no expected-replicas series, so the old comparison against
+        # cnpg_pg_replication_expected_replicas never had a right-hand side and could not
+        # fire (found in the k8s/monitoring rule inventory, 2026-11-20). k8s/data/cluster.yaml
+        # runs instances: 2, so the primary should stream to 1 replica; change the 1 here
+        # when instances changes.
         - alert: BifrostPostgresInstanceMissing
           expr: |
-            cnpg_pg_replication_streaming_replicas < cnpg_pg_replication_expected_replicas
+            max by (namespace) (cnpg_pg_replication_streaming_replicas{namespace="data"}) < 1
           for: 10m
           labels:
             severity: warning

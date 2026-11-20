@@ -1,0 +1,39 @@
+# promtool test for BifrostPostgresInstanceMissing (LANE-metrics, 2026-11-20).
+# Origin: the k8s/monitoring rule inventory on 2026-11-20 found the rule compared against
+# cnpg_pg_replication_expected_replicas, a series the exporter never produces, so it could
+# not fire. Live on 2026-11-20 20:06Z: bifrost-postgres-1 (primary) streams 1, -3 streams 0.
+# The second case is the positive control for the first.
+# Run: make check-alert-rules.
+rule_files:
+  - bifrost-alerting-rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  - name: primary streams to its one replica, no alert
+    interval: 1m
+    input_series:
+      - series: 'cnpg_pg_replication_streaming_replicas{namespace="data",pod="bifrost-postgres-1"}'
+        values: '1x20'
+      - series: 'cnpg_pg_replication_streaming_replicas{namespace="data",pod="bifrost-postgres-3"}'
+        values: '0x20'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: BifrostPostgresInstanceMissing
+        exp_alerts: []
+
+  - name: replica gone for 10 minutes fires
+    interval: 1m
+    input_series:
+      - series: 'cnpg_pg_replication_streaming_replicas{namespace="data",pod="bifrost-postgres-1"}'
+        values: '1 1 0x20'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: BifrostPostgresInstanceMissing
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              namespace: data
+            exp_annotations:
+              summary: "Postgres cluster is short a streaming replica"
+              description: "The CloudNativePG cluster has fewer streaming replicas than expected for 10 minutes — HA is degraded and a primary loss would mean downtime."
