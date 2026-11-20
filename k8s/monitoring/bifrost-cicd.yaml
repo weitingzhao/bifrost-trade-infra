@@ -1,0 +1,54 @@
+# Metrics line (LANE-metrics), 2026-11-20. Scrape the CI and GitOps controllers.
+#
+# Why: CI run times lived only in the event ledger and Argo CD drift had no series at all;
+# on 2026-11-20 up{namespace=~"cicd|tekton.*"} was empty. These are the controllers' own
+# /metrics (not an API of ours: component cicd, an INFRA class in
+# scripts/check_http_metrics_coverage.py). No alert rules yet: rules come after a week of
+# real values.
+# Network: tekton-pipelines has no NetworkPolicy; argocd-application-controller's policy
+# admits port 8082 from every namespace.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: bifrost-tekton
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: bifrost
+    release: kube-prometheus-stack
+    app.kubernetes.io/component: cicd
+spec:
+  namespaceSelector:
+    matchNames:
+      - tekton-pipelines
+  selector:
+    # tekton_pipelines_controller_pipelinerun_duration_seconds and friends.
+    matchLabels:
+      app: tekton-pipelines-controller
+  endpoints:
+    - port: http-metrics
+      path: /metrics
+      interval: 60s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: bifrost-argocd
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: bifrost
+    release: kube-prometheus-stack
+    app.kubernetes.io/component: cicd
+spec:
+  namespaceSelector:
+    matchNames:
+      - cicd
+  selector:
+    # The application controller: argocd_app_info (sync and health per app).
+    matchLabels:
+      app.kubernetes.io/name: argocd-metrics
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 60s
