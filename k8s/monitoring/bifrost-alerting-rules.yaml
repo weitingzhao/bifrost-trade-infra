@@ -425,7 +425,11 @@ spec:
               could not reach. Read `kubectl -n cicd logs job/<latest renovate job>`.
 
         # Since the switch, people, agents, CI and the GitHub copy all depend on Gitea.
-        - alert: BifrostGiteaUnavailable
+        # Renamed from BifrostGiteaUnavailable (2026-11-20 rule inventory): the blackbox
+        # probe alert in bifrost-host-rules.yaml has that name, and two meanings under one
+        # alertname group together in Alertmanager. This one is "no pod"; that one is
+        # "the path fails".
+        - alert: BifrostGiteaNoReplica
           expr: |
             max(kube_deployment_status_replicas_available{namespace="cicd",deployment="gitea"}) < 1
             or

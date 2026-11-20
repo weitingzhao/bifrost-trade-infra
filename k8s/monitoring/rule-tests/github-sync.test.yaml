@@ -1,4 +1,5 @@
-# promtool unit test for BifrostGitHubSyncStale and BifrostGiteaUnavailable
+# promtool unit test for BifrostGitHubSyncStale and BifrostGiteaNoReplica (named
+# BifrostGiteaUnavailable until the 2026-11-20 rule inventory)
 # (CUT-gitea-primary-2026-10-17 step 0e). Run: make check-alert-rules.
 rule_files:
   - bifrost-alerting-rules.yaml
@@ -29,7 +30,7 @@ tests:
               summary: "GitHub sync has not succeeded for 45 minutes"
               description: "CronJob cicd/bifrost-github-sync-reconcile copies main and tags of the repositories Gitea holds as its primary to GitHub. A failed run names each ref it could not copy: no token (Secret cicd/github-sync), GitHub ahead of or diverged from Gitea (never overwritten), or Gitea unreadable. Read `kubectl -n cicd logs job/<latest bifrost-github-sync-reconcile job> -c sync`."
       - eval_time: 87m
-        alertname: BifrostGiteaUnavailable
+        alertname: BifrostGiteaNoReplica
         exp_alerts: []
 
   - name: a reconcile that never succeeded fires on the absent series
@@ -59,10 +60,10 @@ tests:
         values: '1x10 0x20'
     alert_rule_test:
       - eval_time: 14m
-        alertname: BifrostGiteaUnavailable
+        alertname: BifrostGiteaNoReplica
         exp_alerts: []
       - eval_time: 17m
-        alertname: BifrostGiteaUnavailable
+        alertname: BifrostGiteaNoReplica
         exp_alerts:
           - exp_labels:
               severity: warning
