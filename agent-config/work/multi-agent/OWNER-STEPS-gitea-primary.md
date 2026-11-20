@@ -75,6 +75,8 @@ bash ~/Desktop/stocks/bifrost-trade-infra/scripts/agent-host/agent-06-owner.sh p
 
 0a 改的是镜像同步任务，0e 是新的 GitHub 同步（任务、触发器、每 15 分钟的对账、两条告警、维护者清单）。今天每个仓库都还是镜像，装上之后什么都不变；对账每次空跑成功。10-17 15:0x 我用只读身份核过：集群和仓库的差别正好就是这几样（多一个 `github-sync` 触发器、镜像同步任务换版、两条告警、维护者清单多一条），其余对象一字不差；触发器的服务账号本来就能建 TaskRun，不用改权限。
 
+> **已做完、脚本已退役（2026-11-20）**：这一步 10-17 装好了。`apply-step0.sh` 已从仓库删掉：它只会 apply 10-17 复核过的那一版（`1de78f6`），今天再跑会把这些清单退回 10-17 的样子，盖掉 applier 之后应用的版本（例如 11-19 的 CI 模板）。这几份清单现在走 `plan_manifest` / `apply_manifest`。下面的命令只留作记录，不要再跑。
+
 脚本 `scripts/gitea/apply-step0.sh` 先确认这几份清单就是复核过的版本（`1de78f6`），不是就停；全部在服务器上 dry-run 过了才真 apply，出错即停。它自己用你的管理员 kubeconfig，不读也不打印任何 Secret。
 
 1. 先只核对（不改任何东西）：
