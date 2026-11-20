@@ -1,0 +1,51 @@
+# Metrics line (LANE-metrics), 2026-11-20. Two alerts on the communication bus.
+#
+# Protects: the bus relay (platform-api, ledger -> NATS JetStream) and NATS itself.
+# Why: on 2026-11-19/20 the bus was down for about 75 minutes and nothing fired;
+# the PROD relay logged 332 errors in one hour (temporary reading, not archived).
+# Who receives: Alertmanager -> platform webhook -> alert.rule.fired, subject
+# "<alertname>@<namespace>". The communication line follows @bifrost-platform-prod
+# and @data. Namespace labels come from the series, so no extra routing is needed.
+#
+# NATS is judged from kube-state-metrics, not from the nats exporter: on 2026-11-20
+# the bifrost-nats ServiceMonitor matched nothing (no up{job=~".*nats.*"} series),
+# so an exporter-based rule would have been blind. Rule test: rule-tests/bus.test.yaml.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: bifrost-bus-rules
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: bifrost
+    release: kube-prometheus-stack
+    app.kubernetes.io/component: alerting
+spec:
+  groups:
+    - name: bifrost-bus
+      rules:
+        - alert: BifrostBusRelayErrors
+          # increase over 5m > 0 for 5m: a single transient error does not page, a relay
+          # that keeps failing does. Namespaces are the two platform environments.
+          expr: |
+            sum by (namespace) (
+              increase(bifrost_bus_relay_errors_total{namespace=~"bifrost-platform-(prod|stg)"}[5m])
+            ) > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Bus relay is failing in {{ $labels.namespace }}"
+            description: "bifrost_bus_relay_errors_total grew for 5 minutes in {{ $labels.namespace }}. Events are not reaching the stream; check platform-api logs and the NATS StatefulSet in data."
+
+        - alert: BifrostNatsUnavailable
+          expr: |
+            kube_statefulset_status_replicas_ready{namespace="data",statefulset="nats"} < 1
+            or
+            absent(kube_statefulset_status_replicas_ready{namespace="data",statefulset="nats"})
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "NATS (communication bus) has no ready replica"
+            description: "data/nats has had no ready replica for 2 minutes, or kube-state-metrics has no series for it. The bus relay cannot publish."

@@ -1,0 +1,53 @@
+# promtool test for BifrostBusRelayErrors and BifrostNatsUnavailable (LANE-metrics, 2026-11-20).
+# Origin: the 2026-11-19/20 bus outage (~75 min) with no alert. Run: make check-alert-rules.
+rule_files:
+  - bifrost-bus-rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  - name: relay errors that keep growing page after 5m; a flat counter does not
+    interval: 1m
+    input_series:
+      # prod: counter grows every minute from minute 10
+      - series: 'bifrost_bus_relay_errors_total{namespace="bifrost-platform-prod",pod="a"}'
+        values: '0x10 1+1x40'
+      # stg: flat
+      - series: 'bifrost_bus_relay_errors_total{namespace="bifrost-platform-stg",pod="b"}'
+        values: '5x50'
+    alert_rule_test:
+      - eval_time: 9m
+        alertname: BifrostBusRelayErrors
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: BifrostBusRelayErrors
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              namespace: bifrost-platform-prod
+            exp_annotations:
+              summary: "Bus relay is failing in bifrost-platform-prod"
+              description: "bifrost_bus_relay_errors_total grew for 5 minutes in bifrost-platform-prod. Events are not reaching the stream; check platform-api logs and the NATS StatefulSet in data."
+
+  - name: nats with no ready replica, or no series at all, is critical; ready is silent
+    interval: 1m
+    input_series:
+      - series: 'kube_statefulset_status_replicas_ready{namespace="data",statefulset="nats"}'
+        values: '1x10 0x10 1x10'
+    alert_rule_test:
+      - eval_time: 9m
+        alertname: BifrostNatsUnavailable
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: BifrostNatsUnavailable
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              namespace: data
+              statefulset: nats
+            exp_annotations:
+              summary: "NATS (communication bus) has no ready replica"
+              description: "data/nats has had no ready replica for 2 minutes, or kube-state-metrics has no series for it. The bus relay cannot publish."
+      - eval_time: 28m
+        alertname: BifrostNatsUnavailable
+        exp_alerts: []
