@@ -26,3 +26,4 @@
 | `9-harness.md` | 9 Harness 接入 |
 | `10-cockpit.md` | 10 Cockpit · Ops 游戏化 |
 | `win2-workshop.md` | 窗 2 · Agent 工坊 |
+| `13-triage.md` | 13 Triage（判原因、定去向；维护法的原文和墙的单子；占位） |
