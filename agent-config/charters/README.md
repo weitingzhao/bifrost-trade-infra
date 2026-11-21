@@ -19,7 +19,7 @@
 | `3-4-verify-release-ci.md` | 3·4 合入与验证、发布（CI 线） |
 | `5-owner.md` | 5 找你 |
 | `6-compute.md` | 6 算力（Codex 席位） |
-| `7-tenant.md` | 7 租户接入（占位） |
+| `7-payload.md` | 7 Payload（原租户接入，占位） |
 | `8-1-duty.md` | 8.1 值班统筹 |
 | `8-2-comm-desk.md` | 8.2 沟通台面 |
 | `8-3-metrics.md` | 8.3 指标线 |

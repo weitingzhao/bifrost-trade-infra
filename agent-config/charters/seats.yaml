@@ -20,7 +20,7 @@ seats:
   - {id: 3-4-verify-release-ci, charter: 3-4-verify-release-ci.md, domain: "3,4", domain_id: verification, kind: owner, harness: claude, session: local_7de640c4-4b19-4a71-a0ac-ced2ce5fc7ff, also_domain_ids: [delivery]}
   - {id: 5-approvals, name: approvals,     charter: 5-approvals.md,         domain: "5", domain_id: approvals,                   kind: owner, harness: claude, session: local_360734e0-481d-48e1-86c9-1866b3707707}
   - {id: 6-compute,       charter: 6-compute.md,       domain: "6", domain_id: compute,                 kind: owner, harness: codex,  session: null, liaison: local_7dd39a39-1e0e-4878-b829-2e3f44d5589e, note: "坐席的是 Codex（11-14 U01 验收后接席，每轮由 dispatch.sh 起）；session 是 Claude 一侧的联络"}
-  - {id: 7-tenant, name: payload,        charter: 7-tenant.md,        domain: "7", domain_id: payload,                  kind: owner, harness: claude, session: local_04484692-66ee-4517-b162-9c1440be14b1, note: 占位席位}
+  - {id: 7-payload, name: payload,       charter: 7-payload.md,       domain: "7", domain_id: payload,                  kind: owner, harness: claude, session: local_04484692-66ee-4517-b162-9c1440be14b1, note: 占位席位}
   - {id: 8-1-duty,        charter: 8-1-duty.md,        domain: "8.1", domain_id: coordination,          kind: owner, harness: claude, session: local_98ab5bcb-6d1b-40e5-aa73-c2c27b3038a0}
   - {id: 8-2-comm-desk,   charter: 8-2-comm-desk.md,   domain: "8.2", domain_id: coordination,          kind: owner, harness: claude, session: local_ab850773-fe26-40fa-ac01-b3b590b73164}
   - {id: 8-3-metrics,     charter: 8-3-metrics.md,     domain: "8.3", domain_id: coordination,          kind: owner, harness: claude, session: local_3361afbd-43fb-4539-a934-406b9a00b09f}
