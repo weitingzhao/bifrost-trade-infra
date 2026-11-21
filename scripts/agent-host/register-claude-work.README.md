@@ -10,7 +10,7 @@ the session is active, then submit its report (or explicitly abandon it).
 
 Use `--session local_accccb4e-dispatch` with the coordinator's reporter token.
 This is the registrant's session, not the newly opened Claude conversation ID.
-As documented in `~/agent-work/dispatch.sh`, this dispatch session belongs to
+As documented in `scripts/agent-host/dispatch.sh`, this dispatch session belongs to
 the reporter token; the coordinator's own conversation session belongs to the
 MCP operator token. A runtime session belongs to the first token that wrote
 with it. Do not substitute an operator-owned session. Give each work attempt

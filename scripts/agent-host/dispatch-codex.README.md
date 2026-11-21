@@ -4,6 +4,11 @@
 Registration is visibility only: it grants no execution permission and a
 submitted report never completes a plan step.
 
+The everyday entry is [dispatch.sh](dispatch.sh): it writes the description, points Go and npm at the
+shared cache, takes this wrapper from origin/main and starts Codex on the `BRIEF.md` in the work dir.
+`RUN_KEY=<key> scripts/agent-host/dispatch.sh <dir> <node> "<task>" none none -p bifrost-seat`
+(moved into infra 2026-11-21; before that it lived only in `~/agent-work/` on one machine).
+
 For an existing Claude session, use [register-claude-work.py](register-claude-work.README.md).
 Coordinator open-session step (TD-446): register the work, retain its state,
 heartbeat every 30 seconds while active, and submit the report when it returns.
