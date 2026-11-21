@@ -106,6 +106,8 @@ Owner 2026-11-17、11-18 和主统筹讨论后定的方向，主统筹整理。�
 
 Ops 游戏化的表现层：看图台、城市页面、部件库、布局文档、世界观词典。沟通层神经图（星云图）的外观已定，由沟通线维护。
 
+**街区就是系统的领域，Console 菜单是另一维（按功能的底部菜单），两者分开看（法 51，Owner 2026-11-20）。** 街区名单从地图线 `GET /api/v1/catalog/status` 读，不手抄；硬件站在 compute 街区。细则在 platform `console/src/domains/owner/city/gen2/RULES.md`「街区就是领域；菜单是另一维」。
+
 ## 9. 对外的口子
 
 - 接口：`GET/PUT /api/v1/home/layout`（布局，读给能看 Console 的人，写只给 Owner）。
