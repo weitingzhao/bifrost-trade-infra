@@ -435,11 +435,17 @@ const cases = [
   ['edge', 'ALLOW', '空输入', null],
 ]
 
+// Origin: 2026-11-21, the Foundation seat found the block log full of this
+// test's refusals (about 530 of 550 lines, posted to the bus as real ones): a
+// spawned guard writes its log under HOME. The cases run with HOME in a
+// temporary directory, so the machine's log holds only real refusals.
+const TEST_ENV = { ...process.env, HOME: require('node:fs').mkdtempSync(require('node:path').join(require('node:os').tmpdir(), 'preflight-home-')) }
+
 let pass = 0, fail = 0
 let group = ''
 for (const [g, want, name, payload] of cases) {
   if (g !== group) { group = g; console.log(`\n── ${{ nas: '本机 NAS 共享（TD-326）', D10: 'D10 交易执行冻结', dev: 'dev-services', ok: '合法操作（不得误拦）', appr: '审批旁路（ADR §5）', q: '问题回答（W-65）', own: 'Owner 凭证（LANE-W33D）', sw: '共享工作树', push: '推 main（TD-341）', 'gitea-primary': 'Gitea 为主（CUT-gitea-primary 0g）', edge: '边界输入' }[g]} ──`) }
-  const r = spawnSync('node', [GUARD], { input: payload ? JSON.stringify(payload) : '', encoding: 'utf8' })
+  const r = spawnSync('node', [GUARD], { input: payload ? JSON.stringify(payload) : '', encoding: 'utf8', env: TEST_ENV })
   const got = (r.stdout || '').trim() ? 'DENY' : 'ALLOW'
   let ok = got === want
   if (ok && g === 'nas' && want === 'DENY' && !String(r.stdout).includes('【本机 NAS 共享 — TD-326】')) ok = false

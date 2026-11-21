@@ -2,6 +2,9 @@
 /* codex-pretooluse.js 回归测试：载荷形状取自 2026-10-10 实测的 Codex 0.162 PreToolUse。 */
 'use strict'
 const { spawnSync } = require('node:child_process')
+// Origin: 2026-11-21, as in test.js: the spawned guard writes its block log under HOME, so the
+// cases run with HOME in a temporary directory and the machine's log holds only real refusals.
+const TEST_ENV = { ...process.env, HOME: require('node:fs').mkdtempSync(require('node:path').join(require('node:os').tmpdir(), 'preflight-home-')) }
 const ADAPTER = require('node:path').join(__dirname, 'codex-pretooluse.js')
 
 const base = { session_id: 's', turn_id: 't', cwd: '/tmp', hook_event_name: 'PreToolUse', model: 'm' }
@@ -45,7 +48,7 @@ const cases = [
 let pass = 0
 let fail = 0
 for (const [want, name, payload] of cases) {
-  const r = spawnSync(process.execPath, [ADAPTER], { input: JSON.stringify(payload), encoding: 'utf8' })
+  const r = spawnSync(process.execPath, [ADAPTER], { input: JSON.stringify(payload), encoding: 'utf8', env: TEST_ENV })
   let got = 'ALLOW'
   if (r.status !== 0) got = 'ERROR'
   else if (r.stdout.trim()) {
