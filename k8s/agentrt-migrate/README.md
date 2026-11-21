@@ -10,8 +10,10 @@ the Owner checks the embedded migration SQL and compares the manifest image dige
 with the running platform-api container's imageID (a matching tag alone is insufficient).
 If the tag changed, update the Job image to the verified running digest before creating it.
 The image must include the reviewed `platform-api agentrt-migrate` subcommand.
-The Owner creates a fresh Job. Today that is still a command on his computer; it is a known gap, not a rule
-(`agent-config/OWNER_EXEC.md`, the list of what still needs his computer; TD-524):
+The platform creates the Job itself through the `run_agentrt_migration` action: directly when the
+signed policy covers the migration (additive only), otherwise as a tier C card the Owner approves on
+the Console (first one: #671, 2026-11-21, migration 0042, `applied=[42]`). The commands below are the
+fallback for when the platform cannot run it (`agent-config/OWNER_EXEC.md`, item 1 of the list):
 
 STG first:
 

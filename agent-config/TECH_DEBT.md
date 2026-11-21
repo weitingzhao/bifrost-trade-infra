@@ -13,6 +13,7 @@
 
 ## 待你签收
 
+- **TD-524** — 平台动作能做的集群写入不再写成执行卡。两半都已到位：①PROD agentrt 迁移全部由平台的 `run_agentrt_migration` 跑（只增不删的签名规则放行；会删表的建 C 级卡、Console 批、平台起 Job，#671 0042 `applied=[42]`，没回电脑）；②执行卡建单时，命令里 `kubectl apply` 了 `apply_manifest` 名单前缀下文件的，平台拒建并给出 `apply_manifest` 用法（platform `actions/covered.go`、`approvals.createWith`）。验收：PASS 2026-11-21 platform `b8d1b275`。防线：建卡时的覆盖检查（`approvals/covered_test.go` `TestCoveredOwnerCommandCreatesNoApproval`、`actions/covered_test.go` `TestCoveredBy`），RATCHETS.md 已补登「平台动作能做的写入不建成执行卡」。后续：无后续：剩下的已知缺口（换个命令形状认不出）写在 RATCHETS 那一行，没有新编号。`OWNER_EXEC.md`「还要回电脑」第 8 条改成「已不用回电脑」，`k8s/agentrt-migrate/README.md` 改成平台来跑、终端是后备。
 - **TD-288** — 01（唯一控制面）10-10 01:18Z 计划外重启后观察 30 天，没有复发：当前开机时间仍是 10-10 05:36:03Z 那次计划内滚动重启。验收：PASS 2026-11-09 `e8768d63`，开机时间变化 0、计划内 0、计划外 0；Prometheus 历史只到 10-30 06:00Z（retention 10d），更早一段由当前开机时间直接证明。防线：`BifrostNodeUnexpectedReboot`（`RATCHETS.md`「节点非计划重启呼 Owner」，W-38 `c5c5f36b`，`make check-alert-rules` 通过）。后续：无后续：原因未知但告警已在，再出现会呼你，读日志步骤写在条目 Fix 里。
 - **TD-473** — Dagster daemon 不再自己当 PID 1：两个 Pod 共享进程命名空间，由 pause 回收孤儿；run 进 `QueuedRunCoordinator` 队列，同时最多 2 个（research `badd5d6`，#255 上线，字段归属转给 `bifrost-applier`，以后改 dagster.yaml 可走 apply_manifest）。验收：PASS 2026-11-02，一小时后僵尸 0，补跑 42 个同时最多 2 个、0 重启、内存峰值 2.27 GB。防线：`RATCHETS.md`「Dagster Pod 有回收孤儿的 PID 1，run 排队有上限」。后续：提议的 pids 占比告警没做（要改 research-api 指标和告警规则，你定要不要）；10-30 的 option_daily 与分钟线由周二 00:45 UTC 自愈按日期回补；`depth_holes:option_daily` 另案（任务卡 task_da77aa95）。
 - **TD-373** — 06 上的基准原来 20 道只能跑 11 道（TS 缺旁边的 bifrost-ui、测试库、依赖没装）。题集换成 06 能跑的 20 道，agentd 带旁边仓库并把隐藏测试要的接口写进题面（platform `d788296`、infra `fe32f4a`）。验收：PASS 2026-10-19，`bench-20261019T060504-codex` 20 道全能跑，判对 16。防线：交上来的结果逐题写明跑不了的原因，可跑题数在 capability_scored 事件里；新题集上线前过 `benchreplay_test.go`。后续：无后续，「Left」两条只是少挑两类候选题，题集已全能跑，不另记。
@@ -2805,7 +2806,9 @@
 
 **P2 · agent 流程 · 平台动作能做的集群写入，被写成了执行卡（`owner_run_command`），Owner 批完还要再在终端跑命令**
 
-- **状态**：未开始（2026-11-05 记；R5 计划冻结，排 R6）。
+- **状态**：待你签收（2026-11-21）。
+- **验收**：`get_request 671` 为 `executed`，`result.applied=[42]`；platform `go test ./internal/approvals ./internal/actions -run Covered` 通过。
+- **验收结果**：PASS 2026-11-21 platform `b8d1b275`（#671：`run_agentrt_migration`，C 级，Console 批，平台起 Job `agentrt-migrate-c6wkd`，13.5 秒，`applied=[42]`；`TestCoveredOwnerCommandCreatesNoApproval`、`TestCoveredBy` 通过）。
 - **证据**：PROD 审批库 2026-10-29 → 11-05 共 124 张单。
   - 平台自己执行的：落地卡 62、PROD 发布 28、`apply_manifest` 8。
   - 要 Owner 在终端执行的 `owner_run_command`：23 张。其中：
