@@ -31,7 +31,7 @@ def test_newest_original():
 
 
 @pytest.mark.parametrize('case', ['platform-tree', 'ui-commit', 'infra-commit', 'tested-by',
-                                 'newer', 'same-time', 'failed', 'repo', 'incremental-base'])
+                                 'newer', 'same-time', 'failed', 'repo'])
 def test_miss(case):
     run = candidate()
     results = run['status']['results']
@@ -43,11 +43,8 @@ def test_miss(case):
         run['metadata']['creationTimestamp'] = '2026-11-11T13:00:00Z' if case == 'newer' else CURRENT['metadata']['creationTimestamp']
     elif case == 'failed':
         run['status']['conditions'][0]['status'] = 'False'
-    elif case == 'repo':
-        run['spec']['params'][0]['value'] = 'other'
     else:
-        next(r for r in results if r['name'] == 'api-scope')['value'] = 'incremental'
-        run['spec']['params'][1]['value'] = 'other'
+        run['spec']['params'][0]['value'] = 'other'
     assert choose([run]) is None
 
 
@@ -58,21 +55,14 @@ def test_empty_tested_by_is_a_fresh_original():
     assert choose([run]) == run
 
 
-# Owner 2026-11-16: the push to main after an incremental landing runs every test; it is the
-# check on the landing run and what PROD is released on. Until then (2026-11-15) it reused the
-# landing run's increment, so a landed commit had no full pass at all and STG was not delivered.
-def test_an_incremental_run_is_never_reused_even_from_the_same_base():
-    run = candidate()
-    next(r for r in run['status']['results'] if r['name'] == 'api-scope')['value'] = 'incremental'
-    assert choose([run]) is None
-    # Positive control: the same original, full, is reused.
-    assert choose([candidate()]) is not None
+# 2026-11-21, CI line under law 49: the push to main after an incremental landing stands on
+# the landing's run (same tree, ui, infra). On 2026-11-20 the 58 full runs of those pushes
+# found 0 failures that the landing run had not. Replaces the 2026-11-16 rule that an
+# increment is never reused; the full pass PROD needs comes from the daily full CI.
+FULL_CURRENT = {'metadata': CURRENT['metadata'], 'spec': {'params': [{'name': 'api-scope-request', 'value': 'full'}]}}
 
 
-# Owner 2026-11-15: a backend-only landing's CI is 67–128 s and 49–111 s of it is the whole Go suite;
-# the landing gate takes main as its base like the infra gate. Such a run has no base param and names
-# main's head in base-commit, so which later run may stand on it is decided from that result.
-def derived(base_commit):
+def incremental(base_commit='base'):
     run = candidate()
     run['spec']['params'][1]['value'] = ''
     results = run['status']['results']
@@ -81,20 +71,24 @@ def derived(base_commit):
     return run
 
 
-def test_the_push_to_main_does_not_reuse_the_landing_runs_increment():
+def test_the_push_to_main_stands_on_the_landing_runs_increment():
     for base_commit in ('base', 'other', 'none'):
-        assert choose([derived(base_commit)]) is None
+        run = incremental(base_commit)
+        assert M['select']([run], CURRENT, IDENTITIES, 'repo', '') == run
 
 
-def test_a_run_with_no_base_never_reuses_an_increment():
-    # A second ready/ push of the same commit, a manual run, the daily full run: each has no base.
-    for run in (derived('base'), derived('none'), derived(''), candidate()):
-        next(r for r in run['status']['results'] if r['name'] == 'api-scope')['value'] = 'incremental'
-        assert M['select']([run], CURRENT, IDENTITIES, 'repo', '') is None
-    # Positive control: a whole-suite original is reused by a run with no base, as before.
+def test_the_daily_full_run_never_reuses_an_increment():
+    # The daily full CI asks for the whole suite: it is the full pass PROD is released on.
+    assert M['select']([incremental()], FULL_CURRENT, IDENTITIES, 'repo', '') is None
+    # Positive control: the same full-run request still reuses a whole-suite original.
     whole = candidate()
-    whole['spec']['params'][1]['value'] = ''
-    assert M['select']([whole], CURRENT, IDENTITIES, 'repo', '') == whole
+    assert M['select']([whole], FULL_CURRENT, IDENTITIES, 'repo', '') == whole
+
+
+def test_an_increment_of_another_tree_is_not_reused():
+    run = incremental()
+    next(r for r in run['status']['results'] if r['name'] == 'platform-tree')['value'] = 'other'
+    assert M['select']([run], CURRENT, IDENTITIES, 'repo', '') is None
 
 
 def test_a_reused_run_hands_over_the_base_it_named(tmp_path, monkeypatch):
@@ -104,7 +98,7 @@ def test_a_reused_run_hands_over_the_base_it_named(tmp_path, monkeypatch):
     globals_ = M['main'].__globals__
     real_path = Path
     monkeypatch.setitem(globals_, 'Path', lambda p: results if p == '/tekton/results' else real_path(p))
-    monkeypatch.setitem(globals_, 'lookup', lambda *args: derived('base'))
+    monkeypatch.setitem(globals_, 'lookup', lambda *args: incremental('base'))
     for key, value in {'RUN': 'current', 'TREE': 'tree', 'UI': 'ui', 'INFRA': 'infra',
                        'REPO': 'repo', 'BASE': 'base', 'RESULTS_DIR': str(shared)}.items():
         monkeypatch.setenv(key, value)

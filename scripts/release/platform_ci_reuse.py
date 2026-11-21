@@ -31,12 +31,20 @@ def claims_reuse(results):
     return results.get('tested-by', '').strip() != ''
 
 
-def same_increment(params, results, base):
-    # Owner 2026-11-16: an incremental run is never reused. The push to main after an
-    # incremental landing has the landing run's tree; reusing that run would leave the
-    # commit without the full run that is the check on it (and that PROD is released
-    # on). A full run of the tree is reused as before.
-    return False
+def same_increment(current):
+    # 2026-11-21 (CI line, under law 49; replaces Owner 2026-11-16 "an incremental run is
+    # never reused"): a run of the same platform tree, ui commit and infra commit stands on
+    # an incremental original, unless it asks for the whole suite. The push to main after a
+    # landing is such a run: 58 of them ran every test again on 2026-11-20 and found 0
+    # failures. The full pass PROD is released on (ci_gate --require-full, the ledger's
+    # strict reading) comes from the daily full CI, which sends api-scope-request=full and
+    # so never reuses an increment; STG rests on the incremental chain (evidenceread
+    # maxVerdictChain). Revert: return False here.
+    try:
+        params = values(current.get('spec', {}).get('params', []))
+    except (TypeError, ValueError):
+        return False
+    return params.get('api-scope-request', '') != 'full'
 
 
 def select(runs, current, identities, repo, base):
@@ -53,7 +61,7 @@ def select(runs, current, identities, repo, base):
                     or any(results.get(k) != v for k, v in identities.items())
                     or results.get('api-scope') not in ('full', 'console', 'incremental')
                     or any(k not in results for k in FIELDS)
-                    or (results['api-scope'] == 'incremental' and not same_increment(params, results, base))):
+                    or (results['api-scope'] == 'incremental' and not same_increment(current))):
                 continue
             matches.append(run)
         except (KeyError, TypeError, ValueError):
