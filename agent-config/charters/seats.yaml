@@ -24,7 +24,7 @@ seats:
   - {id: 8-1-duty,        charter: 8-1-duty.md,        domain: "8.1", domain_id: coordination,          kind: owner, harness: claude, session: local_98ab5bcb-6d1b-40e5-aa73-c2c27b3038a0}
   - {id: 8-2-comm-desk,   charter: 8-2-comm-desk.md,   domain: "8.2", domain_id: coordination,          kind: owner, harness: claude, session: local_ab850773-fe26-40fa-ac01-b3b590b73164}
   - {id: 8-3-metrics,     charter: 8-3-metrics.md,     domain: "8.3", domain_id: coordination,          kind: owner, harness: claude, session: local_3361afbd-43fb-4539-a934-406b9a00b09f}
-  - {id: 9-harness, name: crew,       charter: 9-harness.md,       domain: "9", domain_id: crew,                     kind: owner, harness: claude, session: local_2c3fa7a5-f04c-41a0-8528-ce1b5a07eb86}
+  - {id: 9-crew, name: crew,          charter: 9-crew.md,       domain: "9", domain_id: crew,                     kind: owner, harness: claude, session: local_2c3fa7a5-f04c-41a0-8528-ce1b5a07eb86}
   - {id: 13-triage, name: triage,       charter: 13-triage.md,       domain: "13", domain_id: triage,                    kind: owner, harness: claude, session: local_dd4f492f-ffe9-4c22-a166-ab4d0fd855c0, note: 专门的一条线（Owner 更正）；占位}
   - {id: 10-cockpit,      charter: 10-cockpit.md,      domain: "10", domain_id: null,                    kind: owner, harness: claude, session: local_d303ae46-113a-4d47-90e4-c8942f5fbbe5}
   - {id: win2-workshop, name: station,   charter: win2-workshop.md,   domain: "11", domain_id: station,                    kind: owner, harness: claude, session: local_f6f0f02b-092c-4c76-b68d-57f5b4c1a7f0}
