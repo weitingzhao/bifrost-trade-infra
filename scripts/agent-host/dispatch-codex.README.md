@@ -8,6 +8,8 @@ The everyday entry is [dispatch.sh](dispatch.sh): it writes the description, poi
 shared cache, takes this wrapper from origin/main and starts Codex on the `BRIEF.md` in the work dir.
 `RUN_KEY=<key> scripts/agent-host/dispatch.sh <dir> <node> "<task>" none none -p bifrost-seat`
 (moved into infra 2026-11-21; before that it lived only in `~/agent-work/` on one machine).
+Write the BRIEF from [BRIEF.template.md](BRIEF.template.md); how work is handed out and handed back is in
+`docs/AGENT_WORK.md`.
 
 For an existing Claude session, use [register-claude-work.py](register-claude-work.README.md).
 Coordinator open-session step (TD-446): register the work, retain its state,
