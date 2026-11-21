@@ -1,0 +1,46 @@
+# promtool test for ComputePainDbReplication (LANE-metrics, 2026-11-21).
+# Origin: the old rule (max over 5m of the flush lag > 50 ms, for 10m) fired about 14 times a day on ~30 s
+# spikes (11-20: 18 activations, evaluation readout) and woke the compute seat after the lag was already back.
+# The database's owner put the line at a lag held above 5 s. The spike case is the regression; the held case is
+# its positive control. Run: make check-alert-rules.
+rule_files:
+  - bifrost-compute-module-readout.yaml
+
+evaluation_interval: 15s
+
+tests:
+  - name: 30 second spikes above 50 ms every few minutes do not fire (the old rule fired at 14m)
+    interval: 15s
+    input_series:
+      - series: 'cnpg_pg_stat_replication_flush_lag_seconds{pod="bifrost-pg-1"}'
+        values: '0.001 0.08 0.09 0.001x9 0.08 0.09 0.001x9 0.08 0.09 0.001x9 0.08 0.09 0.001x9 0.08 0.09 0.001x40'
+    alert_rule_test:
+      - eval_time: 14m
+        alertname: ComputePainDbReplication
+        exp_alerts: []
+
+  - name: a spike above 5 s shorter than 5 minutes does not fire
+    interval: 15s
+    input_series:
+      - series: 'cnpg_pg_stat_replication_flush_lag_seconds{pod="bifrost-pg-1"}'
+        values: '0.001x8 7x8 0.001x80'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: ComputePainDbReplication
+        exp_alerts: []
+
+  - name: a lag held above 5 s for 5 minutes fires
+    interval: 15s
+    input_series:
+      - series: 'cnpg_pg_stat_replication_flush_lag_seconds{pod="bifrost-pg-1"}'
+        values: '0.001x4 7x80'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: ComputePainDbReplication
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              home: database
+            exp_annotations:
+              summary: "Postgres replication flush lag has been above 5 s"
+              description: "The standby has been more than 5 s of flush behind the primary for 5m. Check what else runs on 02 and 04 (write budget, CI test jobs) and whether the standby is healthy."

@@ -139,7 +139,7 @@ spec:
             summary: "A Bifrost alert rule file is not loaded by Prometheus"
             description: "No rules of bifrost-alerting-rules (group bifrost-infrastructure) or bifrost-host-rules (group bifrost-hosts) are loaded. Most likely the PrometheusRule lost its label release=kube-prometheus-stack: kubectl -n monitoring get prometheusrule <name> --show-labels. Re-apply the file from k8s/monitoring with plan_manifest / apply_manifest."
     # Pain lines of the database homes (OWNER_LAW 43, LANE-compute). The thresholds are the ones guardwatch measured by hand since 11-18
-    # (disk flush >5ms, replication flush >50ms, PROD CPU throttling >2%), now as rules so a breach is an alert.rule.fired event.
+    # (disk flush >5ms, replication flush >50ms until 11-21 then >5s held, PROD CPU throttling >2%), now as rules so a breach is an alert.rule.fired event.
     # Node pressure alone is NOT a pain line: 04 showed cpu pressure 0.22 from a Grafana burst while every database line was green.
     - name: bifrost-compute-pain
       rules:
@@ -154,15 +154,19 @@ spec:
           annotations:
             summary: "A database node's disk flush is slower than 5 ms"
             description: "Disk flush latency on {{ $labels.instance }} (02 primary / 04 standby) has been above 5 ms for 10m. Guests on that node (CI, monitoring) are the first to move; the database never is."
+        # 2026-11-21 (LANE-metrics): was max_over_time(...[5m:15s]) * 1000 > 50 for 10m. The max over 5m held each ~30 s spike for
+        # 5 minutes, so it fired about 14 times a day (11-20: 18 activations, evaluation readout) and the lag was back by the time the
+        # compute seat read it. The database's owner (Foundation, 11-21): replication is asynchronous, a short flush lag only risks under
+        # a second of writes at failover, and the line worth acting on is a lag held above 5 seconds. Now: above 5 s, held for 5 minutes.
         - alert: ComputePainDbReplication
-          expr: max_over_time(max(cnpg_pg_stat_replication_flush_lag_seconds)[5m:15s]) * 1000 > 50
-          for: 10m
+          expr: max(cnpg_pg_stat_replication_flush_lag_seconds) > 5
+          for: 5m
           labels:
             severity: warning
             home: database
           annotations:
-            summary: "Postgres replication flush lag is above 50 ms"
-            description: "The standby is behind the primary by more than 50 ms of flush for 10m. Check what else runs on 02 and 04 (write budget, CI test jobs)."
+            summary: "Postgres replication flush lag has been above 5 s"
+            description: "The standby has been more than 5 s of flush behind the primary for 5m. Check what else runs on 02 and 04 (write budget, CI test jobs) and whether the standby is healthy."
         - alert: ComputePainProdThrottle
           expr: |
             100 * sum(rate(container_cpu_cfs_throttled_periods_total{namespace=~"bifrost-prod|bifrost-prod-.*"}[5m]))
