@@ -9,7 +9,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 M = runpy.run_path(str(Path(__file__).with_name('platform_ci_reuse.py')))
 IDENTITIES = {'platform-tree': 'tree', 'ui-commit': 'ui', 'infra-commit': 'infra'}
-CURRENT = {'metadata': {'creationTimestamp': '2026-11-11T12:00:00Z'}}
+CURRENT = {'metadata': {'creationTimestamp': '2026-11-11T12:00:00Z', 'labels': {'bifrost.io/trigger': 'gitea-webhook'}}}
 
 
 def candidate(name='original', time='2026-11-11T11:00:00Z'):
@@ -83,6 +83,19 @@ def test_the_daily_full_run_never_reuses_an_increment():
     # Positive control: the same full-run request still reuses a whole-suite original.
     whole = candidate()
     assert M['select']([whole], FULL_CURRENT, IDENTITIES, 'repo', '') == whole
+
+
+def test_a_run_started_by_hand_never_reuses_an_increment():
+    # 2026-11-21: a manual run of ac07e84b (bifrost.io/trigger=platform-api) reused the
+    # landing's increment in 22 s; started by hand, a run is a request for the full pass.
+    by_hand = {'metadata': {'creationTimestamp': CURRENT['metadata']['creationTimestamp'],
+                            'labels': {'bifrost.io/trigger': 'platform-api'}}}
+    assert M['select']([incremental()], by_hand, IDENTITIES, 'repo', '') is None
+    no_label = {'metadata': {'creationTimestamp': CURRENT['metadata']['creationTimestamp']}}
+    assert M['select']([incremental()], no_label, IDENTITIES, 'repo', '') is None
+    # Positive control: by hand, a whole-suite original is still reused.
+    whole = candidate()
+    assert M['select']([whole], by_hand, IDENTITIES, 'repo', '') == whole
 
 
 def test_an_increment_of_another_tree_is_not_reused():

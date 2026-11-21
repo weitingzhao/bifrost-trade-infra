@@ -78,9 +78,17 @@ spec:
             # strict reading) comes from the daily full CI, which sends api-scope-request=full and
             # so never reuses an increment; STG rests on the incremental chain (evidenceread
             # maxVerdictChain). Revert: return False here.
+            # Only a run Gitea's push started (bifrost.io/trigger=gitea-webhook) stands on an
+            # increment: a run someone starts by hand (the platform's start_pipeline_run, which
+            # cannot send api-scope-request) is how a commit gets its full pass before the daily
+            # one, to go to PROD the same day (2026-11-21: a manual run of ac07e84b reused
+            # ci-platform-l7948 in 22 s and gave PROD nothing).
             try:
+                labels = current.get('metadata', {}).get('labels') or {}
+                if labels.get('bifrost.io/trigger') != 'gitea-webhook':
+                    return False
                 params = values(current.get('spec', {}).get('params', []))
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, AttributeError):
                 return False
             return params.get('api-scope-request', '') != 'full'
 
