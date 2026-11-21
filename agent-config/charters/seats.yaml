@@ -1,4 +1,4 @@
-# 席位表（机器读）。Labor 块（9 号 Harness 接入）起草，2026-11-21。
+# 席位表（机器读）。Crew 块（9 号，原 Harness 接入 / Labor）起草，2026-11-21。
 # 出处：Owner 2026-11-21 在参谋长线程定的（法 59–65，经主统筹转述）：ownership 在 Agent；有主人席位、有临时席位（干完就走）；
 # 人和 Agent 都是 labor。本表回答「谁在干活」：不管工具，不评结果。
 # 对账：每页 charters/*.md（README 除外）恰有一个 seat 行（charter 字段）；domain_id 必须是平台领域表里的 id 或 null；
@@ -22,6 +22,7 @@ seats:
   - {id: 8-2-comm-desk,   charter: 8-2-comm-desk.md,   domain: "8.2", domain_id: coordination,          kind: owner, harness: claude, session: local_ab850773-fe26-40fa-ac01-b3b590b73164}
   - {id: 8-3-metrics,     charter: 8-3-metrics.md,     domain: "8.3", domain_id: coordination,          kind: owner, harness: claude, session: local_3361afbd-43fb-4539-a934-406b9a00b09f}
   - {id: 9-harness,       charter: 9-harness.md,       domain: "9", domain_id: null,                     kind: owner, harness: claude, session: local_2c3fa7a5-f04c-41a0-8528-ce1b5a07eb86}
+  - {id: 13-triage,       charter: 13-triage.md,       domain: "13", domain_id: null,                    kind: owner, harness: claude, session: local_3172e958-47d7-4138-9de2-2eb474e4d49c, note: 参谋长线程暂坐；占位}
   - {id: 10-cockpit,      charter: 10-cockpit.md,      domain: "10", domain_id: null,                    kind: owner, harness: claude, session: local_d303ae46-113a-4d47-90e4-c8942f5fbbe5}
   - {id: win2-workshop,   charter: win2-workshop.md,   domain: "11", domain_id: null,                    kind: owner, harness: claude, session: local_f6f0f02b-092c-4c76-b68d-57f5b4c1a7f0}
 
