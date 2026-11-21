@@ -8,7 +8,7 @@ seats = {s['id']: s for s in yaml.safe_load((root / 'seats.yaml').read_text())['
 def card(i):
     s = seats[i]; c = yaml.safe_load((root / 'cards' / f'{i}.yaml').read_text()); L = []
     L.append(f"【{i}】{'主人席位' if s['kind']=='owner' else '临时席位'} · 领域 {s['domain']} · 坐的是 {s['harness']}（{c['as_of']}）")
-    L.append('合约：' + '；'.join(c['laws']))
+    L.append('合约：' + '；'.join(str(x) for x in c['laws']))
     for title, key in (('我握的', 'owns'), ('对外答应的口子', 'promises'), ('我自己定、不用问', 'decide_alone'), ('别人来问我必须答', 'must_answer'), ('墙', 'walls')):
         L.append(f'{title}：'); L += ['  - ' + x for x in c[key]]
     L.append('不是我的：'); L += [f"  - {x['what']} → {x['to']}" for x in c['not_mine']]
