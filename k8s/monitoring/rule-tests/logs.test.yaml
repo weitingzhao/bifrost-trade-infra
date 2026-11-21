@@ -1,35 +1,28 @@
-# promtool test for BifrostLokiNotReady and BifrostPromtailDroppingLogs (LANE-metrics, 2026-11-20).
+# promtool test for BifrostLokiNotReady (LANE-metrics, 2026-11-20).
 # Origin: loki-0 not ready 02:56Z-18:44Z on 2026-11-20 (volume on the shut-down ubt-k3s-05),
-# promtail dropping ingester_error lines, and no alert. The ready/no-drop cases are the
-# positive controls for the firing ones. Run: make check-alert-rules.
+# and no alert. The ready case is the positive control for the firing ones. Promtail drops
+# are BifrostPromtailDroppingLogs in bifrost-alerting-rules.yaml (one rule per name). Run: make check-alert-rules.
 rule_files:
   - bifrost-logs.yaml
 
 evaluation_interval: 1m
 
 tests:
-  - name: loki ready and promtail not dropping, nothing fires
+  - name: loki ready, nothing fires
     interval: 1m
     input_series:
       - series: 'kube_statefulset_status_replicas_ready{namespace="monitoring",statefulset="loki"}'
         values: '1x30'
-      - series: 'promtail_dropped_entries_total{namespace="monitoring",pod="promtail-a",reason="ingester_error"}'
-        values: '100x30'
     alert_rule_test:
       - eval_time: 25m
         alertname: BifrostLokiNotReady
         exp_alerts: []
-      - eval_time: 25m
-        alertname: BifrostPromtailDroppingLogs
-        exp_alerts: []
 
-  - name: loki down for 10 minutes and promtail dropping for 15 fires both
+  - name: loki down for 10 minutes fires
     interval: 1m
     input_series:
       - series: 'kube_statefulset_status_replicas_ready{namespace="monitoring",statefulset="loki"}'
         values: '1 0x40'
-      - series: 'promtail_dropped_entries_total{namespace="monitoring",pod="promtail-a",reason="ingester_error"}'
-        values: '0+50x40'
     alert_rule_test:
       - eval_time: 30m
         alertname: BifrostLokiNotReady
@@ -39,14 +32,6 @@ tests:
             exp_annotations:
               summary: "Loki has no ready replica"
               description: "StatefulSet monitoring/loki has had no ready pod for 10 minutes: cluster logs are not being kept and cannot be recovered later. Check where loki-0 is scheduled and its volume (loki-data-nfs): kubectl -n monitoring describe pod loki-0."
-      - eval_time: 30m
-        alertname: BifrostPromtailDroppingLogs
-        exp_alerts:
-          - exp_labels:
-              severity: warning
-            exp_annotations:
-              summary: "Promtail is dropping log lines"
-              description: "Promtail has dropped lines for 15 minutes (promtail_dropped_entries_total, by reason ingester_error, rate_limited, stream_limited or line_too_long). Those lines are not in Loki. With BifrostLokiNotReady it is Loki being down; alone, read the reason label."
 
   - name: the StatefulSet series gone fires on absent
     interval: 1m
