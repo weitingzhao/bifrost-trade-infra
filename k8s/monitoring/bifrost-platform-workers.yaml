@@ -33,3 +33,10 @@ spec:
       # four plugins and caps each at 8s.
       interval: 60s
       scrapeTimeout: 20s
+      # There is no Service, so nothing sets `service`. platform-api's series
+      # carry service="platform-api"; give workers the same key so
+      # `by (namespace, service)` shows them as their own row instead of an
+      # unnamed one (NAMING.md "Labels").
+      relabelings:
+        - targetLabel: service
+          replacement: platform-workers
