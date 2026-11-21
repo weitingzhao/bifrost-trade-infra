@@ -23,6 +23,11 @@
   ],
   "read_only_inline": [
     {
+      "pipeline": "bifrost-land",
+      "task": "refusal",
+      "taskspec_sha256": "410f8d0eb610e17bc32058e63ff8a49e1c69d2a73d224befb07c5b942cdf18e4"
+    },
+    {
       "pipeline": "bifrost-build-frontend-stg",
       "task": "stage-dockerfile",
       "taskspec_sha256": "95bb05a1695b3aefabb8bcfaeddf03aae3520f479934f140aa507a94915035db"

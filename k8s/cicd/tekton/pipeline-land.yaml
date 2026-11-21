@@ -48,6 +48,15 @@ spec:
     - name: change-ids
       description: The Change-Id trailers of the landed commits, comma separated; they do not change in a rebase.
       value: $(tasks.land.results.change-ids)
+    # Why a run did not land. Tekton gives a PipelineRun no result of a task that
+    # failed, so the refused run's own sentence (the land task's refusal) is
+    # copied by the finally task below, which succeeds, and reaches the run's
+    # results: the platform records them as pipeline_seen in the event log.
+    # 2026-11-21: land refusals lived only in the TaskRun, kept one day (7 days:
+    # 107 refused, 61 of them with a green CI), so the reasons could not be counted.
+    - name: refusal
+      description: Why the run did not land (the land task's refusal); absent when it landed.
+      value: $(finally.refusal.results.refusal)
   tasks:
     - name: freeze-check
       taskRef:
@@ -714,3 +723,28 @@ spec:
                   for name, value in landed.items():
                       with open(RESULTS + name, 'w') as handle:
                           handle.write(value)
+  finally:
+    # Only after a refused land: copies its refusal into a result of a task that
+    # succeeds (see results.refusal). Nothing to copy when it landed.
+    - name: refusal
+      when:
+        - input: $(tasks.land.status)
+          operator: in
+          values: ["Failed"]
+      params:
+        - name: refusal
+          value: $(tasks.land.results.refusal)
+      taskSpec:
+        params:
+          - name: refusal
+        results:
+          - name: refusal
+        steps:
+          - name: copy
+            image: alpine:3.20
+            env:
+              - name: REFUSAL
+                value: $(params.refusal)
+            script: |
+              #!/bin/sh
+              printf '%s' "${REFUSAL}" | head -c 2000 > "$(results.refusal.path)"

@@ -203,7 +203,13 @@ def test_freeze_check_then_land():
     assert [t["name"] for t in tasks] == ["freeze-check", "land"]
     assert tasks[0]["taskRef"] == {"name": "bifrost-release-freeze-check"} and "runAfter" not in tasks[0]
     assert tasks[1]["runAfter"] == ["freeze-check"]
-    assert "finally" not in pipeline()
+    # The one finally task (2026-11-21): after a refused land only, it copies the
+    # refusal into a pipeline result, which a failed task cannot give; it lands nothing.
+    fin = pipeline()["finally"]
+    assert [t["name"] for t in fin] == ["refusal"]
+    assert fin[0]["when"] == [{"input": "$(tasks.land.status)", "operator": "in", "values": ["Failed"]}]
+    assert fin[0]["params"] == [{"name": "refusal", "value": "$(tasks.land.results.refusal)"}]
+    assert "gitea" not in json.dumps(fin).lower() and "volumes" not in fin[0]["taskSpec"]
     assert all("when" not in t and "onError" not in t and "retries" not in t for t in tasks)
 
 
@@ -219,7 +225,9 @@ def test_land_is_inline_takes_the_pushed_commit_and_talks_to_gitea_only():
     assert "GITEA = 'http://gitea.cicd.svc.cluster.local:3000'" in script()
     assert "$(params" not in script() and "$(tasks" not in script()
     assert {r["name"]: r["value"] for r in pipeline()["results"]} == {
-        name: "$(tasks.land.results.%s)" % name for name in ("outcome", "commit", "change-ids")}
+        **{name: "$(tasks.land.results.%s)" % name for name in ("outcome", "commit", "change-ids")},
+        # 2026-11-21: a refused run's refusal reaches the run's results through the finally task.
+        "refusal": "$(finally.refusal.results.refusal)"}
     # refusal (2026-11-17): the sentence a refused run ends with is a result of the task, so that
     # what wakes the pusher can say why; it is not a result of the pipeline, which a failed run does not give.
     # tripwire: 2026-11-17, see test_a_change_to_the_head_release_loop_lands_and_is_reported.
