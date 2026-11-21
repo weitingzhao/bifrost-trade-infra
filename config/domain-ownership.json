@@ -1,0 +1,883 @@
+{
+  "version": 1,
+  "source": "Bifrost domain charters and overlap rulings; per-repository table of bifrost-trade-infra (catalog segment 5)",
+  "paths": {
+    ".": {
+      "domains": [
+        "delivery"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): files at the root: build, docs site and editor settings of the infra repository"
+    },
+    ".vscode": {
+      "domains": [
+        "delivery"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): editor settings of the infra repository"
+    },
+    "Goal": {
+      "domains": [
+        "tenant"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): Trade goal pointer kept for the docs site"
+    },
+    "agent-config": {
+      "domains": [
+        "coordination"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): the governance layer every seat reads: rules, facts, charters, work notes, hooks"
+    },
+    "agent-config/OWNER_EXEC.md": {
+      "domains": [
+        "owner"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): the Owner's hand procedures"
+    },
+    "agent-config/OWNER_LAW.md": {
+      "domains": [
+        "owner"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): the Owner's laws"
+    },
+    "agent-config/claude/auto-mode": {
+      "domains": [
+        "owner"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): auto mode rules are the Owner's (one of the six classes)"
+    },
+    "agent-config/release-policy": {
+      "domains": [
+        "owner"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): template of the signed release policy: the trust root is the Owner's"
+    },
+    "agent-config/scripts/code-health": {
+      "domains": [
+        "verification"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): code-health ratchet that judges a change before merge"
+    },
+    "agent-config/scripts/git-hooks": {
+      "domains": [
+        "lineage"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): commit trailers (session, transcript, Change-Id, Work)"
+    },
+    "config": {
+      "domains": [
+        "tenant"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): Trade application config"
+    },
+    "config/domain-ownership.json": {
+      "domains": [
+        "delivery"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): this table"
+    },
+    "config/gpu-node-power.env.example": {
+      "domains": [
+        "compute"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): GPU node power settings"
+    },
+    "config/sessions.yaml.example": {
+      "domains": [
+        "compute"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): bdev dev sessions (devsession is compute in the platform table)"
+    },
+    "docker": {
+      "domains": [
+        "tenant"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): Trade dev image"
+    },
+    "docker-compose.dev.yml": {
+      "domains": [
+        "tenant"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): Trade local dev stack"
+    },
+    "docker/ci-infra": {
+      "domains": [
+        "verification"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): the image the infra CI runs in"
+    },
+    "docker/k8s-smoke": {
+      "domains": [
+        "delivery"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): post-deploy smoke image"
+    },
+    "docker/s5-checker": {
+      "domains": [
+        "verification"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): build-time contract checker image"
+    },
+    "docs": {
+      "domains": [
+        "tenant"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): Trade rollouts, migrations and data audits"
+    },
+    "docs/DELIVER_STG.md": {
+      "domains": [
+        "delivery"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): STG delivery"
+    },
+    "docs/DOCKER_BUILD.md": {
+      "domains": [
+        "delivery"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): image builds"
+    },
+    "docs/IMAGE_PUBLISH.md": {
+      "domains": [
+        "delivery"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): image publishing"
+    },
+    "docs/REGISTRY_PERSISTENCE_PLAN.md": {
+      "domains": [
+        "compute"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): registry storage"
+    },
+    "docs/RELEASE.md": {
+      "domains": [
+        "delivery"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): how changes enter main and get released"
+    },
+    "docs/STORAGE_CEILINGS.md": {
+      "domains": [
+        "compute"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): storage ceilings"
+    },
+    "docs/pointers": {
+      "domains": [
+        "foundation"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): pointers to the platform roadmap"
+    },
+    "docs/runbooks": {
+      "domains": [
+        "compute"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): cluster state restore and PITR drill"
+    },
+    "docs/runbooks/gitea-restore.md": {
+      "domains": [
+        "delivery"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): Gitea restore"
+    },
+    "docs/runbooks/owner-steps-s6-7.md": {
+      "domains": [
+        "owner"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): Owner hand steps"
+    },
+    "k8s": {
+      "domains": [
+        "tenant"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): Trade base and dev/stg/prod overlays"
+    },
+    "k8s/agent-access": {
+      "domains": [
+        "owner"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): the agent's cluster identity and rights (trust root)"
+    },
+    "k8s/agentrt-migrate": {
+      "domains": [
+        "foundation"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): agentrt schema migration job"
+    },
+    "k8s/base-platform": {
+      "domains": [
+        "delivery"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): platform base manifests"
+    },
+    "k8s/bus": {
+      "domains": [
+        "foundation"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): the bus"
+    },
+    "k8s/cicd": {
+      "domains": [
+        "delivery"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): Gitea, Argo CD, registry, release policy deployment, mirrors"
+    },
+    "k8s/cicd/tekton": {
+      "domains": [
+        "delivery"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): Tekton build and deliver pipelines and run housekeeping; the CI and landing files below are verification's"
+    },
+    "k8s/cicd/tekton/pipeline-ci-cache-trim.yaml": {
+      "domains": [
+        "verification"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): CI / landing pipeline"
+    },
+    "k8s/cicd/tekton/pipeline-ci-frontend.yaml": {
+      "domains": [
+        "verification"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): CI / landing pipeline"
+    },
+    "k8s/cicd/tekton/pipeline-ci-infra.yaml": {
+      "domains": [
+        "verification"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): CI / landing pipeline"
+    },
+    "k8s/cicd/tekton/pipeline-ci-platform.yaml": {
+      "domains": [
+        "verification"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): CI / landing pipeline"
+    },
+    "k8s/cicd/tekton/pipeline-ci-python.yaml": {
+      "domains": [
+        "verification"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): CI / landing pipeline"
+    },
+    "k8s/cicd/tekton/pipeline-ci-s5.yaml": {
+      "domains": [
+        "verification"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): CI / landing pipeline"
+    },
+    "k8s/cicd/tekton/pipeline-land.yaml": {
+      "domains": [
+        "verification"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): CI / landing pipeline"
+    },
+    "k8s/cicd/tekton/task-ci-cache-trim.yaml": {
+      "domains": [
+        "verification"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): CI / landing pipeline"
+    },
+    "k8s/cicd/tekton/task-ci-infra-check.yaml": {
+      "domains": [
+        "verification"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): CI / landing pipeline"
+    },
+    "k8s/cicd/tekton/task-ci-infra-clone.yaml": {
+      "domains": [
+        "verification"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): CI / landing pipeline"
+    },
+    "k8s/cicd/tekton/task-ci-infra-resolve.yaml": {
+      "domains": [
+        "verification"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): CI / landing pipeline"
+    },
+    "k8s/cicd/tekton/task-ci-platform-changes.yaml": {
+      "domains": [
+        "verification"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): CI / landing pipeline"
+    },
+    "k8s/cicd/tekton/task-ci-platform-reuse.yaml": {
+      "domains": [
+        "verification"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): CI / landing pipeline"
+    },
+    "k8s/cicd/tekton/task-ci-platform-test-api.yaml": {
+      "domains": [
+        "verification"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): CI / landing pipeline"
+    },
+    "k8s/cicd/tekton/task-unit-run-db.yaml": {
+      "domains": [
+        "verification"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): CI / landing pipeline"
+    },
+    "k8s/cicd/tekton/task-unit-run.yaml": {
+      "domains": [
+        "verification"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): CI / landing pipeline"
+    },
+    "k8s/components/platform-config": {
+      "domains": [
+        "delivery"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): platform config component"
+    },
+    "k8s/compute": {
+      "domains": [
+        "compute"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): compute namespaces, priority classes, GPU placement"
+    },
+    "k8s/data": {
+      "domains": [
+        "compute"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): database and Redis homes, backups"
+    },
+    "k8s/gitea-admin": {
+      "domains": [
+        "delivery"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): Gitea administration"
+    },
+    "k8s/monitoring": {
+      "domains": [
+        "foundation"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): telemetry: rules, scrapes, alert routing (telemetry is foundation in the platform table)"
+    },
+    "k8s/overlays/platform-prod": {
+      "domains": [
+        "delivery"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): platform PROD deployment"
+    },
+    "k8s/overlays/platform-stg": {
+      "domains": [
+        "delivery"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): platform STG deployment"
+    },
+    "k8s/owner-exec": {
+      "domains": [
+        "owner"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): owner-exec"
+    },
+    "k8s/platform-rbac": {
+      "domains": [
+        "owner"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): platform service accounts and rights (trust root)"
+    },
+    "k8s/plugin-flex-query": {
+      "domains": [
+        "tenant"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): flex query plugin (flexquery is tenant in the platform table)"
+    },
+    "k8s/release-freeze": {
+      "domains": [
+        "delivery"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): release freeze"
+    },
+    "k8s/storage": {
+      "domains": [
+        "compute"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): storage classes"
+    },
+    "k8s/system": {
+      "domains": [
+        "compute"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): cluster system: VIP, ingress, TLS, CNPG operator"
+    },
+    "scripts": {
+      "domains": [
+        "tenant"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): Trade config sync, data audits and rollout checks"
+    },
+    "scripts/agent-host": {
+      "domains": [
+        "coordination"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): seat hosts: agentd, egress, disk guard"
+    },
+    "scripts/agentrt": {
+      "domains": [
+        "coordination"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): coordinator tooling"
+    },
+    "scripts/bdev": {
+      "domains": [
+        "compute"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): local dev sessions"
+    },
+    "scripts/bdev-event": {
+      "domains": [
+        "compute"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): local dev sessions"
+    },
+    "scripts/bdev-log-tee": {
+      "domains": [
+        "compute"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): local dev sessions"
+    },
+    "scripts/bdev-supervise": {
+      "domains": [
+        "compute"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): local dev sessions"
+    },
+    "scripts/benchmark": {
+      "domains": [
+        "coordination"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): agent benchmark"
+    },
+    "scripts/check-no-k8s-secrets.sh": {
+      "domains": [
+        "owner"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): no Secret data in the repository (secrets are the Owner's)"
+    },
+    "scripts/check-release-chain.py": {
+      "domains": [
+        "delivery"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): release chain check"
+    },
+    "scripts/check_admission_guards.py": {
+      "domains": [
+        "compute"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): admission policy check"
+    },
+    "scripts/check_agent_access.py": {
+      "domains": [
+        "owner"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): agent rights check (trust root)"
+    },
+    "scripts/check_alert_routing.py": {
+      "domains": [
+        "foundation"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): telemetry check"
+    },
+    "scripts/check_alert_rules.py": {
+      "domains": [
+        "foundation"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): telemetry check"
+    },
+    "scripts/check_apply_paths.py": {
+      "domains": [
+        "delivery"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): apply_manifest paths"
+    },
+    "scripts/check_cluster_state_backup.py": {
+      "domains": [
+        "compute"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): cluster state backup check"
+    },
+    "scripts/check_data_lan_exposure.py": {
+      "domains": [
+        "compute"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): data layer exposure check"
+    },
+    "scripts/check_http_metrics_coverage.py": {
+      "domains": [
+        "foundation"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): telemetry check"
+    },
+    "scripts/check_maintainers.py": {
+      "domains": [
+        "coordination"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): maintainers registry check"
+    },
+    "scripts/check_monitoring_persistence.py": {
+      "domains": [
+        "foundation"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): telemetry check"
+    },
+    "scripts/check_owner_exec.py": {
+      "domains": [
+        "owner"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): owner-exec check"
+    },
+    "scripts/check_pg_wait.py": {
+      "domains": [
+        "compute"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): database check"
+    },
+    "scripts/check_pitr_drill_manifest.py": {
+      "domains": [
+        "compute"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): PITR drill check"
+    },
+    "scripts/check_platform_maintenance.py": {
+      "domains": [
+        "compute"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): maintenance check"
+    },
+    "scripts/check_platform_rbac.py": {
+      "domains": [
+        "owner"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): platform rights check (trust root)"
+    },
+    "scripts/check_redis_config.py": {
+      "domains": [
+        "compute"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): Redis check"
+    },
+    "scripts/check_registry_images.py": {
+      "domains": [
+        "delivery"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): registry images check"
+    },
+    "scripts/check_ui_revision.py": {
+      "domains": [
+        "delivery"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): ui revision pin"
+    },
+    "scripts/check_work_trailers.py": {
+      "domains": [
+        "lineage"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): Work trailers"
+    },
+    "scripts/cicd": {
+      "domains": [
+        "delivery"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): CI/CD tests: Gitea mirror, GitHub sync, Tekton reader"
+    },
+    "scripts/drills": {
+      "domains": [
+        "compute"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): PITR drill"
+    },
+    "scripts/gen_platform_rbac.py": {
+      "domains": [
+        "owner"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): platform rights generator (trust root)"
+    },
+    "scripts/gitea": {
+      "domains": [
+        "delivery"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): Gitea protection, webhooks, access"
+    },
+    "scripts/host-exporters": {
+      "domains": [
+        "foundation"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): host metrics exporters"
+    },
+    "scripts/k3s": {
+      "domains": [
+        "compute"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): cluster install and node scripts"
+    },
+    "scripts/landing": {
+      "domains": [
+        "verification"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): landing: ready branch, infra CI, merge verdict"
+    },
+    "scripts/nas": {
+      "domains": [
+        "compute"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): NAS storage and backups"
+    },
+    "scripts/owner": {
+      "domains": [
+        "owner"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): Owner keys, kubeconfigs, owner-run"
+    },
+    "scripts/owner-exec": {
+      "domains": [
+        "owner"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): owner-exec enrolment and recipes"
+    },
+    "scripts/prune-merged-branches.sh": {
+      "domains": [
+        "delivery"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): branch pruning"
+    },
+    "scripts/registry": {
+      "domains": [
+        "delivery"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): image keep set"
+    },
+    "scripts/release": {
+      "domains": [
+        "delivery"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): release, release window, freeze, db steps"
+    },
+    "scripts/release_gate.sh": {
+      "domains": [
+        "delivery"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): release gate"
+    },
+    "scripts/s5": {
+      "domains": [
+        "verification"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): build-time contract checker"
+    },
+    "scripts/sync_platform_k8s_config.sh": {
+      "domains": [
+        "delivery"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): platform config sync"
+    },
+    "scripts/test_access_checks.py": {
+      "domains": [
+        "owner"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): agent rights check (trust root)"
+    },
+    "scripts/test_agentrt_infra.py": {
+      "domains": [
+        "foundation"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): agentrt manifests check"
+    },
+    "scripts/test_apply_manifest_ownership.py": {
+      "domains": [
+        "delivery"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): apply_manifest"
+    },
+    "scripts/test_apply_manifest_pipeline.py": {
+      "domains": [
+        "delivery"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): apply_manifest"
+    },
+    "scripts/test_bdev_start.py": {
+      "domains": [
+        "compute"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): local dev sessions"
+    },
+    "scripts/test_check_monitoring_persistence.py": {
+      "domains": [
+        "foundation"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): telemetry check"
+    },
+    "scripts/test_check_registry_images.py": {
+      "domains": [
+        "delivery"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): registry images check"
+    },
+    "scripts/test_ci_trigger_filters.py": {
+      "domains": [
+        "delivery"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): CI triggers"
+    },
+    "scripts/test_pipelinerun_ttl.py": {
+      "domains": [
+        "delivery"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): run retention"
+    },
+    "scripts/test_platform_deliver_dockerfiles.py": {
+      "domains": [
+        "delivery"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): platform deliver images"
+    },
+    "scripts/test_platform_rbac_secrets.py": {
+      "domains": [
+        "owner"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): platform rights check (trust root)"
+    },
+    "scripts/test_precommit_monitoring_checks.py": {
+      "domains": [
+        "foundation"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): telemetry check"
+    },
+    "scripts/test_prune_merged_branches.py": {
+      "domains": [
+        "delivery"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): branch pruning"
+    }
+  },
+  "packages": {
+    "scripts/benchmark": {
+      "domains": [
+        "coordination"
+      ],
+      "status": "assigned",
+      "basis": "2026-11-21 CI line (verification, delivery), Owner via coordinator 2026-11-20: each line writes its repositories' tables; boundary only (law 50): agent benchmark (its Go interface file)"
+    }
+  }
+}
