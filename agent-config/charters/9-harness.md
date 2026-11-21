@@ -8,7 +8,7 @@
   - 席位配置与钩子：infra `agent-config/codex/`（`README.md`；`bifrost-seat.config.toml`、`hooks.json` 的副本在共享笔记 `agent-parity/seat-config/`，已装在 `~/.codex/`）。
   - 派活包装器：infra `scripts/agent-host/dispatch-codex.py`（登记、心跳）；入口脚本 `~/agent-work/dispatch.sh` **在仓库外、只在本机**。
   - 对比与验收材料：共享笔记 `agent-parity/`（first-page、u01、seat-compute 的每轮题和报告、run-log）。
-  - 席位台账：Artifact C342dhHB3NkJSXxdco5eFg（源文件 `agent-parity/ledger/index.html`）。
+  - 台账：Crew 台账 Artifact SSzE4XUUEwHVWnw8bWiKye（源文件 `agent-parity/ledger-crew/index.html`，共享笔记）。旧「Agent 能力线」台账页已按 Owner 11-21 删除，历史在 `agent-parity/ledger/index.html` 和 `agent-parity/seat-compute/run-log.md`。
 - 不归我：守卫脚本 `preflight.js` 本身（治理层/工坊）、平台登记和心跳的代码（领域 2）、Codex 在各线上做的活（归各线）。
 
 ## 2. 对外的口子
