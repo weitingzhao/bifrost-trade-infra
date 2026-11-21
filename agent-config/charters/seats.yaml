@@ -6,7 +6,8 @@
 # 【量】= 读 list_sessions、章程文件得到；【推】= 推断；sits_now 是写表时的读数，不是承诺，由对账脚本和会话清单核对。
 # 对账脚本：agent-config/scripts/check-seats.py（只读、不进 CI；进 CI 是新增裁判检查，要先交 Owner）。
 version: 1
-domain_ids: [foundation, plan, lineage, verification, delivery, owner, compute, tenant, coordination]
+# 跟 platform config/domain-ownership.json 的 domains[].id 一致（读于 platform origin/main，2026-11-21）
+domain_ids: [foundation, plan, lineage, verification, delivery, approvals, compute, payload, coordination, crew, station, audit, triage]
 
 # 参谋长不在这张表里：它独立于所有席位之外，不握任何领域的 ownership，没有领域身份卡（Owner 更正，主统筹 11-21 转述）。
 # name = Owner 11-21 定的新叫法（法 66）；id 仍是章程文件名。Audit（12）还没有章程页，没页就没行：对账要求一页一行。箭2 先坐，页写出来时补行。
@@ -17,16 +18,16 @@ seats:
   - {id: 1-plan,          charter: 1-plan.md,          domain: "1", domain_id: plan,                    kind: owner, harness: claude, session: local_6ab1ad67-09a8-4522-9b4a-a03125b10b2c, note: 占位席位，眼下没有活}
   - {id: 2-lineage,       charter: 2-lineage.md,       domain: "2", domain_id: lineage,                 kind: owner, harness: claude, session: local_7666e574-cf39-40a9-96bb-aa32d8a22b27, note: 占位席位，眼下没有活}
   - {id: 3-4-verify-release-ci, charter: 3-4-verify-release-ci.md, domain: "3,4", domain_id: verification, kind: owner, harness: claude, session: local_7de640c4-4b19-4a71-a0ac-ced2ce5fc7ff, also_domain_ids: [delivery]}
-  - {id: 5-owner, name: approvals,         charter: 5-owner.md,         domain: "5", domain_id: owner,                   kind: owner, harness: claude, session: local_360734e0-481d-48e1-86c9-1866b3707707}
+  - {id: 5-approvals, name: approvals,     charter: 5-approvals.md,         domain: "5", domain_id: approvals,                   kind: owner, harness: claude, session: local_360734e0-481d-48e1-86c9-1866b3707707}
   - {id: 6-compute,       charter: 6-compute.md,       domain: "6", domain_id: compute,                 kind: owner, harness: codex,  session: null, liaison: local_7dd39a39-1e0e-4878-b829-2e3f44d5589e, note: "坐席的是 Codex（11-14 U01 验收后接席，每轮由 dispatch.sh 起）；session 是 Claude 一侧的联络"}
-  - {id: 7-tenant, name: payload,        charter: 7-tenant.md,        domain: "7", domain_id: tenant,                  kind: owner, harness: claude, session: local_04484692-66ee-4517-b162-9c1440be14b1, note: 占位席位}
+  - {id: 7-tenant, name: payload,        charter: 7-tenant.md,        domain: "7", domain_id: payload,                  kind: owner, harness: claude, session: local_04484692-66ee-4517-b162-9c1440be14b1, note: 占位席位}
   - {id: 8-1-duty,        charter: 8-1-duty.md,        domain: "8.1", domain_id: coordination,          kind: owner, harness: claude, session: local_98ab5bcb-6d1b-40e5-aa73-c2c27b3038a0}
   - {id: 8-2-comm-desk,   charter: 8-2-comm-desk.md,   domain: "8.2", domain_id: coordination,          kind: owner, harness: claude, session: local_ab850773-fe26-40fa-ac01-b3b590b73164}
   - {id: 8-3-metrics,     charter: 8-3-metrics.md,     domain: "8.3", domain_id: coordination,          kind: owner, harness: claude, session: local_3361afbd-43fb-4539-a934-406b9a00b09f}
-  - {id: 9-harness, name: crew,       charter: 9-harness.md,       domain: "9", domain_id: null,                     kind: owner, harness: claude, session: local_2c3fa7a5-f04c-41a0-8528-ce1b5a07eb86}
-  - {id: 13-triage, name: triage,       charter: 13-triage.md,       domain: "13", domain_id: null,                    kind: owner, harness: claude, session: local_dd4f492f-ffe9-4c22-a166-ab4d0fd855c0, note: 专门的一条线（Owner 更正）；占位}
+  - {id: 9-harness, name: crew,       charter: 9-harness.md,       domain: "9", domain_id: crew,                     kind: owner, harness: claude, session: local_2c3fa7a5-f04c-41a0-8528-ce1b5a07eb86}
+  - {id: 13-triage, name: triage,       charter: 13-triage.md,       domain: "13", domain_id: triage,                    kind: owner, harness: claude, session: local_dd4f492f-ffe9-4c22-a166-ab4d0fd855c0, note: 专门的一条线（Owner 更正）；占位}
   - {id: 10-cockpit,      charter: 10-cockpit.md,      domain: "10", domain_id: null,                    kind: owner, harness: claude, session: local_d303ae46-113a-4d47-90e4-c8942f5fbbe5}
-  - {id: win2-workshop, name: station,   charter: win2-workshop.md,   domain: "11", domain_id: null,                    kind: owner, harness: claude, session: local_f6f0f02b-092c-4c76-b68d-57f5b4c1a7f0}
+  - {id: win2-workshop, name: station,   charter: win2-workshop.md,   domain: "11", domain_id: station,                    kind: owner, harness: claude, session: local_f6f0f02b-092c-4c76-b68d-57f5b4c1a7f0}
 
 # 临时席位：干完就走，记在请它的主人名下。一行一次来访（run_key 是 dispatch 注册的 key，ended 写离开时间）。
 # 现在这张表只记了已发生的 Codex 来访，口径是「谁请的、干了哪块、插手几次」，数来自 9-harness 的 run-log（临时读数）。
