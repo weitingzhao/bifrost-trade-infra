@@ -36,6 +36,16 @@
             "command": "node \"$CLAUDE_PROJECT_DIR/scripts/thread-heartbeat.js\" hook claude"
           }
         ]
+      },
+      {
+        "matcher": "AskUserQuestion|mcp__bifrost-platform__(ask_owner|request_owner|request_action)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/seat-card.py\"",
+            "timeout": 10
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -98,6 +108,11 @@
           {
             "type": "command",
             "command": "node \"$CLAUDE_PROJECT_DIR/scripts/thread-heartbeat.js\" hook claude"
+          },
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/seat-card.py\"",
+            "timeout": 10
           }
         ]
       }
