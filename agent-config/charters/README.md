@@ -12,7 +12,7 @@
 | 文件 | 线 |
 |---|---|
 | `company-coordinator.md` | 公司层 · 主统筹 |
-| `0-foundation-decouple.md` | 0 底座 / 解耦 |
+| `0-foundation-decouple.md` | Foundation（0 底座领域 owner，地图线除外；当前重点解耦） |
 | `0-2-catalog.md` | 0.2 地图（catalog） |
 | `1-plan.md` | 1 需求与计划（占位） |
 | `2-lineage.md` | 2 干活登记与血缘（占位） |
