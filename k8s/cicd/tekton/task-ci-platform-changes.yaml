@@ -15,6 +15,14 @@
 # the evidence ledger. The result is "*" (everything), or the names between spaces
 # (" api repo "). "*" before anything else and on any doubt: no answer, an answer cut
 # short, a line this task does not read, a commit with no declaration, nothing left out.
+# console-files (2026-11-21, CI line under law 49): the files test-console's vitest starts
+# from (vitest related): every changed path test-console's tests could import, relative to
+# console/ (console/src/** as src/**, any other path as ../path; Go and Markdown files are
+# left out, as vite imports neither). "none" when there is none; "*" (every test) before
+# anything else and on any doubt: a commit on main (the daily full CI), a deleted console
+# file, a console file outside console/src (packages, configuration), the test setup
+# (console/src/test/), a snapshot, more than 60 paths or 3000 characters, any failure.
+# test-console adds the tests that read files from disk, which no import graph shows.
 apiVersion: tekton.dev/v1
 kind: Task
 metadata:
@@ -41,6 +49,8 @@ spec:
       description: '"*" (every module runs), or the declared modules that run, each between spaces'
     - name: scope-why
       description: One line on how run-modules was chosen
+    - name: console-files
+      description: '"*" (every console test runs), "none", or the paths, relative to console/, test-console runs the related tests of'
   steps:
     - name: diff
       image: alpine/git:2.45.2
@@ -79,6 +89,8 @@ spec:
         modules_why_file="$(results.scope-why.path)"
         printf '*' > "$modules_file"
         printf 'not asked: the changes against main were not read' > "$modules_why_file"
+        console_file="$(results.console-files.path)"
+        printf '*' > "$console_file"
         answer() {
           printf '%s' "$1" > "$scope_file"
           printf '%s' "$2" | cut -c1-300 | tr -d '\n' > "$why_file"
@@ -169,6 +181,47 @@ spec:
           esac
         }
         ask_scope
+        # Which files test-console's vitest starts from. Nothing here fails the step or
+        # changes api-scope below.
+        console_line="$(tr '\0' '\n' < "$work/raw" | awk -v max=60 -v chars=3000 '
+          BEGIN { n = 0; meta = 1; bad = ""; list = "" }
+          meta == 1 {
+            if ($0 !~ /^:[0-7][0-7][0-7][0-7][0-7][0-7] [0-7][0-7][0-7][0-7][0-7][0-7] [0-9a-f]+ [0-9a-f]+ [ADM]$/) {
+              bad = "a change that is not an add, delete or edit of one file"; exit
+            }
+            status = substr($0, length($0), 1); meta = 0; next
+          }
+          {
+            meta = 1; path = $0
+            if (path !~ /^[A-Za-z0-9._@+-][A-Za-z0-9._@+\/-]*$/ || path ~ /(^|\/)\.\.?(\/|$)/ || path ~ /\/\// || path ~ /\/$/) {
+              bad = "a path this task does not read"; exit
+            }
+            if (substr(path, 1, 8) == "console/") {
+              if (status == "D") { bad = path " was deleted"; exit }
+              if (substr(path, 1, 12) != "console/src/") { bad = path " is outside console/src"; exit }
+              if (substr(path, 1, 17) == "console/src/test/") { bad = path " is the test setup"; exit }
+              if (path ~ /\/__snapshots__\//) { bad = path " is a snapshot"; exit }
+              if (path ~ /\.md$/) next
+              file = substr(path, 9)
+            } else {
+              if (path ~ /\.(go|md)$/ || status == "D") next
+              file = "../" path
+            }
+            n++
+            list = list (n > 1 ? " " : "") file
+            if (n > max) { bad = "more than " max " files test-console could import changed"; exit }
+            if (length(list) > chars) { bad = "the paths are longer than " chars " characters"; exit }
+          }
+          END {
+            if (bad == "" && meta == 0) bad = "the change list ends inside a record"
+            if (bad != "") print "*|" bad
+            else if (n == 0) print "none|no file test-console could import changed"
+            else print list "|" n " file(s)"
+          }' 2>/dev/null)" || console_line="*|the changes could not be read"
+        case "$console_line" in
+          *'|'*) printf '%s' "${console_line%%|*}" > "$console_file"; echo "console-files: ${console_line%%|*} (${console_line#*|})" ;;
+          *) printf '*' > "$console_file"; echo "console-files: * (the changes could not be read)" ;;
+        esac
         # Records alternate: ":<old mode> <new mode> <old> <new> <status>", then the path.
         verdict="$(tr '\0' '\n' < "$work/raw" | awk -v max=2000 '
           BEGIN { n = 0; meta = 1; bad = ""; shown = 0; list = "" }

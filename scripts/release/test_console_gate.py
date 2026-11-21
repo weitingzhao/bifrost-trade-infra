@@ -103,10 +103,30 @@ npx tsc --noEmit
 echo "==> npm run lint"
 npm run lint
 
-echo "==> vitest run"
+# 2026-11-21 (CI line, law 49): a branch run tests what its changes reach.
+# task changes names the changed files the tests could import
+# (CONSOLE_FILES); vitest related runs the tests that import them, and
+# this adds every test that reads files from disk, which no import graph
+# shows. "*", or no such test found, runs every test. The daily full CI
+# runs every test, and PROD is released on it. Revert: run every test.
+mode=all
+if [ "${CONSOLE_FILES:-*}" != "*" ]; then
+  read_disk="$(grep -rlE "from [\\"'](node:)?fs(/promises)?[\\"']|require\\\\([\\"'](node:)?fs[\\"']\\\\)|import\\\\.meta\\\\.glob|\\\\?raw[\\"']" src --include='*.test.ts' --include='*.test.tsx' || true)"
+  [ -z "${read_disk}" ] || mode=related
+fi
+changed=""
+[ "${CONSOLE_FILES:-*}" = none ] || changed="${CONSOLE_FILES:-}"
+
 # The pod sees the node's cores; the limit is six CPUs.
 # Measured 2026-10-11: without it, 7 of 814 tests time out.
-npx vitest run --maxWorkers=6
+if [ "${mode}" = all ]; then
+  echo "==> vitest run"
+  npx vitest run --maxWorkers=6
+else
+  echo "==> vitest related: ${changed:-no changed file} and $(printf '%s\\n' "${read_disk}" | wc -l) tests that read from disk"
+  # shellcheck disable=SC2086
+  npx vitest related --run --maxWorkers=6 ${changed} ${read_disk}
+fi
 
 echo "==> npm run build"
 npm run build
@@ -128,14 +148,15 @@ WANTED_RUN_AFTER = ["clone", "clone-ui"]
 EXPECTED_CONSOLE = {
     "name": "test-console",
     "params": [{"name": "reuse", "value": "$(tasks.reuse.results.reuse)"},
-               {"name": "run-modules", "value": "$(tasks.changes.results.run-modules)"}],
+               {"name": "run-modules", "value": "$(tasks.changes.results.run-modules)"},
+               {"name": "console-files", "value": "$(tasks.changes.results.console-files)"}],
     "timeout": "20m0s",
     "runAfter": ["clone", "clone-ui"],
     "workspaces": [
         {"name": "source", "workspace": "source"},
     ],
     "taskSpec": {
-        "params": [{"name": "reuse"}, {"name": "run-modules"}],
+        "params": [{"name": "reuse"}, {"name": "run-modules"}, {"name": "console-files"}],
         "workspaces": [
             {"name": "source"},
         ],
@@ -153,6 +174,7 @@ EXPECTED_CONSOLE = {
                 },
                 "env": [{"name": "REUSE", "value": "$(params.reuse)"},
                         {"name": "RUN_MODULES", "value": "$(params.run-modules)"},
+                        {"name": "CONSOLE_FILES", "value": "$(params.console-files)"},
                         {"name": "MODULE", "value": "console"}],
                 "script": CANONICAL,
             },
@@ -325,6 +347,27 @@ def worker_pin_problems(script: str, cpu_limit: object) -> list[str]:
     if not tokens:
         return [f"vitest line lacks {want}"]
     return [f"vitest line has {tokens[0]}, want {want}"]
+
+
+def related_problems(script: str, cpu_limit: object) -> list[str]:
+    """Why the branch run's vitest related line is not the gate's vitest line narrowed.
+
+    2026-11-21 (CI line, law 49): a branch run runs the related tests instead of
+    every test. That line keeps the worker pin and must not hide its exit; it is
+    the only other vitest line.
+    """
+    count = whole_cpus(cpu_limit)
+    lines = [raw.strip() for raw in script.splitlines()
+             if raw.strip().startswith("npx vitest") and not _invokes(raw.strip(), "npx vitest run")]
+    if len(lines) != 1 or not lines[0].startswith("npx vitest related --run "):
+        return [f"want one npx vitest related --run line besides vitest run, got {lines}"]
+    reasons = []
+    if count is None or f"--maxWorkers={count}" not in lines[0].split():
+        reasons.append(f"vitest related line lacks --maxWorkers={count}")
+    hidden = _hides_exit(lines[0])
+    if hidden:
+        reasons.append(f"vitest related hides its exit with {hidden}")
+    return reasons
 
 
 _PINNED = GOOD.replace("\nnpx vitest run\n", "\nnpx vitest run --maxWorkers=2\n", 1)
@@ -698,6 +741,16 @@ class ConsoleGateTests(unittest.TestCase):
                     any("not a whole number of CPUs" in reason for reason in reasons),
                     (label, reasons),
                 )
+
+    def test_the_related_line_keeps_the_pin_and_its_exit(self) -> None:
+        # 2026-11-21: branch runs narrowed to vitest related (CI line, law 49); the
+        # narrowed line must not lose what the vitest run line is held to.
+        self.assertEqual(related_problems(CANONICAL, "6"), [])
+        related = "npx vitest related --run --maxWorkers=6 ${changed} ${read_disk}"
+        self.assertIn(related, CANONICAL)
+        self.assertTrue(related_problems(CANONICAL.replace(related, related.replace(" --maxWorkers=6", "")), "6"))
+        self.assertTrue(related_problems(CANONICAL.replace(related, related + " || true"), "6"))
+        self.assertTrue(related_problems(CANONICAL.replace(related, related + "\n  npx vitest related --run x"), "6"))
 
 
 if __name__ == "__main__":

@@ -114,7 +114,7 @@ def test_test_api_takes_its_scope_from_changes():
     # A landing run with a base, or a run that asks for full, never narrows to console.
     assert 'if [ "${API_SCOPE:-full}" = "console" ] && [ -z "${LANDING_BASE:-}" ] && [ "${API_SCOPE_REQUEST:-}" != full ]; then' in api_script()
     changes = t["changes"]
-    assert [r["name"] for r in changes["taskSpec"]["results"]] == ["api-scope", "why", "run-modules", "scope-why"]
+    assert [r["name"] for r in changes["taskSpec"]["results"]] == ["api-scope", "why", "run-modules", "scope-why", "console-files"]
     assert "workspaces" not in changes and "when" not in changes and "onError" not in changes
     step = changes["taskSpec"]["steps"][0]
     secrets = {e["valueFrom"]["secretKeyRef"]["name"] for e in step["env"] if "valueFrom" in e}
@@ -127,6 +127,8 @@ def test_test_api_takes_its_scope_from_changes():
     assert lines.index("printf 'full' > \"$scope_file\"") < first_git
     # Everything runs until the platform has said otherwise.
     assert lines.index("printf '*' > \"$modules_file\"") < first_git
+    # Every console test runs until the changes have been read (2026-11-21).
+    assert lines.index("printf '*' > \"$console_file\"") < first_git
 
 
 # --- task changes, run as written ------------------------------------------
@@ -179,12 +181,13 @@ def run_changes(tmp_path: Path, origin: Path, revision: str, url: str = GITEA_UR
     """platform_says is the body the platform's scope route answers with; None is no answer."""
     results = tmp_path / "results"
     results.mkdir(exist_ok=True)
-    for name in ("api-scope", "why", "run-modules", "scope-why"):
+    for name in ("api-scope", "why", "run-modules", "scope-why", "console-files"):
         (results / name).unlink(missing_ok=True)
     script = (changes_script().replace("$(results.api-scope.path)", str(results / "api-scope"))
               .replace("$(results.why.path)", str(results / "why"))
               .replace("$(results.run-modules.path)", str(results / "run-modules"))
-              .replace("$(results.scope-why.path)", str(results / "scope-why")))
+              .replace("$(results.scope-why.path)", str(results / "scope-why"))
+              .replace("$(results.console-files.path)", str(results / "console-files")))
     assert "$(results." not in script
     path = tmp_path / "changes.sh"
     path.write_text(script)
@@ -223,6 +226,7 @@ def run_changes(tmp_path: Path, origin: Path, revision: str, url: str = GITEA_UR
     modules, modules_why = (results / "run-modules").read_text(), (results / "scope-why").read_text()
     assert "\n" not in modules and "\n" not in modules_why and modules and 0 < len(modules_why) <= 300, (modules, modules_why)
     run_changes.modules = (modules, modules_why)
+    run_changes.console_files = (results / "console-files").read_text()
     return scope, why, out
 
 
@@ -328,6 +332,82 @@ def symlink(rel: str, target: str):
 
 def executable(rel: str):
     return lambda work: (work / rel).chmod(0o755)
+
+
+# --- console-files: which files test-console's vitest starts from (2026-11-21) ----------------
+#
+# Origin: CI line under law 49, 2026-11-21. Over the 24 hours before, 50 branch runs ran every
+# console test (median step 171 s, the tests about 110 s of it) though most touched a few files;
+# vitest related runs only the tests that import what changed. Every doubt runs every test.
+
+@pytest.mark.parametrize("change, files", [
+    (write("console/src/pages/A.tsx"), "src/pages/A.tsx"),
+    # A file outside console that a console test may import (mcp, scripts, testdata) is named
+    # from console; Go and Markdown are never imported and are left out.
+    (both(write("console/src/pages/A.tsx"), write("mcp/x.ts"), write("api/internal/x/x.go"), write("README.md")),
+     "src/pages/A.tsx ../mcp/x.ts"),
+    (write("console/src/pages/__tests__/A.test.tsx"), "src/pages/__tests__/A.test.tsx"),
+    (write("api/internal/x/x.go"), "none"),
+    (write("console/src/domains/RULES.md"), "none"),
+    # Everything runs: packages or configuration, the test setup, a snapshot, a deleted console file.
+    (write("console/package.json"), "*"),
+    (write("console/vitest.config.ts"), "*"),
+    (write("console/src/test/setup.ts"), "*"),
+    (write("console/src/x/__tests__/__snapshots__/a.test.ts.snap"), "*"),
+    (remove("console/src/pages/A.tsx"), "*"),
+    (both(*[write(f"console/src/many/F{i}.ts") for i in range(61)]), "*"),
+])
+def test_console_files_name_what_vitest_starts_from(tmp_path, platform, change, files):
+    origin, work = platform
+    run_changes(tmp_path, origin, branch(work, "console-files", change))
+    assert run_changes.console_files == files
+
+
+def test_a_commit_on_main_runs_every_console_test(tmp_path, platform):
+    origin, work = platform
+    run_changes(tmp_path, origin, git(work, "rev-parse", "main"))
+    assert run_changes.console_files == "*"
+
+
+def test_test_console_runs_the_related_tests_and_every_test_that_reads_disk(tmp_path):
+    # The step's own lines, run as written, with npx replaced by one that prints its arguments.
+    line = next(t for t in yaml.safe_load(PIPELINE.read_text())["spec"]["tasks"] if t["name"] == "test-console")
+    step = line["taskSpec"]["steps"][0]
+    env = {e["name"]: e.get("value") for e in step["env"]}
+    assert env["CONSOLE_FILES"] == "$(params.console-files)"
+    assert {"name": "console-files", "value": "$(tasks.changes.results.console-files)"} in line["params"]
+    script = step["script"]
+    block = script[script.index("mode=all"):script.index('echo "==> npm run build"')]
+    console = tmp_path / "console"
+    for rel, text in {"src/a/__tests__/disk.test.ts": "import { readFileSync } from 'node:fs'\n",
+                      "src/a/__tests__/raw.test.tsx": "import t from '../RULES.md?raw'\n",
+                      "src/a/__tests__/plain.test.ts": "import { a } from '../a'\n",
+                      "src/a/disk.ts": "import { readFileSync } from 'node:fs'\n"}.items():
+        (console / rel).parent.mkdir(parents=True, exist_ok=True)
+        (console / rel).write_text(text)
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "npx").write_text('#!/bin/sh\necho "npx $*"\n')
+    (bin_dir / "npx").chmod(0o755)
+    def ran(value):
+        e = {"PATH": f"{bin_dir}:{os.environ['PATH']}"}
+        if value is not None:
+            e["CONSOLE_FILES"] = value
+        r = subprocess.run(["bash", "-euo", "pipefail", "-c", block], cwd=console, env=e, capture_output=True, text=True, timeout=20)
+        assert r.returncode == 0, r.stderr
+        (call,) = [l for l in r.stdout.splitlines() if l.startswith("npx ")]
+        return call
+    assert ran("*") == ran(None) == "npx vitest run --maxWorkers=6"
+    disk = ["src/a/__tests__/disk.test.ts", "src/a/__tests__/raw.test.tsx"]  # grep's order is the directory's
+    head = "npx vitest related --run --maxWorkers=6".split()
+    call = ran("src/a/a.ts ../mcp/x.ts").split()
+    assert call[:7] == head + ["src/a/a.ts", "../mcp/x.ts"] and sorted(call[7:]) == disk
+    call = ran("none").split()
+    assert call[:5] == head and sorted(call[5:]) == disk
+    # Positive control for the fallback: with no test that reads from disk, every test runs.
+    for rel in ("src/a/__tests__/disk.test.ts", "src/a/__tests__/raw.test.tsx"):
+        (console / rel).unlink()
+    assert ran("src/a/a.ts") == "npx vitest run --maxWorkers=6"
 
 
 CASES = [

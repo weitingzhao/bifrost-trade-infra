@@ -245,6 +245,10 @@ spec:
         # them, so the run's reason stays Succeeded; the base's run stands for it.
         - name: run-modules
           value: $(tasks.changes.results.run-modules)
+        # 2026-11-21 (CI line, law 49): the files vitest starts from on a branch run;
+        # "*" runs every test (main, the daily full CI, any doubt).
+        - name: console-files
+          value: $(tasks.changes.results.console-files)
       workspaces:
         - name: source
           workspace: source
@@ -252,6 +256,7 @@ spec:
         params:
           - name: reuse
           - name: run-modules
+          - name: console-files
         workspaces:
           - name: source
         # CI-7: npm's download cache, shared by every run on every node
@@ -291,6 +296,8 @@ spec:
                 value: $(params.reuse)
               - name: RUN_MODULES
                 value: $(params.run-modules)
+              - name: CONSOLE_FILES
+                value: $(params.console-files)
               # The module of the declaration this task verifies.
               - name: MODULE
                 value: console
@@ -341,10 +348,30 @@ spec:
               echo "==> npm run lint"
               npm run lint
 
-              echo "==> vitest run"
+              # 2026-11-21 (CI line, law 49): a branch run tests what its changes reach.
+              # task changes names the changed files the tests could import
+              # (CONSOLE_FILES); vitest related runs the tests that import them, and
+              # this adds every test that reads files from disk, which no import graph
+              # shows. "*", or no such test found, runs every test. The daily full CI
+              # runs every test, and PROD is released on it. Revert: run every test.
+              mode=all
+              if [ "${CONSOLE_FILES:-*}" != "*" ]; then
+                read_disk="$(grep -rlE "from [\"'](node:)?fs(/promises)?[\"']|require\\([\"'](node:)?fs[\"']\\)|import\\.meta\\.glob|\\?raw[\"']" src --include='*.test.ts' --include='*.test.tsx' || true)"
+                [ -z "${read_disk}" ] || mode=related
+              fi
+              changed=""
+              [ "${CONSOLE_FILES:-*}" = none ] || changed="${CONSOLE_FILES:-}"
+
               # The pod sees the node's cores; the limit is six CPUs.
               # Measured 2026-10-11: without it, 7 of 814 tests time out.
-              npx vitest run --maxWorkers=6
+              if [ "${mode}" = all ]; then
+                echo "==> vitest run"
+                npx vitest run --maxWorkers=6
+              else
+                echo "==> vitest related: ${changed:-no changed file} and $(printf '%s\n' "${read_disk}" | wc -l) tests that read from disk"
+                # shellcheck disable=SC2086
+                npx vitest related --run --maxWorkers=6 ${changed} ${read_disk}
+              fi
 
               echo "==> npm run build"
               npm run build
