@@ -461,3 +461,11 @@
 - 需要旧形状行的兼容测试用各自测试包里不导出的 `oldShapeRow` 直写（库只校验哈希链接续）；生产写入只有 eventlog.Append 一条路，按当前声明校验。
 - 覆盖不到的：一个新类型登记时选哪个领域靠写的人判断（登记表测试只查 id 合法）；compute 的历史类型名、metrics_computed、rule_* 还在 store 声明（各有前提：rulestore 等 Owner、metrics 等沟通线）。
 
+
+### 游标测试不再等全库最老事务（TD-583，2026-11-21）
+
+出处：2026-11-18 沟通线本机全量跑 `./internal/agentrt/...`，`TestCursorAtReadsFromATime` 红在「from before both: []」：测试的两行用插入它们的事务号，而读取的上限是整个集群里最老的运行中事务，所有测试共用一个 PG，别的包一个长事务就把这两行压在上限之上，超过 15 秒等待。单独建库没用，因为上限是整个集群的，不是每个库一个。
+
+- platform `api/internal/agentrt/eventlog/cursorat_db_test.go`：`TestCursorAtReadsFromATime` 的两行固定用事务号 1、2，低于任何上限，测的只是「从某个时刻读起」，和别的测试开没开事务无关；15 秒等待删掉。
+- 同文件 `TestCursorAtWaitsForTheOldestOpenTransaction` 是阳性对照：另开一个不提交的旧事务，断言上限不高于它的事务号、用自己事务号写的那行在它之上并且读不到，把当初的原因当场抓一次。它不等旧事务结束后那行出现：那一步同样受别的测试的事务影响，第一版这么写，在全量 `-count=10` 里红过一次。
+- 覆盖不到的：别的连库测试如果也依赖上限（读 EventsAfter、等自己写的行），同样会被别人的长事务拖住；本条只修了这一个。
