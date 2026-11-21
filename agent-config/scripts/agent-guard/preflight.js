@@ -702,7 +702,8 @@ function githubPushRule(cmd, cwd) {
   const toGitHub = repo =>
     `${repo} 以 Gitea 为主（agent-config/gitea-primary.txt）：推 Gitea，GitHub 由集群同步（k8s/cicd/github-sync），不从这里推`
   const unclear = why =>
-    `看不出这次 git push 推到哪里（${why}）。有仓库以 Gitea 为主时要能查到：写成 \`git -C <检出目录> push <远端> <refspec>\``
+    `看不出这次 git push 推到哪里（${why}）。闸门要从命令本身读出是哪个仓库、推到哪个远端：` +
+    `不要先 cd 再推，写成一条 \`git -C <检出目录的绝对路径> push origin <提交号>:refs/heads/<分支>\`，单独成一条命令`
   const githubRemote = '`github` 远端只读：以 Gitea 为主的仓库推 Gitea（origin），GitHub 由集群同步（k8s/cicd/github-sync）'
   // 名单空着也拦 github 远端：文本匹配认得出包在引号里的（sh -c "git push github …"），下面的分词认不出；
   // 文本匹配只在不是读、写文件的命令上用（同 pushMainRule）
@@ -870,6 +871,13 @@ function kubeconfigValueAllowed(raw) {
   let value = String(raw || '').trim()
   if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
     value = value.slice(1, -1).trim()
+  } else if (/["']$/.test(value) && !/^["']/.test(value)) {
+    // The value sits inside a quoted string and the quote that ends here closes
+    // that string: `K="--kubeconfig $HOME/.kube/bifrost-k3s.yaml"` reads
+    // `$HOME/.kube/bifrost-k3s.yaml"`. The allow-list below is unchanged.
+    // Origin: 2026-11-20, the decoupling line's count: 81 refusals in 22
+    // sessions in 7 days, most of them this form (law 49).
+    value = value.slice(0, -1).trim()
   }
   if (value === '~/' + ALLOWED_KUBE_TAIL) return true
   if (value === '$HOME/' + ALLOWED_KUBE_TAIL) return true
@@ -1108,6 +1116,27 @@ function denyMessage(kind, reason) {
   )
 }
 
+// blockLogLine is one line of the local block log: when, which rule, which
+// session. No command text, so nothing a command carried lands in the log.
+function blockLogLine(kind, payload, now) {
+  const session = String((payload && payload.session_id) || '-').replace(/[^\w.-]/g, '_')
+  return `${now.toISOString()}\t${String(kind || '-').replace(/\s/g, '_')}\t${session}\n`
+}
+
+// logBlock appends that line under ~/.bifrost-dev/logs, outside every
+// repository, so the rules that refuse can be counted without reading
+// transcripts (law 49: execute, then evaluate). Any error is swallowed: the
+// log must never change a verdict.
+// Origin: 2026-11-20, the decoupling line's gate inventory had to count
+// refusals by scanning session transcripts.
+function logBlock(kind, payload) {
+  try {
+    const dir = path.join(require('node:os').homedir(), '.bifrost-dev', 'logs')
+    fs.mkdirSync(dir, { recursive: true })
+    fs.appendFileSync(path.join(dir, 'agent-guard-blocks.log'), blockLogLine(kind, payload, new Date()))
+  } catch {}
+}
+
 function main() {
   const raw = (() => {
     try {
@@ -1145,6 +1174,7 @@ function main() {
 
   if (!verdict.deny) process.exit(0)
 
+  logBlock(verdict.kind, payload)
   const message = denyMessage(verdict.kind, verdict.reason)
   const event = String(
     payload?.hook_event_name || (/beforeShellExecution|beforeMCPExecution/.test(raw) ? 'before' : ''),
@@ -1171,4 +1201,4 @@ function main() {
 }
 
 if (require.main === module) main()
-module.exports = { nasMountPoints, nasPathRule, nasGuard, readMountTable, evaluate, githubRepoOf }
+module.exports = { nasMountPoints, nasPathRule, nasGuard, readMountTable, evaluate, githubRepoOf, blockLogLine }

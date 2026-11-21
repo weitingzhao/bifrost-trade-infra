@@ -260,6 +260,15 @@ const cases = [
   ['own', 'ALLOW', '--kubeconfig 只读 kubeconfig 在子 shell 末尾', bash('(kubectl get pods --kubeconfig ~/' + KUBE_OK + ')')],
   ['own', 'DENY', 'KUBECONFIG 冒号列表把别的文件放在前面', bash('KUBECONFIG=/Users/x/.kube/admin.yaml:/Users/x/' + KUBE_OK + ' kubectl get pods')],
   ['own', 'DENY', 'KUBECONFIG 冒号列表 ~ 开头', bash('KUBECONFIG=~/' + KUBE_OK + ':/tmp/admin.yaml kubectl get pods')],
+  // Origin: 2026-11-20, the decoupling line's count (law 49): 81 refusals in 22 sessions in 7 days, most of
+  // them a --kubeconfig value inside a quoted variable, read with the closing quote. The ALLOW cases are the
+  // fix; the DENY cases beside them are their positive controls (the allow-list is unchanged).
+  ['own', 'ALLOW', '变量里的 --kubeconfig $HOME 只读 kubeconfig', bash('K="--kubeconfig $HOME/' + KUBE_OK + '"; $K get pods')],
+  ['own', 'ALLOW', '变量里的 kubectl --kubeconfig ~ 只读 kubeconfig', bash('K="kubectl --kubeconfig ~/' + KUBE_OK + '"; $K -n cicd get pvc')],
+  ['own', 'ALLOW', '单引号变量里的 --kubeconfig 绝对路径', bash("K='--kubeconfig /Users/x/" + KUBE_OK + "'; $K get pods")],
+  ['own', 'DENY', '变量里的 --kubeconfig 指向别的文件', bash('K="--kubeconfig ~/.kube/admin.yaml"; $K get pods')],
+  ['own', 'DENY', '变量里的 --kubeconfig 是副本', bash('K="--kubeconfig /tmp/x/' + KUBE_OK + '"; $K get pods')],
+  ['own', 'DENY', '变量里的 --kubeconfig 合并列表', bash('K="--kubeconfig ~/' + KUBE_OK + ':/tmp/a.yaml"; $K get pods')],
   ['own', 'DENY', 'KUBECONFIG 指向别处的同名副本', bash('KUBECONFIG=/tmp/x/' + KUBE_OK + ' kubectl get pods')],
   ['own', 'DENY', 'export KUBECONFIG 指向别的文件后接分号', bash('export KUBECONFIG=~/.kube/admin.yaml; kubectl get pods')],
   ['own', 'DENY', 'Agent 运行 Owner 脚本 move-owner-secrets', bash('bash scripts/owner/move-owner-secrets.sh')],
@@ -540,6 +549,21 @@ console.log('\n── Gitea 为主：名单为空 ──')
     console.log(`  ${ok ? '✓' : '✗'} ${got.padEnd(5)} ${name}${ok ? '' : `   ← 期望 ${want}（${verdict.kind || ''}）`}`)
   }
   process.env.BIFROST_GITEA_PRIMARY_LIST = savedList
+}
+// Origin: 2026-11-20, law 49 (the decoupling line had to count refusals by scanning transcripts): the block
+// log line carries the time, the rule and the session, and no command text.
+console.log('\n── 拦截日志的一行 ──')
+{
+  const { blockLogLine } = require(GUARD)
+  const line = blockLogLine('owner', { session_id: 'abc-1', tool_input: { command: 'cat secret' } }, new Date('2026-11-21T00:00:00Z'))
+  const want = '2026-11-21T00:00:00.000Z\towner\tabc-1\n'
+  const ok = line === want && !line.includes('secret')
+  ok ? pass++ : fail++
+  console.log(`  ${ok ? '✓' : '✗'} ${JSON.stringify(line)}${ok ? '' : `   ← 期望 ${JSON.stringify(want)}`}`)
+  const odd = blockLogLine('gitea-primary', { session_id: 'a\tb\nc' }, new Date('2026-11-21T00:00:00Z'))
+  const ok2 = odd === '2026-11-21T00:00:00.000Z\tgitea-primary\ta_b_c\n'
+  ok2 ? pass++ : fail++
+  console.log(`  ${ok2 ? '✓' : '✗'} 会话号里的制表符和换行被替换 ${JSON.stringify(odd)}`)
 }
 // 复核 244 第 9 项：push-main.sh 的 github_repo 读同一份用例（scripts/release/test_push_main.py）
 console.log('\n── GitHub 地址解析（与 push-main.sh 共用 github-repo-cases.json）──')
