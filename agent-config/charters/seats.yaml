@@ -33,7 +33,7 @@ seats:
   - {id: 12-audit, name: audit,         charter: 12-audit.md,        domain: "12", domain_id: audit,                    kind: owner, harness: claude, session: local_7666e574-cf39-40a9-96bb-aa32d8a22b27, note: 与 2-lineage 同一会话兼坐, mailbox: registered}
   - {id: 13-triage, name: triage,       charter: 13-triage.md,       domain: "13", domain_id: triage,                    kind: owner, harness: claude, session: local_dd4f492f-ffe9-4c22-a166-ab4d0fd855c0, note: 专门的一条线（Owner 更正）；占位, mailbox: registered}
   - {id: 10-cockpit,      charter: 10-cockpit.md,      domain: "10", domain_id: null,                    kind: owner, harness: claude, session: local_d303ae46-113a-4d47-90e4-c8942f5fbbe5, mailbox: registered}
-  - {id: win2-workshop, name: station,   charter: win2-workshop.md,   domain: "11", domain_id: station,                    kind: owner, harness: claude, session: local_f6f0f02b-092c-4c76-b68d-57f5b4c1a7f0, mailbox: registered}
+  - {id: 11-station, name: station,      charter: 11-station.md,      domain: "11", domain_id: station,                    kind: owner, harness: claude, session: local_f6f0f02b-092c-4c76-b68d-57f5b4c1a7f0, mailbox: registered}
 
 # 临时席位：干完就走，记在请它的主人名下。一行一次来访：Codex 用 dispatch 注册的 run_key，Claude 会话用 session；ended 写离开时间。
 # 卡放 cards/<id>.yaml，和主人席位一样六栏。
