@@ -33,7 +33,7 @@ Build Desk（Briefing / In Flight / Delivery、`/api/v1/programs`、`config/prog
    - 新增 RPC op / 改变数据流方向
    - 新增外部依赖（pip/npm package）
    - 改变模块公开接口（函数签名、类属性）
-   - 新增数据库表或列
+   - 新增数据库列，或别的领域的表（自己领域里新增表、迁移只增不删的，席位自己判，见根 `CLAUDE.md`「席位自己判新表该不该建」）
    - 遇到时：明确列出 2–3 个选项 + 推荐 → 等 Owner 确认
 6. **最小化变更范围**：只改 Phase scope 内的代码，不做 scope 外的 refactor。
 
