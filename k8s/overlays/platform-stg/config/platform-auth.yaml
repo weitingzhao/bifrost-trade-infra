@@ -51,3 +51,16 @@ tokens:
   - name: seat:stg-4090-audit
     role: reporter
     token_env: PLATFORM_SEAT_4090_AUDIT_STG_TOKEN
+  # Named-machine executors have distinct optional, STG-only credentials.
+  - name: host-work-mac
+    role: executor
+    token_env: OWNER_EXEC_WORK_MAC_TOKEN
+  - name: host-ops-mac-agent-01
+    role: executor
+    token_env: OWNER_EXEC_MINI_01_TOKEN
+  - name: host-ops-mac-agent-02
+    role: executor
+    token_env: OWNER_EXEC_MINI_02_TOKEN
+  - name: host-ubt-k3s-06
+    role: executor
+    token_env: OWNER_EXEC_AGENT_06_TOKEN

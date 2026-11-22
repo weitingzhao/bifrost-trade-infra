@@ -65,3 +65,33 @@ spec:
                   name: station-4090-stg-credentials
                   key: PLATFORM_SEAT_4090_AUDIT_STG_TOKEN
                   optional: true
+            - name: APPROVAL_TICKET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: owner-exec-host-tickets
+                  key: ticket-key
+                  optional: true
+            - name: OWNER_EXEC_WORK_MAC_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: owner-exec-host-tickets
+                  key: work-mac
+                  optional: true
+            - name: OWNER_EXEC_MINI_01_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: owner-exec-host-tickets
+                  key: ops-mac-agent-01
+                  optional: true
+            - name: OWNER_EXEC_MINI_02_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: owner-exec-host-tickets
+                  key: ops-mac-agent-02
+                  optional: true
+            - name: OWNER_EXEC_AGENT_06_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: owner-exec-host-tickets
+                  key: ubt-k3s-06
+                  optional: true
