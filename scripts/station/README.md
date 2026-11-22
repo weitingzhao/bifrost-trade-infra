@@ -3,6 +3,7 @@
 Station 管（法 77，2026-11-21）。给任何一个新来的成员：办之前先查这里，不靠一次次被拒碰出来。
 
 - 查：`python3 scripts/station/howto.py` 列出能查的事；`python3 scripts/station/howto.py land` 打印合入 main 要带什么。
+- 改了治理文件、自己的克隆里跑不了治理一致性检查：`bash scripts/station/workspace.sh <检出目录>` 拼一个临时工作区（治理文件取自你的检出，别的仓库链接到共享检出），再跑它打印的根下的 `scripts/check-governance-consistency.sh`。Codex 安装那一项在临时根下必报漂移，查的是本机不是改动，其余照读。
 - 办之前自查：`python3 scripts/station/precheck.py <检出目录> [<提交>]`，跑合入时同样的检查（同一份代码，从 `pipeline-land.yaml` 里读出来执行），告诉你会因为什么被拒。
 
 ## 格式 `station.requires/v1`

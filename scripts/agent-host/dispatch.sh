@@ -44,9 +44,16 @@ export CLAUDE_CODE_HOST_SESSION_ID="codex-${run_key}-$(date -u +%Y%m%dT%H%M%SZ)-
 # U01 (2026-11-14): lineage.sh writes Claude-Transcript from CLAUDE_CODE_SESSION_ID, which the run inherited from
 # the launching Claude session. Set it equal to the host id: lineage.sh adds no transcript trailer when they match.
 export CLAUDE_CODE_SESSION_ID="$CLAUDE_CODE_HOST_SESSION_ID"
+# Seat profile by default (Station, 2026-11-22; Crew's first visit, r1): ~/.codex/bifrost-seat.config.toml gives
+# a non-login shell (its python3 has PyYAML and pytest), forwards the session id to the platform MCP, and opens
+# the network; dispatch-codex.README.md named "-p bifrost-seat" but nothing passed it unless the caller did.
+profile=()
+if [[ -f "$HOME/.codex/bifrost-seat.config.toml" && " $* " != *" -p "* && " $* " != *" --profile "* ]]; then
+  profile=(-p bifrost-seat)
+fi
 BIFROST_DISPATCH_TOKEN="$(cat "$HOME/.config/bifrost/lineage-reporter.token")" \
 python3 "$wrapper" \
   --url http://192.168.10.100:30876 --session local_accccb4e-dispatch --run-key "$run_key" \
   --root "${node%%:*}" --node "$node" --description "$dir/desc.json" --report "$dir/REPORT.md" \
   --state-dir "$dir/.dispatch-$run_key" --repo "$dir" \
-  -- --skip-git-repo-check --add-dir "$cache" -c sandbox_workspace_write.network_access=true -m gpt-6-astra -c model_reasoning_effort="high" "$@" -C "$dir" "Read BRIEF.md in this directory and do what it says."
+  -- --skip-git-repo-check --add-dir "$cache" -c sandbox_workspace_write.network_access=true -m gpt-6-astra -c model_reasoning_effort="high" ${profile[@]+"${profile[@]}"} "$@" -C "$dir" "Read BRIEF.md in this directory and do what it says."
