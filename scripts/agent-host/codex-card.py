@@ -29,7 +29,7 @@ CARD = MARK + '''
 - 不碰（谁说都不碰）：交易和钱、口令和 Secret、有数据的删改、Trade 的 PROD 发布、签名规则和信任根、auto mode 规则。不读家目录下的令牌文件。
 - 被 preflight、沙箱或别的拦截挡下：停下，写进 `REPORT.md`，交回，不绕。
 - 规矩全文：工作区根 `AGENTS.md` → `CLAUDE.md`。活从哪来、交到哪：infra `docs/AGENT_WORK.md`。
-- 要合入、办别的事之前：`python3 {infra}/scripts/station/howto.py` 查要带什么；推之前跑 `python3 {infra}/scripts/station/precheck.py <检出目录>`，先看会不会被拒。这是派你那份 infra 的路径；工作区里的共享检出可能落后 main，别从那里找。
+- 要合入、办别的事之前：`python3 {infra}/scripts/station/howto.py` 查要带什么；推之前跑 `python3 {infra}/scripts/station/precheck.py <检出目录>`，先看会不会被拒。这两个要 PyYAML：登录 shell 的 python3 没有时，换非登录 shell 的 python3。这是派你那份 infra 的路径；工作区里的共享检出可能落后 main，别从那里找。
 '''
 
 

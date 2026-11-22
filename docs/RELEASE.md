@@ -248,6 +248,8 @@ STG 的 `rollout` 引用 `bifrost-rollout-verify-platform`，先重启并等待�
 
 ## 怎么进 main：推 `ready/<名字>`（2026-11-13 起，infra 和 platform）
 
+**推之前**：先读 [`scripts/landing/admission.yaml`](../scripts/landing/admission.yaml)（要带什么、每一种被拒怎么办），再跑 `python3 scripts/station/precheck.py <检出目录>`，它跑合入时同样的检查，最后打印这次该用的那一条推送命令。推送写成单独一条 `git -C <检出目录的绝对路径> push origin <提交号>:refs/heads/ready/<名字>`，不先 cd。
+
 从最新的 main 牵出分支，改完推到 `ready/<名字>`。之后没有人要动手。（11-12 定的是「main 只经合并请求进」；11-13 起，经 Owner 同意，合并请求照开，最后一步改成合入账号把测过的提交只快进地推到 main。）
 
 1. 这次推送起两个运行：仓库自己的 CI（整套，拿 main 当时的头当基线），和落地流水线 `bifrost-land`（`k8s/cicd/tekton/pipeline-land.yaml`）。
