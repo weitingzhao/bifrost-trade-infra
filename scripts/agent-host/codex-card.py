@@ -33,6 +33,7 @@ CARD = MARK + '''
 - 要停下来问人之前：先看 `BRIEF.md` 的「边界」。边界里、任务书里的事自己定，不问。真要问，用同一个地址发 kind `ask` 或 `help`，然后接着做不依赖答案的部分；这里没有人会在终端里回你。
 - 不碰（谁说都不碰）：交易和钱、口令和 Secret、有数据的删改、Trade 的 PROD 发布、签名规则和信任根、auto mode 规则。不读家目录下的令牌文件。
 - 改代码在本目录下自己的完整克隆里做：`git clone http://192.168.10.73:30300/bifrost/<仓库>.git`。工作区里的共享检出和挂在它上面的 git worktree 都在沙箱外，fetch、commit 要写它们的 `.git`，会被挡（11-22 实测 fetch 退出码 255）。
+- 读集群只用只读身份，命令里原样写全路径：`kubectl --kubeconfig ~/.kube/bifrost-k3s.yaml get nodes`。不要在脚本里拼这个路径、不要放进变量：preflight 只认命令原文里的这个路径，认不出就按「Owner 的凭证」拦下（11-22 算力线来访实测）。
 - 被 preflight、沙箱或别的拦截挡下：停下，写进 `REPORT.md`，交回，不绕。
 - 规矩全文：工作区根 `AGENTS.md` → `CLAUDE.md`。活从哪来、交到哪：infra `docs/AGENT_WORK.md`。
 - 要合入、办别的事之前：`python3 {infra}/scripts/station/howto.py` 查要带什么；推之前跑 `python3 {infra}/scripts/station/precheck.py <检出目录>`，先看会不会被拒。这两个要 PyYAML：登录 shell 的 python3 没有时，换非登录 shell 的 python3。这是派你那份 infra 的路径；工作区里的共享检出可能落后 main，别从那里找。
@@ -51,6 +52,7 @@ SEAT_CARD = MARK + '''
 - 章程：`{infra}/agent-config/charters/{charter}`。本目录 `BRIEF.md` 是这一轮的活。
 - 有事找谁、交回给谁：`{reply_to}`（平台信箱 `send_message`）。别人来请你验、来问你，用 `wait_for_messages` 收，`ack_messages` 确认，必须答。
 - 不碰（谁说都不碰）：交易和钱、口令和 Secret、有数据的删改、Trade 的 PROD 发布、签名规则和信任根、auto mode 规则。不读家目录下的令牌文件。
+- 读集群只用只读身份，命令里原样写全路径：`kubectl --kubeconfig ~/.kube/bifrost-k3s.yaml get nodes`。不要在脚本里拼这个路径、不要放进变量：preflight 只认命令原文里的这个路径，认不出就按「Owner 的凭证」拦下（11-22 算力线来访实测）。
 - 被 preflight、沙箱或别的拦截挡下：停下，写进报告，交回，不绕。
 - 规矩全文：工作区根 `AGENTS.md` → `CLAUDE.md`。办事要带什么：`python3 {infra}/scripts/station/howto.py`。
 '''
