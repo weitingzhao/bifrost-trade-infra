@@ -13,7 +13,7 @@
 set -euo pipefail
 
 CP_IP=192.168.10.73
-NODES=("ubt-k3s-05 192.168.10.77" "ubt-k3s-04 192.168.10.75" "ubt-k3s-07 192.168.10.80" "ubt-k3s-02 192.168.10.70" "gpu-server 192.168.10.60")
+NODES=("ubt-k3s-05 192.168.10.77" "ubt-k3s-04 192.168.10.75" "ubt-k3s-07 192.168.10.80" "ubt-k3s-08 192.168.10.81" "ubt-k3s-02 192.168.10.70" "gpu-server 192.168.10.60")
 HERE="$(cd "$(dirname "$0")" && pwd)"
 KUBE=(kubectl --kubeconfig "$HOME/.kube/bifrost-k3s.yaml")
 # Cluster nodes take the Owner node key (LANE-W33D), as join-07 and host-exporters.sh do.

@@ -398,8 +398,9 @@ kubeconfig：`~/.kube/bifrost-k3s.yaml` 是只读身份 `system:serviceaccount:b
 | ubt-k3s-01 | 192.168.10.73 | mini-pc-c | — | 16 | 22.8 | 控制面、etcd、NFS 客户端 | 唯一的控制面；monitoring、Tekton、Gitea（本地盘）；所有 NodePort 的访问地址 |
 | ubt-k3s-02 | 192.168.10.70 | mini-pc-a | prod-pool | 16 | 15.0 | 数据库主库标签、NFS 客户端 | 数据库主库所在；PROD 的后备落点（required pool `[prod-pool, general]`） |
 | ubt-k3s-04 | 192.168.10.75 | ubt-k3s-04 | data-primary | 16 | 22.8 | 数据库备库标签、NFS 客户端 | 数据库备库；IB 网关、Research、镜像仓库 |
-| ubt-k3s-05 | 192.168.10.77 | ubt-k3s-05 | general | 16 | 22.8 | NFS 客户端 | STG、DEV runtime；Argo CD；Loki（本地盘） |
+| ubt-k3s-05 | 192.168.10.77 | ubt-k3s-05 | general | 16 | 22.8 | NFS 客户端 | 2026-11-21 换 Kingston SNV3S500G 新盘（nvme0n1，系统盘）后重装、重新入群；老盘 nvme1n1 挂 `/vol_2`（尾部写延迟差，只放不怕停顿的批量写）；带 `bifrost.io/batch=deny`，CI 的活不落这台；放什么由算力线定 |
 | ubt-k3s-07 | 192.168.10.80 | ubt-k3s-07 | general | 16 | 22.8 | — | PROD 首选节点（preferred affinity 100，2026-10-27 起，`k8s/overlays/prod/node-prod.patch.yaml`）；CI 的活多数落在这台 |
+| ubt-k3s-08 | 192.168.10.81 | ubt-k3s-08 | general | 16 | 22.8 | — | 2026-11-20 入群的新机（MS-A2，G-BONG X300 512GB，SMART media_errors 基线 7，涨了撤）；CI 的活可落在这台 |
 <!-- node-table:end -->
 
 <!-- node-table:outside:begin -->
