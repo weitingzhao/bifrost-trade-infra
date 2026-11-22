@@ -68,7 +68,9 @@ make db-init
 curl -s -H "Authorization: Bearer <operator-token>" http://localhost:8768/ops/auth/capabilities
 ```
 
-应返回 `"authenticated": true` 且 `"can_operate": true`。修改 Secret / `.env` 后需重启 API（`bdev restart` 或 `kubectl rollout restart`）。
+> 8768（Ops API）已并进 api-monitor（8765），旧别名前缀也已删掉；现在的路径以 `../AGENT_FACTS.md`「网关前缀」为准，上面这条命令按那里改端口和前缀。
+
+应返回 `"authenticated": true` 且 `"can_operate": true`。修改 Secret / `.env` 后需重启 API：本机用 `bdev restart <name>`；集群里用平台动作 `rollout_restart_deployment`（Agent 的集群身份只读，不用 kubectl 写，见根 `CLAUDE.md` §3）。
 
 ## 服务端口一览
 
