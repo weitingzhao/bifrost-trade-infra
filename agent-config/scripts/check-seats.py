@@ -11,7 +11,7 @@ have = [r['charter'] for r in rows]
 bad += [f'charter page without a seat row: {p}' for p in sorted(pages - set(have))]
 bad += [f'seat row without a charter page: {c}' for c in sorted(set(have) - pages)]
 bad += [f'duplicate charter row: {c}' for c in set(have) if have.count(c) > 1]
-ids = {r['id'] for r in rows} | {h['id'] for h in t.get('humans', [])}
+ids = {r['id'] for r in rows} | {h['id'] for h in t.get('humans', [])} | {o['id'] for o in t.get('outside_seats') or []}  # the chief of staff may invite (11-22 audit trial)
 for r in rows:
     d = r.get('domain_id')
     if d is not None and d not in t['domain_ids']: bad.append(f"{r['id']}: unknown domain_id {d}")
