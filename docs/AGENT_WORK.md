@@ -13,6 +13,7 @@
   - `invited_by:` 请你的主人席位 id（`seats.yaml` 的 `id`）
   - `reply_to:` 交回的平台信箱地址，`thread:<那个主人的会话号>`
 - Codex 由主人用 [`scripts/agent-host/dispatch.sh`](../scripts/agent-host/dispatch.sh) 起。它先在平台登记这件活（register external work），再让 Codex 读工作目录里的 `BRIEF.md`。登记只是让人看得见，不授予任何执行权限，也不算做完。
+- 起之前，`dispatch.sh` 按任务书开头的 `invited_by`、`reply_to` 在工作目录写一张进门卡 `AGENTS.md`（[`codex-card.py`](../scripts/agent-host/codex-card.py)）：谁请的、交回给谁、要问人怎么办、六类不碰。Codex 每一轮都读它，所以开头、上下文被压缩之后、要停下来问人的时候，卡都在面前。任务书开头没写 `reply_to` 的，不起。
 - 计划树（平台 `get_plan`、`get_plan_view`）是各线排活的地方，**不是领活的入口**：哪些步算「可接」、怎么认领，1 号计划还没定（11-21）。
 
 ## 2. 做的时候

@@ -11,6 +11,9 @@ set -euo pipefail
 infra="$(cd "$(dirname "$0")/../.." && pwd)"
 dir="$(cd "$1" && pwd)"; node="$2"; task="$3"; repo="$4"; branch="$5"; shift 5
 run_key="${RUN_KEY:-$(basename "$dir")}"
+# Entry card (Station, 2026-11-21): Codex reads AGENTS.md in its working dir on every turn, so the card is in
+# front of the run at start, after compaction and before it asks. Refuses when BRIEF.md has no reply_to.
+python3 "$infra/scripts/agent-host/codex-card.py" "$dir"
 python3 - "$dir/desc.json" "$task" "$repo" "$branch" "$node" <<'PY'
 import json, sys
 path, task, repo, branch, node = sys.argv[1:6]
