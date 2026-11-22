@@ -1,0 +1,43 @@
+# promtool test for the per-node hardware records (LANE-metrics, 2026-11-22). Origin: City read these with its own
+# PromQL; the records must give the same numbers by name, including the macOS memory branch (no MemAvailable there)
+# and pods counted only while Running. Run: make check-alert-rules.
+rule_files:
+  - bifrost-node-hardware-rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  - name: Linux and macOS memory, and Running pods per node
+    interval: 1m
+    input_series:
+      - series: 'node_memory_MemTotal_bytes{instance="192.168.10.75:9100"}'
+        values: '100x10'
+      - series: 'node_memory_MemAvailable_bytes{instance="192.168.10.75:9100"}'
+        values: '30x10'
+      - series: 'node_memory_active_bytes{instance="192.168.10.10:9100"}'
+        values: '5x10'
+      - series: 'node_memory_wired_bytes{instance="192.168.10.10:9100"}'
+        values: '3x10'
+      - series: 'node_memory_compressed_bytes{instance="192.168.10.10:9100"}'
+        values: '2x10'
+      - series: 'kube_pod_info{namespace="a",pod="p1",node="ubt-k3s-04"}'
+        values: '1x10'
+      - series: 'kube_pod_info{namespace="a",pod="p2",node="ubt-k3s-04"}'
+        values: '1x10'
+      - series: 'kube_pod_status_phase{namespace="a",pod="p1",phase="Running"}'
+        values: '1x10'
+      - series: 'kube_pod_status_phase{namespace="a",pod="p2",phase="Running"}'
+        values: '0x10'
+    promql_expr_test:
+      - expr: bifrost_node:memory_used_bytes
+        eval_time: 5m
+        exp_samples:
+          - labels: 'bifrost_node:memory_used_bytes{instance="192.168.10.75:9100"}'
+            value: 70
+          - labels: 'bifrost_node:memory_used_bytes{instance="192.168.10.10:9100"}'
+            value: 10
+      - expr: bifrost_node:pods_running
+        eval_time: 5m
+        exp_samples:
+          - labels: 'bifrost_node:pods_running{node="ubt-k3s-04"}'
+            value: 1

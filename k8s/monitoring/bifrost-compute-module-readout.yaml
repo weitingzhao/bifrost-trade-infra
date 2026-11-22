@@ -178,14 +178,25 @@ spec:
           annotations:
             summary: "Trade PROD is being CPU-throttled above 2%"
             description: "Trade PROD pods share node 07 with CI. If this holds, new CI work must stop landing on 07 and rerunnable guests are reclaimed."
+        # 2026-11-22 (LANE-metrics, line from the compute seat): was pressure > 0.2 for 15m. On 04 it was lit 1052 minutes on
+        # 11-21, 977 of them with no guest on the node: 04's own floor is 0.23, Grafana throttled at its 0.5-core limit (container
+        # CPU waiting 0.268, 7-day median). Now a guest has to be there (a Running cicd pod on the node), and the line is the
+        # node's own 7-day median plus 0.1, so a node's floor does not count as guests pressing on the database.
         - alert: ComputePainDbGuestLoad
-          expr: bifrost_node:pressure_cpu_waiting_ratio_5m{instance=~"192.168.10.(70|75):9100"} > 0.2
+          expr: |
+            bifrost_node:pressure_cpu_waiting_ratio_5m{instance=~"192.168.10.(70|75):9100"}
+              > (quantile_over_time(0.5, bifrost_node:pressure_cpu_waiting_ratio_5m{instance=~"192.168.10.(70|75):9100"}[7d]) + 0.1)
+            and on (instance)
+              label_replace(
+                count by (node) (kube_pod_info{namespace="cicd",node!=""} * on (namespace, pod) group_left () (kube_pod_status_phase{phase="Running"} == 1))
+                  * on (node) group_left (internal_ip) max by (node, internal_ip) (kube_node_info),
+                "instance", "$1:9100", "internal_ip", "(.+)")
           for: 15m
           labels:
             severity: info
             home: database
           annotations:
             summary: "Guests on a database node keep its CPU waiting"
-            description: "CPU pressure on {{ $labels.instance }} has been above 0.2 for 15m. Audit only: it does not reclaim anything unless a database line above is also breached."
+            description: "CPU pressure on {{ $labels.instance }} has been more than 0.1 above its own 7-day median for 15m while CI guests run there. Audit only: it does not reclaim anything unless a database line above is also breached."
 # 7 天峰值不单独录，读时用 quantile_over_time(0.95, bifrost_module:cpu_usage_cores[7d]) 一类（录入后才有数据，7 天后可读）。
 # 磁盘的「要」没有来源（Pod 不申报），本组不假装；见 compute/disk-demand-line-2026-11-18.md。

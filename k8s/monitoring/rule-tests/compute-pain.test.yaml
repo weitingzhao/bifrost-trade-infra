@@ -1,4 +1,4 @@
-# promtool test for ComputePainDbReplication (LANE-metrics, 2026-11-21).
+# promtool tests for ComputePainDbReplication (LANE-metrics, 2026-11-21) and ComputePainDbGuestLoad (2026-11-22).
 # Origin: the old rule (max over 5m of the flush lag > 50 ms, for 10m) fired about 14 times a day on ~30 s
 # spikes (11-20: 18 activations, evaluation readout) and woke the compute seat after the lag was already back.
 # The database's owner put the line at a lag held above 5 s. The spike case is the regression; the held case is
@@ -44,3 +44,53 @@ tests:
             exp_annotations:
               summary: "Postgres replication flush lag has been above 5 s"
               description: "The standby has been more than 5 s of flush behind the primary for 5m. Check what else runs on 02 and 04 (write budget, CI test jobs) and whether the standby is healthy."
+
+  # ComputePainDbGuestLoad (LANE-metrics, 2026-11-22). Origin: the compute seat measured 04 lit 1052 minutes on 11-21,
+  # 977 with no guest, at a floor of 0.23 that Grafana's CPU throttling makes. The floor case is the regression (the old
+  # line, > 0.2, fired on it); a jump above the floor with a CI guest on the node is its positive control.
+  - name: a node sitting at its own floor of 0.23 with no guest does not fire (the old > 0.2 line did)
+    interval: 15s
+    input_series:
+      - series: 'node_pressure_cpu_waiting_seconds_total{job="node-exporter",instance="192.168.10.75:9100"}'
+        values: '0+3.45x720'
+      - series: 'kube_node_info{node="ubt-k3s-04",internal_ip="192.168.10.75"}'
+        values: '1x720'
+    alert_rule_test:
+      - eval_time: 2h50m
+        alertname: ComputePainDbGuestLoad
+        exp_alerts: []
+
+  - name: pressure well above the node's floor without a CI guest does not fire
+    interval: 15s
+    input_series:
+      - series: 'node_pressure_cpu_waiting_seconds_total{job="node-exporter",instance="192.168.10.75:9100"}'
+        values: '0+3.45x480 1656+7.5x240'
+      - series: 'kube_node_info{node="ubt-k3s-04",internal_ip="192.168.10.75"}'
+        values: '1x720'
+    alert_rule_test:
+      - eval_time: 2h50m
+        alertname: ComputePainDbGuestLoad
+        exp_alerts: []
+
+  - name: pressure 0.27 above the floor for 15m while a CI pod runs on the node fires
+    interval: 15s
+    input_series:
+      - series: 'node_pressure_cpu_waiting_seconds_total{job="node-exporter",instance="192.168.10.75:9100"}'
+        values: '0+3.45x480 1656+7.5x240'
+      - series: 'kube_node_info{node="ubt-k3s-04",internal_ip="192.168.10.75"}'
+        values: '1x720'
+      - series: 'kube_pod_info{namespace="cicd",pod="ci-platform-abcde-test-pod",node="ubt-k3s-04"}'
+        values: '1x720'
+      - series: 'kube_pod_status_phase{namespace="cicd",pod="ci-platform-abcde-test-pod",phase="Running"}'
+        values: '1x720'
+    alert_rule_test:
+      - eval_time: 2h50m
+        alertname: ComputePainDbGuestLoad
+        exp_alerts:
+          - exp_labels:
+              severity: info
+              home: database
+              instance: "192.168.10.75:9100"
+            exp_annotations:
+              summary: "Guests on a database node keep its CPU waiting"
+              description: "CPU pressure on 192.168.10.75:9100 has been more than 0.1 above its own 7-day median for 15m while CI guests run there. Audit only: it does not reclaim anything unless a database line above is also breached."

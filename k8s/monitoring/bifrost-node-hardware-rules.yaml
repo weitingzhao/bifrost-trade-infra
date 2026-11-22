@@ -1,0 +1,31 @@
+# Per-node hardware readings by name (LANE-metrics, 2026-11-21). Origin: City asked to read the machines' utilities
+# by name instead of writing its own PromQL (NAMING.md: pages read by name). These are the derived ones City used;
+# raw series (cores, capacity, ready, cordoned) stay raw. Same expressions City had, so the numbers do not move.
+# Apply: plan_manifest + apply_manifest (monitoring is level C). Rollback: delete this PrometheusRule.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: bifrost-node-hardware-rules
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: bifrost
+    release: kube-prometheus-stack
+    app.kubernetes.io/component: recording
+spec:
+  groups:
+    - name: bifrost-node-hardware
+      interval: 1m
+      rules:
+        # Cores busy (everything but idle), per node-exporter instance; Linux and macOS exporters alike.
+        - record: bifrost_node:cpu_busy_cores_5m
+          expr: sum by (instance) (rate(node_cpu_seconds_total{mode!="idle"}[5m]))
+        # Memory in use: Linux MemTotal - MemAvailable; macOS has no MemAvailable, so active + wired + compressed.
+        - record: bifrost_node:memory_used_bytes
+          expr: max by (instance) ((node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) or (node_memory_active_bytes + node_memory_wired_bytes + node_memory_compressed_bytes))
+        # Disk in use on the root and the NAS volumes (size - avail), tmpfs and overlay left out.
+        - record: bifrost_node:filesystem_used_bytes
+          expr: max by (instance, mountpoint) (node_filesystem_size_bytes{mountpoint=~"/|/volume[0-9]+",fstype!~"tmpfs|overlay"} - node_filesystem_avail_bytes{mountpoint=~"/|/volume[0-9]+",fstype!~"tmpfs|overlay"})
+        # Running pods per Kubernetes node (node label, not instance).
+        - record: bifrost_node:pods_running
+          expr: count by (node) (kube_pod_info{node!=""} * on (namespace, pod) group_left () (max by (namespace, pod) (kube_pod_status_phase{phase="Running"}) == 1))

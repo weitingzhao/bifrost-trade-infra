@@ -43,6 +43,7 @@ resources:
   - bifrost-cluster-state-rules.yaml
   - bifrost-maintainer-rules.yaml
   - bifrost-compute-module-readout.yaml
+  - bifrost-node-hardware-rules.yaml
   - maintainer-reconcile
   # Secret alertmanager-webhook-auth (PROD reporter bearer for the platform-api
   # webhook) is not here: scripts/k3s/apply-platform-role-tokens.sh writes it.

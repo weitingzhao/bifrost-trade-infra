@@ -92,12 +92,15 @@ grafana:
     auth.anonymous:
       enabled: true
       org_role: Viewer
+  # 2026-11-22 (LANE-metrics): cpu limit 500m -> 1. Grafana sat at 0.48 cores and was throttled in 92% of periods; that
+  # throttling was node 04's whole CPU-pressure floor (0.23) and kept ComputePainDbGuestLoad lit (compute seat, 11-22).
+  # Live through a patch until the next helm upgrade; if it climbs to 1 core, look for what spins instead.
   resources:
     requests:
       cpu: 100m
       memory: 256Mi
     limits:
-      cpu: 500m
+      cpu: "1"
       memory: 512Mi
   sidecar:
     dashboards:
