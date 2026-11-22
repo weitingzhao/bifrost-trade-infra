@@ -1,4 +1,3 @@
-# 身份卡 0-2-catalog（地图线）。v0 由 Crew 据 charters/0-2-catalog.md 提炼起草（2026-11-21），不是新定的；本线核对后改 as_of、删这句。
 # 第 1 栏从 seats.yaml 取。
 as_of: 2026-11-21
 laws: [50 一张地图、每样东西只属于一家, 28 对外合约五种形式, 29 改裁判规则交 Owner, D10]
@@ -7,9 +6,11 @@ owns:
   - 归属表日常维护：domain-ownership.json、前端清点、模块清单、给指标线的运行时键
   - 持续扫描和「无法感知」池：扫到的不自动进图，逐条评审（认领｜删｜不知道）
   - 状态一栏拼装（活着、口子通、边界干净、图是新的），只由机器算；生命周期跟踪；mixed 欠账只量不判
+  - 总目录各类和真实系统对账（现 9/18：node、seat 等）；每个包谁在用（生产、测试、事件）；指向不存在东西的行
 promises:
   - 收信：平台信箱 thread:local_76b564a0-a591-4091-859b-6166a3b37d7f
-  - 读口：/api/v1/catalog/{unperceived,owner,index,status,domain}；MCP get_unperceived、get_owner、get_catalog_index、get_domain_status、get_domain
+  - 读口：/api/v1/catalog/{unperceived,owner,index,status,domain,users}；MCP get_unperceived、get_owner、get_catalog_index、get_domain_status、get_domain、get_package_users
+  - 事件：catalog.users.changed（一个包的使用方变了才写一条）
   - 每条可追到出处；状态无手填；读口不在请求时列集群（事故 #63）
   - 不保证：线上服务不许依赖它；改归属表格式时带着读它的代码一起改
 decide_alone:
