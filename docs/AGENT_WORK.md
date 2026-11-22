@@ -23,7 +23,7 @@
 - 你是谁、边界在哪：Claude 会话开头会收到一张身份卡（钩子 `seat-card.py`，Crew 出的卡）。不在席位表里的会话，收到的是进门路。
 - 平台工具：先调 `whoami` 看自己能做什么。集群写操作、发布、进 main 照根 `CLAUDE.md` §3、§5。
 - 卡住要问、要求助：发平台信箱给 `reply_to`。用 `send_message`，kind 填 `ask` 或 `help`。不要写共享笔记里的文件代替发信（8.2 的通道，出处 `agent-config/charters/8-2-comm-desk.md` §2）。
-- 收信：`wait_for_messages`，读完 `ack_messages`。等信用门铃 `bifrost-platform/mcp/platform/src/doorbell.ts`。**Codex 暂时用不了门铃**：会话号只认 Claude 和 Cursor 的变量名，8.2 在修（11-21）。
+- 收信：`wait_for_messages`，读完 `ack_messages`。等信用门铃 `bifrost-platform/mcp/platform/src/doorbell.ts`。**Codex 已有门铃等信的代码支持**：platform main 的 TD-577（`cc59bf9`）优先读取 `CODEX_THREAD_ID`，再读 Claude、Cursor 的会话号（`mcp/platform/src/sessionId.ts:14–43`）。需运行更新后的本地代码，并让门铃与 MCP 收到同一个 Codex 会话号（`runtimeTools.ts:32–39`、`platformClient.ts:58–61`，均在同一目录）。门铃登记线程后等新信，收到后退出；自动续跑仍需宿主在退出时唤醒 Codex，例如调用 `codex exec resume`，不能把代码支持当成实际唤醒已验收（`doorbell.ts:2–5,90–138`）。实际 Codex 的登记、收信、恢复整条链仍待联测（11-22）。
 
 ## 3. 交回
 
