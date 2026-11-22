@@ -13,16 +13,25 @@ clusters:
     kubeconfig_env: PLATFORM_KUBECONFIG
     ssh_host: vision@192.168.10.73
     node_ip: 192.168.10.73
+    # Bifrost's own namespaces as the cluster has them (2026-11-22, the map's
+    # reconciliation; same list as bifrost-platform config/clusters.yaml).
+    # ensure_bifrost_namespaces creates only from it; data-warehouse is gone
+    # from the cluster and from here.
     bifrost_namespaces:
+      - ai
+      - bifrost-access
+      - bifrost-dev
+      - bifrost-owner-exec
+      - bifrost-platform-prod
+      - bifrost-platform-stg
+      - bifrost-prod
+      - bifrost-stg
       - cicd
       - data
-      - bifrost-dev
-      - bifrost-stg
-      - bifrost-prod
-      - bifrost-platform-stg
       - monitoring
-      - ai
-      - data-warehouse
+      - plugin-flex-query
+      - plugin-market-data
+      - research
     compute_nodes:
       - name: gpu-server
         ssh_host: vision@192.168.10.60
