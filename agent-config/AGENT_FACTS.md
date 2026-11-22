@@ -361,7 +361,7 @@ D10 冻结的那个进程只有一个，但在代码、集群与界面上有十�
 - **主仓库是集群内 Gitea**（2026-10-17/18 起，切法 `agent-config/work/multi-agent/CUT-gitea-primary-2026-10-17.md`）：
   `gitea.cicd.svc.cluster.local:3000/bifrost/<repo>`（NodePort `.73:30300`），名单 `agent-config/gitea-primary.txt` 里 11 个仓库都是普通仓库，
   不是 GitHub 的拉取镜像，也没有建拉取镜像的脚本了（第 D 批 2026-10-23 删除）。本机检出的 `origin` 是 Gitea，`github` 远端只读。
-  人和 Agent 都推 Gitea，main 只经 `push-main.sh`；CI 由 Gitea 推送钩子直接起；Argo CD 的 5 个 Application 读 Gitea。
+  人和 Agent 都推 Gitea；infra 和 platform 的 main 经 `ready/<名字>` 自动合入（`CLAUDE.md` §5），别的仓库只经 `push-main.sh`；CI 由 Gitea 推送钩子直接起；Argo CD 的 5 个 Application 读 Gitea。
 - **GitHub 只跟随**：只收 `main` 和标签，由集群的 `bifrost-github-sync`（推送触发 + 每 15 分钟对账，`k8s/cicd/github-sync/`）只快进地推过去，
   不强推、不删；GitHub 领先或分叉时同步失败并告警。不在 GitHub 上改文件、合 PR 或推送（`preflight.js`、`push-main.sh` 拒推名单仓库的 GitHub）。
   人的工作分支和 Agent 分支只在私有的 Gitea。

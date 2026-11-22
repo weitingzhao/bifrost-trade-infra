@@ -85,7 +85,7 @@ trusted_hash = "sha256:54ead03e5d5092a3d63f264a99879a710eb716396910dee4542061b0b
 
 ## Codex 自己的规矩
 
-- 改代码在 `~/agent-work/` 下的 worktree 里做，不改 `/stocks` 下的共享 checkout（STEP0-PLAN S0-15）。
+- 改代码在 `~/agent-work/` 下自己的克隆或 worktree 里做，不改 `/stocks` 下的共享 checkout（STEP0-PLAN S0-15）。根 `CLAUDE.md` 说的「worktree 走不通」指在工作区根启动、要加载治理层的会话；派来的 Codex 不在此列。
 - 推送和发版走和 Claude 席位同一套规则（`CLAUDE.md` §5）：进 infra 和 platform 的 main 推 `ready/<名字>`；STG 的发版和清单改动按「STG 发布 A」自己做、自己核对；PROD 按那一节的条件。不直接推 main。
 - Codex 可以坐席位：拿目标和边界，自己从改代码走到上线（2026-11-14 起）。它不拿任何令牌：平台工具的令牌由 MCP 进程自己读，发布脚本从共享 checkout 的路径调（克隆里没有它要的 `.env`）。
 - 平台工具要认出是谁在写：启动时在环境里给一个以 `codex-` 开头、按席位固定的会话号，并让配置把它转发给平台 MCP（`mcp_servers.<名字>.env_vars`）。没有会话号时平台拒绝一切写入。
