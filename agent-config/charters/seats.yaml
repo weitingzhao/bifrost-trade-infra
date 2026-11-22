@@ -42,7 +42,7 @@ temporary:
 
 # 人：同样是 labor。Owner 有两个身份，批法时是立法者，签名、输口令时是一个 labor（那几步也要登记、也被量）。
 humans:
-  - {id: owner, role: lawgiver, harness: human, steps_recorded_as_labor: [signing, credential-entry, law-approval], mailbox: registered}
+  - {id: owner, role: lawgiver, harness: human, steps_recorded_as_labor: [signing, credential-entry, law-approval], mailbox: registered, steps_record: "批卡与驳卡：PROD 平台审批记录（MCP list_requests status=all；decided_at 是时间，channel=console 是在 Console 上点的）。签名规则放行的不建卡，不算他的步数", steps_gap: "平台不存决定人，只能从 channel=console 推断是 Owner；口令输入、签法没有系统记录"}
 
 # 不是席位、但收发信的线程（见文件头）。
 outside_seats:
