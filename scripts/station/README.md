@@ -22,6 +22,6 @@ Station 管（法 77，2026-11-21）。给任何一个新来的成员：办之�
 | `refusals[]` | 这件工具会说的每一句拒绝：`match`（原文前缀，`%s` 照脚本里写）、`kind`（`you` 推的人改、`system` 系统的毛病、`wall` 墙）、`do`（该做什么） |
 | `ci_red[]`、`must_answer[]` | 可选：检查红了的几类怎么本地复现；找这条线它必须答的 |
 
-对账（`test_requires.py`）：`refused_with.says`、`refusals[].match` 必须是检查文件里的原文；反过来，检查文件里每一句 `refused: …` 都要有一条 `refusals`。检查改了措辞，测试就红，指南必须跟着改，不会悄悄过期。不在 infra 里的（比如 platform 的 codeguard）写 `repo`，这里不对账；不在仓库里的（比如 auto mode）写 `file: none`。
+对账由各领域自己的测试做，在 CI 里跑（合入的是 `scripts/landing/test_admission.py`）：`refused_with.says`、`refusals[].match` 必须是检查文件里的原文；反过来，检查文件里每一句 `refused: …` 都要有一条 `refusals`。检查改了措辞，测试就红，指南必须跟着改，不会悄悄过期。不在 infra 里的（比如 platform 的 codeguard）写 `repo`，这里不对账；不在仓库里的（比如 auto mode）写 `file: none`。
 
 现在只有合入一份，内容是 CI 线（3·4）给的。下一批：发布窗口、建卡、发信。每份由管它的线给内容。地图的读口怎么读这些文件，由地图线定。

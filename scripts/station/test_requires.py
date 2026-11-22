@@ -1,13 +1,12 @@
-"""The how-to guide is reconciled with the checks it describes, and the precheck refuses what land refuses.
+"""Self-descriptions keep the station.requires/v1 format, and the precheck refuses what land refuses.
 
 Origin: 2026-11-21, Owner (via the coordinator, law 76/77): agents meet the process one refusal at a time; 11-21
 saw 39 landing refusals, 8 for a missing Change-Id and 10 for a rebase conflict (CI line's count, a reading of
-the land runs the cluster kept). The guide must not be a second hand-kept copy (law 30), so every sentence it
-quotes is looked up in the checking file, and every refusal the land script can say must be in the guide.
+the land runs the cluster kept). Reconciling the guide with the land script is the CI line's own test, run
+in CI: scripts/landing/test_admission.py (11-22); this file keeps only the format and the precheck.
 """
 import importlib.util
 import pathlib
-import re
 import subprocess
 import tempfile
 import unittest
@@ -24,9 +23,6 @@ precheck = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(precheck)
 
 
-def text_of(path):
-    return (INFRA / path).read_text()
-
 
 class Format(unittest.TestCase):
     def test_every_self_description_is_v1(self):
@@ -40,26 +36,6 @@ class Format(unittest.TestCase):
                 self.assertTrue(b.get('what') and b.get('refused_with'), (name, b['id']))
             for r in d.get('refusals', []):
                 self.assertIn(r['kind'], ('you', 'system', 'wall'), r['match'])
-
-
-class Reconciled(unittest.TestCase):
-    def test_every_quoted_sentence_is_in_its_checking_file(self):
-        for name, d in DOCS.items():
-            for b in d['bring']:
-                w = b['refused_with']
-                if w.get('file') == 'none' or w.get('repo'):
-                    continue
-                self.assertIn(w['says'], text_of(w.get('file') or d['checked_by']), (name, b['id']))
-            for r in d.get('refusals', []):
-                self.assertIn(r['match'], text_of(d['checked_by']), (name, r['match']))
-
-    def test_every_refusal_the_land_script_says_is_in_the_guide(self):
-        """Positive control: the land script does say refusals, and the guide misses none of them."""
-        said = re.findall(r"""['"](refused: [^'"]+)['"]""", precheck.land_step()['script'])
-        self.assertGreater(len(said), 15)
-        matches = [r['match'] for r in DOCS['land']['refusals']]
-        missing = [s for s in said if not any(s.startswith(m) for m in matches)]
-        self.assertEqual(missing, [])
 
 
 class Precheck(unittest.TestCase):
