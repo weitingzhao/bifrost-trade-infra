@@ -13,19 +13,24 @@ clusters:
     kubeconfig_env: PLATFORM_KUBECONFIG
     ssh_host: vision@192.168.10.73
     node_ip: 192.168.10.73
+    # Bifrost's own namespaces as the cluster has them (2026-11-22, the map's
+    # reconciliation; same list as bifrost-platform config/clusters.yaml and
+    # the STG overlay). ensure_bifrost_namespaces creates only from it.
     bifrost_namespaces:
+      - ai
+      - bifrost-access
+      - bifrost-dev
+      - bifrost-owner-exec
+      - bifrost-platform-prod
+      - bifrost-platform-stg
+      - bifrost-prod
+      - bifrost-stg
       - cicd
       - data
-      - bifrost
-      - bifrost-dev
-      - bifrost-stg
-      - bifrost-prod
-      - bifrost-platform-stg
-      - bifrost-platform-prod
-      - bifrost-bus
       - monitoring
-      - ai
-      - data-warehouse
+      - plugin-flex-query
+      - plugin-market-data
+      - research
     compute_nodes:
       - name: gpu-server
         ssh_host: vision@192.168.10.60
@@ -36,9 +41,6 @@ clusters:
           - namespace: ai
             deployment: ollama
             label: Ollama
-          - namespace: data-warehouse
-            deployment: minio
-            label: MinIO
     monitoring_namespace: monitoring
     # Browser deep link. PLATFORM_GRAFANA_URL on platform-api is the same URL.
     # NodePort :30883 remains; Grafana serves under /grafana/.
