@@ -29,6 +29,10 @@ cd "$dir"
 cache="$HOME/agent-work/.cache"
 mkdir -p "$cache/go-build" "$cache/go-mod" "$cache/npm"
 export GOCACHE="$cache/go-build" GOMODCACHE="$cache/go-mod" npm_config_cache="$cache/npm"
+# Network on (Station, 2026-11-22): a run pushes its ready/ branch and fetches main from Gitea, which the
+# workspace-write sandbox blocks by default. Until now it came from extra args some callers passed, written
+# nowhere (the 11-13 runs logged "network access enabled"; the 11-22 entry test, started without them, got
+# "Couldn't connect to server" on its first fetch). agent-config/codex/README.md describes it as on.
 # The wrapper comes from infra's origin/main on every run, copied into the run dir (2026-11-02: the old
 # ~/agent-work/dispatch-wrapper checkout was removed as a clean pushed checkout; tools must not live in one).
 wrapper="$dir/.dispatch-codex.py"
@@ -45,4 +49,4 @@ python3 "$wrapper" \
   --url http://192.168.10.100:30876 --session local_accccb4e-dispatch --run-key "$run_key" \
   --root "${node%%:*}" --node "$node" --description "$dir/desc.json" --report "$dir/REPORT.md" \
   --state-dir "$dir/.dispatch-$run_key" --repo "$dir" \
-  -- --skip-git-repo-check --add-dir "$cache" -m gpt-6-astra -c model_reasoning_effort="high" "$@" -C "$dir" "Read BRIEF.md in this directory and do what it says."
+  -- --skip-git-repo-check --add-dir "$cache" -c sandbox_workspace_write.network_access=true -m gpt-6-astra -c model_reasoning_effort="high" "$@" -C "$dir" "Read BRIEF.md in this directory and do what it says."

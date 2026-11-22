@@ -32,6 +32,9 @@ class CodexCard(unittest.TestCase):
         self.assertIn('11-station', text)
         self.assertIn('thread:local_abc', text)
         self.assertIn('handover', text)
+        # 2026-11-22 entry test: the card sent it to the shared checkout, which lacked howto.py.
+        self.assertIn(str(cc.INFRA / 'scripts/station/howto.py'), text)
+        self.assertTrue((cc.INFRA / 'scripts/station/howto.py').is_file())
 
     def test_existing_agents_md_is_kept_and_card_added_once(self):
         d = self.run_dir(agents='# owner notes\nkeep me\n')

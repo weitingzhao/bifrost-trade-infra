@@ -16,6 +16,8 @@ import re
 import sys
 
 MARK = '<!-- station:codex-card v1 -->'
+# The infra this file is in: the one dispatch.sh ran from, which holds today's tools (the shared checkout may lag).
+INFRA = pathlib.Path(__file__).resolve().parents[2]
 
 CARD = MARK + '''
 # 进门卡（派活脚本写的，每一轮都在你面前）
@@ -27,7 +29,7 @@ CARD = MARK + '''
 - 不碰（谁说都不碰）：交易和钱、口令和 Secret、有数据的删改、Trade 的 PROD 发布、签名规则和信任根、auto mode 规则。不读家目录下的令牌文件。
 - 被 preflight、沙箱或别的拦截挡下：停下，写进 `REPORT.md`，交回，不绕。
 - 规矩全文：工作区根 `AGENTS.md` → `CLAUDE.md`。活从哪来、交到哪：infra `docs/AGENT_WORK.md`。
-- 要合入、办别的事之前：在工作区根跑 `python3 bifrost-trade-infra/scripts/station/howto.py` 查要带什么；推之前跑同目录的 `precheck.py <检出目录>`，先看会不会被拒。
+- 要合入、办别的事之前：`python3 {infra}/scripts/station/howto.py` 查要带什么；推之前跑 `python3 {infra}/scripts/station/precheck.py <检出目录>`，先看会不会被拒。这是派你那份 infra 的路径；工作区里的共享检出可能落后 main，别从那里找。
 '''
 
 
@@ -49,7 +51,7 @@ def card_for(run_dir):
     reply = h.get('reply_to', '')
     if not reply.startswith('thread:') or '<' in reply:
         raise SystemExit('codex-card: BRIEF.md has no reply_to: thread:<session> in its first lines (see BRIEF.template.md)')
-    return CARD.format(invited_by=h.get('invited_by', '（任务书没写）'), reply_to=reply)
+    return CARD.format(invited_by=h.get('invited_by', '（任务书没写）'), reply_to=reply, infra=INFRA)
 
 
 def write(run_dir):
