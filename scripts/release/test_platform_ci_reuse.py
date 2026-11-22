@@ -225,3 +225,20 @@ def test_result_emission(tmp_path, monkeypatch, hit):
         assert {p.name: p.read_text() for p in shared.iterdir()} == {**{k: expected[k] for k in M['FIELDS']}, 'base-commit': 'none'}
     else:
         assert not shared.exists()
+
+
+def test_a_ready_push_never_reuses_an_increment():
+    # TD-587, 2026-11-22: ready/releasepolicy-check-judgment pushed three times after main
+    # moved; each run reused ci-platform-55fcp's increment, whose base-commit was the old
+    # main, and the landing refused it each time (land-fl8dp, land-l2nzp, land-c87zn).
+    ready = {'metadata': {'creationTimestamp': CURRENT['metadata']['creationTimestamp'],
+                          'labels': {'bifrost.io/trigger': 'gitea-webhook',
+                                     'triggers.tekton.dev/trigger': 'platform-ci-ready'}}}
+    assert M['select']([incremental()], ready, IDENTITIES, 'repo', '') is None
+    # Positive control: a ready push still reuses a whole-suite original, and the push to
+    # main (trigger platform-ci) still stands on the increment.
+    whole = candidate()
+    assert M['select']([whole], ready, IDENTITIES, 'repo', '') == whole
+    to_main = copy.deepcopy(ready)
+    to_main['metadata']['labels']['triggers.tekton.dev/trigger'] = 'platform-ci'
+    assert M['select']([incremental()], to_main, IDENTITIES, 'repo', '') is not None

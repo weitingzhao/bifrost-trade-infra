@@ -49,6 +49,15 @@ def same_increment(current):
         labels = current.get('metadata', {}).get('labels') or {}
         if labels.get('bifrost.io/trigger') != 'gitea-webhook':
             return False
+        # TD-587 (2026-11-22, CI line): a ready/ push (trigger platform-ci-ready) is
+        # judged against main's head as it is now, and the landing counts the run only
+        # while its base-commit is that head (pipeline-land.yaml). An original's
+        # increment names the base main had then; once main moved, a reused result could
+        # never land, and a push of the same tree again reused it again (land-fl8dp,
+        # land-l2nzp, land-c87zn). A ready push runs its own increment (about 1-2
+        # minutes); the push to main still stands on the landing's run.
+        if labels.get('triggers.tekton.dev/trigger') == 'platform-ci-ready':
+            return False
         params = values(current.get('spec', {}).get('params', []))
     except (TypeError, ValueError, AttributeError):
         return False
