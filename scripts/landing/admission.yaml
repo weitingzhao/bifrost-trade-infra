@@ -40,7 +40,7 @@ bring:
     precheck: not-covered
   - id: domain-row
     what: platform 新加的包要在 config/domain-ownership.json 的 packages 里有一行，写明归哪个领域和理由；落在已有主人目录下的新文件自动跟着走（法 72、75）。
-    get_from: 地图线（0.2，归属表的主人）；拿不准归谁问地图线。
+    get_from: 地图的认领口子：MCP get_owner（repo、path，可带 domain）或 GET /api/v1/catalog/owner?repo=&path=&domain=，没主的路径会给出最近的有主上级和可以原样粘贴的那一行（claim.row）、写进哪个文件哪一节（claim.say），和改动放同一个提交。拿不准归谁问地图线（0.2，归属表的主人）。
     refused_with: {repo: bifrost-platform, says: "has no row in config/domain-ownership.json"}
     precheck: not-covered
   - id: test-owner
