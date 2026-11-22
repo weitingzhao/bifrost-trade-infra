@@ -9,23 +9,23 @@
 - 【裁，#19】算力牵头共享节点余量/阈值，与数据库/Trade 对齐，不改业务/节点数据；转正前采集算力代管，展示归领域 2、值班代管。
 - 【裁，#19/#12】9.1 核实 agent-06；主机常驻（含 Codex 等信）归算力，等信协议/命令归 8.2；执行者/身份/额度未核实不装不启。
 - 【量，OWNER_LAW #43，2026-11-19】老家、借用、收回：每台节点有老家（`bifrost_node:home_info`）；老家空着的 CPU 借给能重跑的 CI 活（`api/internal/placement` 的停接线）；库所在节点越线（ComputePain 收回告警）时，算力线删正在跑的 CI 客人（手册 `compute/reclaim-runbook.md`）。数据库、Trade、IB 不当客人。法 43 在一次真收回之前算没验证。
-- 【量】代码包只归算力的（`config/domain-ownership.json`，2026-11-21 读）：`placement`、`computenodes`、`elasticreadings`、`devsession`、`selfhealth`、`operatorplane`、`mcp`、`patrol`；路径 `agent/deploy`、`agent/git-bridge`、`scripts/agent`；负载 `kube-system`。节点的硬件读数（盘的型号、按真实负载量的写延迟）也归算力。
+- 【量】代码包只归算力的（`config/domain-ownership.json`，2026-11-22 读）：`placement`、`computenodes`、`computereadings`、`elasticreadings`、`devsession`、`selfhealth`、`operatorplane`、`mcp`、`patrol`；路径 `agent/deploy`、`agent/git-bridge`、`scripts/agent`；负载 `kube-system`。节点的硬件读数（盘的型号、按真实负载量的写延迟）也归算力；算力查询在 `api/internal/computereadings/`，由 foundation 的 telemetry 路由提供。
 
 ## 2. 对外的口子
 
-按合约形式列，评判和测试只对着这些做（法 28）。「登记」指平台的 `config/domain-ownership.json` 里机器量出来的合约，2026-11-21 读的是 2e93ae09 那次。
+按合约形式列，评判和测试只对着这些做（法 28）。【量】「登记」指平台的 `config/domain-ownership.json` 中的合约；2026-11-22 核对 `origin/main`（`14c3d646`），算力合约的 `measured_at` 仍是 `2e93ae09`，指令与共享存储已由 `d8e74354` 补登记。
 
 | 口子 | 形式 | 登记了吗 | 谁在用 |
 |---|---|---|---|
 | dev-session 列表、控制、日志（`/api/v1/dev-sessions/…`；MCP `list_dev_sessions`、`restart_dev_session`、`get_dev_session_logs`） | 请求应答、指令 | 登记了 | MCP |
 | `alert.rule.fired`、`env.health.changed`、`cluster.node.changed`、`cluster.workload.changed`、`cluster.database.changed` | 事件 | 登记了 | Console、告警信 |
-| 选点 `placement.Placer` 和 `TaskProfile`（delivery 声明端口，server 绑定） | Go 接口 | 没登记 | delivery |
-| 唤醒、关机计算节点（`wake_compute_node`、`poweroff_compute_node`，经 cluster 的转发器） | 指令 | 没登记 | Agent、Console |
-| Compute readings（`GET /api/v1/telemetry/overview?group=compute`：老家、疼痛线、库节点客人、盘和写延迟等；查询写在 foundation 的 `telemetry/compute_queries.go`） | 请求应答 | 没登记 | Console Infrastructure 页、City 的硬件环 |
-| 老家登记 `bifrost_node:home_info` 和 ComputePain 告警（Prometheus 规则 `bifrost-compute-module-readout`，规则文件由指标线维护，口径归算力） | 别人可读的存储 | 没登记 | 选点、指标线、收回手册 |
+| 选点（delivery 声明 `PlacementReadings`、`TaskProfile` 端口，server 绑定到 `placement.Placer`） | Go 接口 | 【量】无需登记跨域引用：delivery 不导入 placement，由 server 接线 | delivery |
+| 唤醒、关机计算节点（`wake_compute_node`、`poweroff_compute_node`，经 cluster 的转发器） | 指令 | 【量】已登记在 compute 的 `commands` | Agent、Console |
+| Compute readings（`GET /api/v1/telemetry/overview?group=compute`：老家、疼痛线、库节点客人、盘和写延迟等；查询在算力的 `api/internal/computereadings/`，组由组装层绑定） | 请求应答 | 【量】经 foundation 已登记的 `GET /api/v1/telemetry/overview` 提供 | Console Infrastructure 页、City 的硬件环 |
+| 老家登记 `bifrost_node:home_info` 和 ComputePain 告警（Prometheus 规则 `bifrost-compute-module-readout`，规则文件由指标线维护，口径归算力） | 别人可读的存储 | 【量】已登记在 compute 的 `shared_storage`，老家与告警各一条 | 选点、指标线、收回手册 |
 | 申请算力的格式 `compute/resource-request-standard.md`，不挑机器 | 文稿 | 不是机器合约 | CI、平台 |
 
-- 【推】没登记的四样，请解耦线看机器为什么没量到；不手改登记表。登记表里算力的 source 写的是 `domains/6-compute/charter.md`，实际是本页。
+- 【量】原列「没登记」的四样已逐项核对：指令、共享存储已登记，读数经 foundation 已登记路由提供，选点端口不需跨域引用条目。【推】仍待解耦线对齐章程来源：登记表里算力的 source 写的是 `domains/6-compute/charter.md`，实际是本页。
 - 【量】唯一 [台账](../../compute/ledger/index.html)。
 
 ## 3. 谁用它，它用谁
