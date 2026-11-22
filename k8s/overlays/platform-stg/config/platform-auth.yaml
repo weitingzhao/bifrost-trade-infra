@@ -41,3 +41,13 @@ tokens:
   - name: agentd:coordinator-mbp
     role: agentd
     token_env: PLATFORM_AGENTD_COORDINATOR_MBP_STG_TOKEN
+  # Hosted 4090 mailbox pilot. Each role signs with its own STG credential.
+  - name: seat:stg-4090-station
+    role: reporter
+    token_env: PLATFORM_SEAT_4090_STATION_STG_TOKEN
+  - name: seat:stg-4090-pi
+    role: reporter
+    token_env: PLATFORM_SEAT_4090_PI_STG_TOKEN
+  - name: seat:stg-4090-audit
+    role: reporter
+    token_env: PLATFORM_SEAT_4090_AUDIT_STG_TOKEN
