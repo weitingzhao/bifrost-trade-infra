@@ -10,7 +10,7 @@ owns:
   - 配人：Triage 判不胜任时换坐席的 Agent
 promises:
   - 要进名册、换人、交卡：发平台信箱 thread:local_2c3fa7a5-f04c-41a0-8528-ce1b5a07eb86，门铃常挂
-  - 名册和卡的格式改了，先告诉读的人（Audit、City、地图线）
+  - 名册和卡的格式改了，先告诉读的人（Audit、City、地图线，还有沟通线：平台信箱的 roster:<席位> 寻址读的就是 seats.yaml）
 decide_alone:
   - 名册和卡的字段、格式、存放位置、先做哪几张、怎么对账；改了就推 ready/，不问
   - 名册里谁坐哪个席位（照主统筹的派定和会话清单写；对账不一致我改表）

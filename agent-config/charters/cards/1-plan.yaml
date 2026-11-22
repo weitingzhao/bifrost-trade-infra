@@ -1,0 +1,22 @@
+# 身份卡 1-plan（需求与计划）。v0 由 Crew 据 charters/1-plan.md 提炼起草（2026-11-21），不是新定的；本线核对后改 as_of、删这句。
+# 第 1 栏从 seats.yaml 取。占位席位，眼下没有活。
+as_of: 2026-11-21
+laws: [D10]
+owns:
+  - 计划树：platform api/internal/agentrt/store/plan*.go、progress*.go；表 agentrt.plan_node、plan_node_binding（mission 旧表只留着）
+  - 导入命令 api/cmd/agentrt-plan-import；HTTP 层 agentrtapi/plan.go、planview.go、planpace.go
+promises:
+  - 收信：平台信箱 thread:local_6ab1ad67-09a8-4522-9b4a-a03125b10b2c
+  - 路由：GET /plan、/plan-view、/plan-pace、/progress；POST /plan/proposals、notes、imports、signoff（签收只有 Owner）
+  - MCP：get_plan、get_plan_view、post_plan_note、propose_plan_change、propose_plan_import
+decide_alone:
+  - （章程未写，待本线填）
+must_answer:
+  - （章程未写，待本线填）
+not_mine:
+  - {what: missiondecide.go（旧流程残留）, to: 旧流程残留那一小块}
+  - {what: 业务问题记录（BI）归谁, to: 待核（Owner 定了冻着）}
+walls:
+  - 拆之前先别动 plan*.go（等技术债搬出 store 的第一刀动完）
+  - mission 表和计划节点的关系搞清再删，别误删
+  - D10 交易冻结

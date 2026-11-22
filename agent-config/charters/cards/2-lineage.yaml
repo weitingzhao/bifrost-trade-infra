@@ -1,0 +1,22 @@
+# 身份卡 2-lineage（干活登记与血缘）。v0 由 Crew 据 charters/2-lineage.md 提炼起草（2026-11-21），不是新定的；本线核对后改 as_of、删这句。
+# 第 1 栏从 seats.yaml 取。占位席位，眼下没有活；与 12-audit 同一会话兼坐。
+as_of: 2026-11-21
+laws: [D10]
+owns:
+  - external-work 登记：代码在 api/internal/agentrt/externalwork/，没有自己的表（agentrt.event 里的 external_work_noted 事件）
+  - 线程心跳与在线：api/internal/agentthreads/（状态存在一个文件里）
+  - 提交血缘：api/internal/lineage/（读 Gitea 镜像和 Claude-Session / Change-Id 尾注，不入库）
+promises:
+  - 收信：平台信箱 thread:local_7666e574-cf39-40a9-96bb-aa32d8a22b27
+  - 路由：POST /api/v1/agentrt/external-work（及 events、GET）、/agent/threads/heartbeat、GET /api/v1/lineage、PUT lineage 线程标题
+  - MCP：get_commit_lineage、register_external_work、record_external_work_event
+  - workregistration 四个读（RecentStreams、RecentRecords、HasWork、Registrants）：改返回算改合约
+decide_alone:
+  - （章程未写，待本线填）
+must_answer:
+  - 「这个改动落地没」（读血缘）
+not_mine:
+  - {what: store/presence*.go（机房 Agent 主机在线）, to: 归属要重划}
+  - {what: 事件日志和写入者, to: 底座}
+walls:
+  - D10 交易冻结

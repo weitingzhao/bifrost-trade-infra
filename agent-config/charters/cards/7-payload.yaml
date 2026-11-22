@@ -1,0 +1,20 @@
+# 身份卡 7-payload（Payload，原租户接入）。v0 由 Crew 据 charters/7-payload.md 提炼起草（2026-11-21），不是新定的；本线核对后改 as_of、删这句。
+# 第 1 栏从 seats.yaml 取。占位席位，没有活。
+as_of: 2026-11-21
+laws: [66 改名 Payload, 70 继续占位, 根 CLAUDE.md §1 平台不了解业务, D10]
+owns:
+  - 平台接业务应用的五个包（划分待 biz-align 确认）：marketdata、flexquery、research、tradeagent、ibgateway
+  - 租户声明配置：config/environments.yaml、config/topology.yaml；表：无
+promises:
+  - 收信：平台信箱 thread:local_04484692-66ee-4517-b162-9c1440be14b1
+  - 只读状态：GET /plugins/{ib-gateway,market-data,flex-query,research}/status 等；代理 /plugins/*/api/*
+  - MCP：mcp-server-trade，目录里的工具都是只读 GET
+decide_alone:
+  - （章程未写，待本线填）
+must_answer:
+  - （章程未写，待本线填）
+not_mine:
+  - {what: ibgateway 的 Redis 命令流知识（平台只留 reconnect_all）, to: Trade 或插件（需 Owner / 统筹确认）}
+  - {what: satellite、topology、placement、probe/trade_routes.go, to: 不一定算本领域（被运维、发布共用）}
+walls:
+  - ib:operator:cmd 只留 reconnect_all（根 CLAUDE.md §3）；D10 交易冻结

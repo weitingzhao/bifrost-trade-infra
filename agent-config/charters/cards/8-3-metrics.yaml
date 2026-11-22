@@ -1,0 +1,26 @@
+# 身份卡 8-3-metrics（指标线）。v0 由 Crew 据 charters/8-3-metrics.md 提炼起草（2026-11-21），不是新定的；本线核对后改 as_of、删这句。
+# 第 1 栏从 seats.yaml 取。
+as_of: 2026-11-21
+laws: [47 系统存档的评估读数, 28 对外合约, 29 改裁判规则交 Owner, D10]
+owns:
+  - 系统里「量出来是多少」只有一个出处：Prometheus、exporter、Loki 的抓取和规则
+  - infra k8s/monitoring/（抓取、规则、rule-tests、drills、promtail）
+  - 告警规则写到 Alertmanager 为止；指标命名和标签规范
+  - platform api/internal/evalreadings/（评估读口）；静态检查脚本的日常运行
+promises:
+  - 收信：平台信箱 thread:local_3361afbd-43fb-4539-a934-406b9a00b09f
+  - GET /api/v1/readings/evaluation 与 MCP get_evaluation_readings：只算已结束的窗口，口径变了升 version
+  - 记录规则 bifrost_metrics:*，名字和标签不改；运行时键 <namespace>/<workload>
+  - 每条告警规则写明保护什么，并有 promtool 测试；每个数标系统存档或临时读数
+decide_alone:
+  - 上面这些代码和规则文件的改动，合入走 ready/<名字>
+  - 评估读口加读数、改口径（升 version）
+must_answer:
+  - 「量出来是多少」（评估读数）
+not_mine:
+  - {what: 事件、信、叫醒、告警送到人和闭环, to: 沟通线 8.2}
+  - {what: 模块总清单, to: 地图线}
+  - {what: 容量和痛感读数的定义, to: 算力线}
+walls:
+  - monitoring 命名空间写入是 C 级卡；删除对象走 D 级；改裁判（加检查、改严改松、改尺子）交 Owner
+  - 交易和钱（D10）、Secret 和令牌、kubectl 写集群、auto mode 规则不碰
