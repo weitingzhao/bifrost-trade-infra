@@ -1,0 +1,99 @@
+# 合入 main 要带什么（格式 station.requires/v1，见 ../README.md）。
+# 内容是 CI 线（3·4）的：底稿 ci-speed/self-description-ci-v0.yaml（11-22）；Station 只加了 push-form、agent-config 两条，管格式。
+# 被拒次数是临时读数（集群留着的 land 运行，11-21 02:21Z 到 11-22 03:14Z，被拒 39 次）；11-21 22:28Z 起每次被拒的原因进证据账 pipeline_seen.refusal（系统存档）。
+# 对账（test_requires.py）：合入脚本里每一句 'refused: …' 都要在 refusals 里有一条（按 match 前缀），refusals、bring 里引用的原文都要在脚本里找得到。
+format: station.requires/v1
+tool: land
+owner: verification
+task: 把改动合进 infra 或 platform 的 main
+how: 从最新的 origin/main 牵分支，提交，推到 refs/heads/ready/<名字>。推上去 CI 自动跑，绿了自动进 main，不用起 CI、不用开 PR。看进没进：在 origin/main 上按自己的 Change-Id 找，或 wait_for_pipeline_run（pipeline 填 bifrost-land，revision 填全长提交号）。被拒了平台会发信给推的人。
+precheck: python3 scripts/station/precheck.py <检出目录> [<提交>]
+checked_by: k8s/cicd/tekton/pipeline-land.yaml
+
+bring:
+  - id: push-form
+    what: 推送写成单独一条命令，从命令本身看得出仓库和目标。不先 cd，不写 HEAD 或变量，不用 -f；重推换一个新的 ready/ 名字。
+    command: git -C <检出目录的绝对路径> push origin <40 位提交号>:refs/heads/ready/<名字>
+    get_from: precheck 最后会打印这次该用的那一条。
+    refused_with: {file: agent-config/scripts/agent-guard/preflight.js, says: 看不出这次 git push 推到哪里}
+    precheck: printed
+  - id: ready-branch
+    what: 目标是 refs/heads/ready/<名字>，推完整的 40 位提交号。直接推 main 会被 preflight 拦。
+    refused_with: {says: "refused: not a ready/ branch with a full commit id"}
+    precheck: printed
+  - id: landing-repo
+    what: 只有 LANDING_REPOS 里的仓库走这条路（现在是 bifrost-platform、bifrost-trade-infra）。别的仓库用 scripts/release/push-main.sh。
+    refused_with: {says: "refused: this repository is not in LANDING_REPOS"}
+    precheck: checked
+  - id: trailers
+    what: 每个提交带四个尾注 Claude-Session、Claude-Transcript、Change-Id、Work，放在最后一段，同一段里不空行。11-21 的 39 次里有 8 次是缺 Change-Id。
+    get_from: infra 的提交钩子会补（sh scripts/git-hooks/install.sh --check）；platform、frontend 新开的 worktree 和单独克隆不跑钩子，要自己写。
+    command: git log -1 --format=%B | git interpret-trailers --parse
+    refused_with: {says: "has no Change-Id trailer"}
+    precheck: checked
+  - id: ci-green-on-current-main
+    what: 这个提交有一次通过的 CI，而且是对着现在的 main 判的。ready/ 的 CI 自动跑。
+    get_from: 红了看 CI 日志里失败的测试名，修了再推。推之前本地先跑，见下面 ci_red。
+    refused_with: {says: "refused: no CI run of"}
+    precheck: not-covered
+  - id: domain-row
+    what: platform 新加的包要在 config/domain-ownership.json 的 packages 里有一行，写明归哪个领域和理由；落在已有主人目录下的新文件自动跟着走（法 72、75）。
+    get_from: 地图线（0.2，归属表的主人）；拿不准归谁问地图线。
+    refused_with: {repo: bifrost-platform, says: "has no row in config/domain-ownership.json"}
+    precheck: not-covered
+  - id: test-owner
+    what: platform 新测试所在的包有归属行；测试只经别的领域的合约，不伸手到内部（越界基线只减不增）。
+    get_from: 地图线（归属行）；Foundation（codeguard 基线、按领域拆的测试越界基线）。
+    refused_with: {repo: bifrost-platform, says: testsReachingAcross}
+    precheck: not-covered
+  - id: no-d10-paths
+    what: 不碰交易执行守卫路径（签名发布规则 no_d10_paths）。这是墙，要 Owner 书面解禁。
+    get_from: 路径表 agent-config/release-policy/paths.json。
+    refused_with: {says: "is a trade-execution guard path"}
+    precheck: checked
+  - id: no-overlap
+    what: 推之前先对齐最新 main。11-21 的 39 次里有 10 次是和别的线改同一个共享登记文件（归属表、守卫基线）撞了。
+    command: git fetch origin main && git rebase origin/main，再推一个新的 ready/<名字>
+    refused_with: {says: "refused: the branch is behind main and Gitea could not rebase it"}
+    precheck: checked
+  - id: agent-config-auto-mode
+    what: Agent 推 agent-config/ 下的治理文件，会被 auto mode 分类器拦下（11-15、11-21 都是，不给理由）。这条拦在推之前，不是合入拒的。
+    get_from: 治理文件的改动和别的改动分开提交，别的照常推；治理那份写成手续交主统筹，由 Owner 推。
+    refused_with: {file: none, says: harness 的 auto mode 分类器，不在仓库里}
+    precheck: warned
+
+refusals:   # 合入会说的每一句；kind：you=推的人改，system=系统的毛病（找 CI 线），wall=墙
+  - {match: "refused: not a ready/ branch with a full commit id", kind: you, do: "推到 refs/heads/ready/<名字>，用完整的 40 位提交号"}
+  - {match: "refused: this repository is not in LANDING_REPOS", kind: you, do: "只有 infra、platform 走 ready/；别的仓库用 push-main.sh"}
+  - {match: "refused: commit %s has no Change-Id trailer", kind: you, do: "补尾注后推一个新的 ready/ 分支（见 bring.trailers）"}
+  - {match: "refused: no CI run of", kind: you, do: "看 CI 为什么红；修好再推"}
+  - {match: "refused: CI did not judge", kind: you, do: "main 在 CI 跑的时候动了；再推一次 ready/"}
+  - {match: "refused: CI for", kind: system, do: "CI 超时没结束，找 CI 线"}
+  - {match: "refused: main kept moving", kind: you, do: "main 太忙，过几分钟再推"}
+  - {match: "refused: older landings took", kind: system, do: "排队太久；再推一次，并告诉 CI 线"}
+  - {match: "refused: the branch is behind main and Gitea could not rebase it", kind: you, do: "真冲突：在最新 main 上重做，推新的 ready/ 分支"}
+  - {match: "refused: the branch moved after this run started", kind: you, do: "不用做什么：新推的那版自己会跑"}
+  - {match: "refused: the branch moved while this run read it", kind: you, do: "同上"}
+  - {match: "refused: after its rebase the branch does not hold the same changes", kind: you, do: "有人同时往这个分支推了；以新推的那版为准"}
+  - {match: "refused: pull request #", kind: you, do: "PR 被关了；重推"}
+  - {match: "refused: more than 500 commits in one pull request", kind: you, do: "拆小再推"}
+  - {match: "refused: %s is a trade-execution guard path", kind: wall, do: "不能合：D10"}
+  - {match: "refused: Secret cicd/gitea-merger is not installed", kind: system, do: "找 CI 线"}
+  - {match: "refused: a pull request for this branch exists but could not be read", kind: system, do: "找 CI 线"}
+  - {match: "refused: could not", kind: system, do: "读 Gitea 失败，再推一次；连着出现找 CI 线"}
+  - {match: "refused: Gitea", kind: system, do: "Gitea 合并出错，找 CI 线"}
+  - {match: "refused: merge failed", kind: system, do: "找 CI 线"}
+  - {match: "refused: the run list is paged", kind: system, do: "找 CI 线"}
+
+ci_red:   # CI 红的几类（7 天：test-api 57、infra check 20、test-console 12；系统存档 agentrt.evidence）
+  - {task: test-api, means: "Go 测试或 codeguard 守卫（领域墙、归属行、测试越界、读取声明、导出名）红", do: "日志里 failed-tests 给测试名；守卫的提示句写了缺什么"}
+  - {task: test-console, means: "Console 的 tsc、lint、vitest、build 红", do: "本地 npx vitest related --run <改的文件>"}
+  - {task: code-health, means: "重复、合约覆盖、硬编码事实只降不升", do: "skill code-health；本地 bash scripts/code-health/scan.sh"}
+  - {task: check, means: "infra 的 pytest 和治理一致性（法条表格式、D10 文字、preflight 接线）", do: "本地 python3 -m pytest scripts/；bash scripts/check-governance-consistency.sh（要完整工作区）"}
+  - {task: check-spine, means: "spine 被改坏（D10 开关在这里）", do: "不要动 D10；别的字段按报错改"}
+
+must_answer:   # 找 CI 线必须答的（平台信箱 thread:local_7de640c4-4b19-4a71-a0ac-ced2ce5fc7ff）
+  - 某个提交为什么没进 main（证据账 pipeline_seen.refusal）
+  - 为什么还没上 PROD、什么时候上（证据账 prod_release_judged）
+  - 卡的草稿该写什么、试判怎么读；合入、发布相关条文的内容
+  - /ci/domains 和 CI 页的口径
