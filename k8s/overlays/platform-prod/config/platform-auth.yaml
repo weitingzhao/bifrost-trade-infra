@@ -37,3 +37,16 @@ tokens:
   - name: agentd:coordinator-mbp
     role: agentd
     token_env: PLATFORM_PROD_AGENTD_COORDINATOR_MBP_TOKEN
+  # Independent command worker identity per Owner-enrolled machine.
+  - name: host-work-mac
+    role: executor
+    token_env: OWNER_EXEC_WORK_MAC_TOKEN
+  - name: host-ops-mac-agent-01
+    role: executor
+    token_env: OWNER_EXEC_MINI_01_TOKEN
+  - name: host-ops-mac-agent-02
+    role: executor
+    token_env: OWNER_EXEC_MINI_02_TOKEN
+  - name: host-ubt-k3s-06
+    role: executor
+    token_env: OWNER_EXEC_AGENT_06_TOKEN
