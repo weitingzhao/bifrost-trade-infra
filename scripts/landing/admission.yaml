@@ -1,9 +1,11 @@
-# 合入 main 要带什么（格式 station.requires/v1，见 ../README.md）。
-# 内容是 CI 线（3·4）的：底稿 ci-speed/self-description-ci-v0.yaml（11-22）；Station 只加了 push-form、agent-config 两条，管格式。
+# CI 线（3·4）的自我说明：合入 main 要带什么（法 77；格式 station.requires/v1，见 scripts/station/README.md）。
+# 放在合入脚本旁边，归属表 verification 那一行用 "self" 指到这里，地图从 /catalog/domain 和 ?task= 给出去。
+# 内容归 CI 线（底稿 ci-speed/self-description-ci-v0.yaml，11-22）；Station 加了 push-form、agent-config 两条，管格式。
 # 被拒次数是临时读数（集群留着的 land 运行，11-21 02:21Z 到 11-22 03:14Z，被拒 39 次）；11-21 22:28Z 起每次被拒的原因进证据账 pipeline_seen.refusal（系统存档）。
 # 对账（test_requires.py）：合入脚本里每一句 'refused: …' 都要在 refusals 里有一条（按 match 前缀），refusals、bring 里引用的原文都要在脚本里找得到。
 format: station.requires/v1
 tool: land
+about: 合入与验证、发布：把改动合进 infra、platform 的 main，判它能不能进、能不能发。
 owner: verification
 task: 把改动合进 infra 或 platform 的 main
 how: 从最新的 origin/main 牵分支，提交，推到 refs/heads/ready/<名字>。推上去 CI 自动跑，绿了自动进 main，不用起 CI、不用开 PR。看进没进：在 origin/main 上按自己的 Change-Id 找，或 wait_for_pipeline_run（pipeline 填 bifrost-land，revision 填全长提交号）。被拒了平台会发信给推的人。

@@ -16,7 +16,8 @@ import yaml
 
 HERE = pathlib.Path(__file__).resolve().parent
 INFRA = HERE.parents[1]
-DOCS = {p.stem: yaml.safe_load(p.read_text()) for p in sorted((HERE / 'requires').glob('*.yaml'))}
+SELF = sorted(INFRA.glob('scripts/**/admission.yaml'))
+DOCS = {yaml.safe_load(p.read_text())['tool']: yaml.safe_load(p.read_text()) for p in SELF}
 
 spec = importlib.util.spec_from_file_location('precheck', HERE / 'precheck.py')
 precheck = importlib.util.module_from_spec(spec)
@@ -28,12 +29,11 @@ def text_of(path):
 
 
 class Format(unittest.TestCase):
-    def test_every_file_is_v1_and_named_by_its_tool(self):
+    def test_every_self_description_is_v1(self):
         self.assertTrue(DOCS)
         for name, d in DOCS.items():
             self.assertEqual(d['format'], 'station.requires/v1', name)
-            self.assertEqual(d['tool'], name)
-            for key in ('owner', 'task', 'how', 'bring'):
+            for key in ('about', 'owner', 'task', 'how', 'bring'):
                 self.assertTrue(d.get(key), (name, key))
             for b in d['bring']:
                 self.assertIn(b.get('precheck', 'not-covered'), ('checked', 'printed', 'warned', 'not-covered'), (name, b['id']))

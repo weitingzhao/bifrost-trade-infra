@@ -7,11 +7,12 @@ Station 管（法 77，2026-11-21）。给任何一个新来的成员：办之�
 
 ## 格式 `station.requires/v1`
 
-每件工具一个文件，放在 `requires/<tool>.yaml`。内容由管那件工具的线给，Station 收在这里、管格式。
+每个领域一份，叫 `admission.yaml`，放在它描述的代码旁边（合入的在 `scripts/landing/admission.yaml`），内容归那个领域，由它自己改、自己对账。归属表里它那一行写 `"self": "<repo>:<path>"` 指过去；地图每轮读进来，从 `/catalog/domain` 和 `?task=` 给出去（地图线的默认，Station 同意，11-22）。Station 只管格式，和本目录的查、自查两个命令。
 
 | 键 | 是什么 |
 |---|---|
-| `tool` | 工具的名字，也是文件名 |
+| `about` | 一句话：这个领域管什么（地图读口按它给） |
+| `tool` | 工具的名字，`howto.py <tool>` 按它查 |
 | `owner` | 管它的领域（归属表里的 domain id） |
 | `task` | 用这件工具办的是什么事，按事来查 |
 | `how` | 一两句：怎么办、怎么知道办成了 |

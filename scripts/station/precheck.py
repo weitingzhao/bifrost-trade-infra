@@ -7,7 +7,7 @@ fetched first). Exits 1 when the landing would refuse, 0 otherwise, and prints t
 The Change-Id and guard-path checks are not copies: they are the land script's own functions, read out of
 k8s/cicd/tekton/pipeline-land.yaml of the infra this file sits in and executed here (the way test_land.py
 loads them). The guard paths come from agent-config/release-policy/paths.json, the file the signed policy
-is made from. What this cannot run (the commit's CI in the cluster) it says so; see requires/land.yaml.
+is made from. What this cannot run (the commit's CI in the cluster) it says so; see scripts/landing/admission.yaml.
 """
 import json
 import pathlib

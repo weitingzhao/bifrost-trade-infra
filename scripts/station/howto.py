@@ -9,11 +9,14 @@ import sys
 
 import yaml
 
-HERE = pathlib.Path(__file__).resolve().parent / 'requires'
+INFRA = pathlib.Path(__file__).resolve().parents[2]
+# Each domain's self-description sits beside the code it describes, named admission.yaml (law 77, map line's
+# default with Station, 2026-11-22); platform's come through the map's /catalog/domain?task=.
+SELF = sorted(INFRA.glob('scripts/**/admission.yaml'))
 
 
 def load():
-    return {p.stem: yaml.safe_load(p.read_text()) for p in sorted(HERE.glob('*.yaml'))}
+    return {d['tool']: dict(d, _path=str(p.relative_to(INFRA))) for p in SELF for d in [yaml.safe_load(p.read_text())]}
 
 
 def show(d):
@@ -33,7 +36,7 @@ def show(d):
     if d.get('must_answer'):
         lines.append('找这条线它必须答：')
         lines += [f'- {m}' for m in d['must_answer']]
-    lines.append(f"被拒的每一句话和该做什么：{HERE.name}/{d['tool']}.yaml 的 refusals")
+    lines.append(f"被拒的每一句话和该做什么：{d['_path']} 的 refusals")
     return '\n'.join(lines)
 
 
