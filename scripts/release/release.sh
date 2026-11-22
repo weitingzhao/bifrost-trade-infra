@@ -19,7 +19,7 @@
 #          --probes <file>   extra probes for the after-check (repeatable)
 #          --what <repos>    comma-separated repo names in the window (default: the Trade repos)
 #          --allow-red <why> ship stg/prod even if a SHA's CI is red or missing (Owner)
-#          --who <name>      who releases (default $BIFROST_RELEASE_WHO, else user@host)
+#          --who <name>      who releases (default $BIFROST_RELEASE_WHO, else this session's seat id in charters/seats.yaml, else user@host)
 #                            the window is held as <name>.<random>, new for each process
 #          --timeout <s>     how long to wait for the run (default 3600)
 #          --reason <text>   prod: the approval's reason — what approving it ships, and which
@@ -70,6 +70,35 @@ PLATFORM_HTTP=""
 PLATFORM_BODY=""
 POLICY_DIR="${BIFROST_RELEASE_POLICY_DIR:-${INFRA_ROOT}/agent-config/release-policy}"
 POLICY_KEY="${BIFROST_RELEASE_KEY:-${HOME}/.ssh/bifrost_release_owner}"
+SEATS_FILE="${BIFROST_SEATS_FILE:-${INFRA_ROOT}/agent-config/charters/seats.yaml}"
+
+# default_who: who releases when --who is not given. $BIFROST_RELEASE_WHO if
+# set; else the seat id the roster (charters/seats.yaml) gives this session
+# ($CLAUDE_CODE_HOST_SESSION_ID: the first row of seats or temporary whose
+# session is it); else user@host. 2026-11-22 (Crew, via the comm desk): 17
+# holds of the window could not be told apart by seat, because every session
+# defaulted to the same user@host. The hold still adds a random suffix.
+default_who() {
+  if [[ -n "${BIFROST_RELEASE_WHO:-}" ]]; then printf '%s' "${BIFROST_RELEASE_WHO}"; return; fi
+  local seat=""
+  if [[ -n "${CLAUDE_CODE_HOST_SESSION_ID:-}" && -r "${SEATS_FILE}" ]]; then
+    seat="$(python3 - "${SEATS_FILE}" "${CLAUDE_CODE_HOST_SESSION_ID}" <<'PY' 2>/dev/null || true
+import re, sys
+path, session = sys.argv[1], sys.argv[2]
+for line in open(path, encoding="utf-8"):
+    row = line.strip()
+    if not row.startswith("- {"):
+        continue
+    sess = re.search(r"\bsession:\s*([A-Za-z0-9_.:-]+)", row)
+    ident = re.search(r"\{\s*id:\s*([A-Za-z0-9_.-]+)", row)
+    if sess and ident and sess.group(1) == session:
+        print(ident.group(1))
+        break
+PY
+)"
+  fi
+  if [[ -n "${seat}" ]]; then printf '%s' "${seat}"; else printf '%s' "${USER}@$(hostname -s)"; fi
+}
 
 # ── platform calls (token stays in a mode-600 curl config) ──────────────────
 
@@ -294,7 +323,7 @@ window_open() {
 }
 
 window_clear() {
-  WHO="${BIFROST_RELEASE_WHO:-${USER}@$(hostname -s)}"
+  WHO="$(default_who)"
   local body
   body="$(python3 -c 'import json,sys; print(json.dumps({"action":"release_window_release","reason":"clear release window","params":{"who":sys.argv[1],"force":True}}))' "${WHO}")"
   if [[ "${DRY_RUN:-0}" -eq 1 ]]; then
@@ -543,7 +572,7 @@ cmd_db_done() {
   rel_check_env "$1"
   grep -rqs "^id: *$2\b" "${DB_STEPS_DIR}" || rel_die "no step with id '$2' in ${DB_STEPS_DIR}"
   mkdir -p "${RELEASE_HOME}"
-  printf '%s %s %s %s\n' "$1" "$2" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${BIFROST_RELEASE_WHO:-${USER}@$(hostname -s)}" >>"${DONE_FILE}"
+  printf '%s %s %s %s\n' "$1" "$2" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(default_who)" >>"${DONE_FILE}"
   echo "recorded: $1 $2 (also add '$1' to the step's done: line in the next infra commit)"
 }
 
@@ -729,7 +758,7 @@ cmd_policy() {
 }
 
 cmd_freeze() {
-  local reason="" who="${BIFROST_RELEASE_WHO:-${USER}@$(hostname -s)}" body anchor
+  local reason="" who="$(default_who)" body anchor
   local refused='freeze refused: the platform has no trust anchor (or its status could not be read), so nobody could lift a freeze. See docs/RELEASE.md, "The release owner key".'
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -753,7 +782,7 @@ cmd_freeze() {
 }
 
 cmd_unfreeze() {
-  local key="${POLICY_KEY}" who="${BIFROST_RELEASE_WHO:-${USER}@$(hostname -s)}" frozen frozen_at tmp body
+  local key="${POLICY_KEY}" who="$(default_who)" frozen frozen_at tmp body
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --key) key="${2:?}"; shift 2 ;;
@@ -795,7 +824,7 @@ case "${1:-}" in
   hold)
     shift
     WHAT=""
-    WHO="${BIFROST_RELEASE_WHO:-${USER}@$(hostname -s)}"
+    WHO="$(default_who)"
     DRY_RUN=0
     ENV_NAME="hold"
     WINDOW_REASON=""
@@ -823,7 +852,7 @@ case "${1:-}" in
   *) release_usage >&2; exit 2 ;;
 esac
 
-DRY_RUN=0 FROM_STG="" WHAT="" ALLOW_RED="" REASON="" WHO="${BIFROST_RELEASE_WHO:-${USER}@$(hostname -s)}" TIMEOUT=3600
+DRY_RUN=0 FROM_STG="" WHAT="" ALLOW_RED="" REASON="" WHO="$(default_who)" TIMEOUT=3600
 ALLOW=() PROBES=()
 WINDOW_REASON="${ENV_NAME}"
 while [[ $# -gt 0 ]]; do
