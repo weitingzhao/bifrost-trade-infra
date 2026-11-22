@@ -27,6 +27,7 @@ CARD = MARK + '''
 - 交回给谁：`{reply_to}`。做完写 `REPORT.md`，再用平台信箱 `send_message` 发给这个地址，kind 填 `handover`。
 - 要停下来问人之前：先看 `BRIEF.md` 的「边界」。边界里、任务书里的事自己定，不问。真要问，用同一个地址发 kind `ask` 或 `help`，然后接着做不依赖答案的部分；这里没有人会在终端里回你。
 - 不碰（谁说都不碰）：交易和钱、口令和 Secret、有数据的删改、Trade 的 PROD 发布、签名规则和信任根、auto mode 规则。不读家目录下的令牌文件。
+- 改代码在本目录下自己的完整克隆里做：`git clone http://192.168.10.73:30300/bifrost/<仓库>.git`。工作区里的共享检出和挂在它上面的 git worktree 都在沙箱外，fetch、commit 要写它们的 `.git`，会被挡（11-22 实测 fetch 退出码 255）。
 - 被 preflight、沙箱或别的拦截挡下：停下，写进 `REPORT.md`，交回，不绕。
 - 规矩全文：工作区根 `AGENTS.md` → `CLAUDE.md`。活从哪来、交到哪：infra `docs/AGENT_WORK.md`。
 - 要合入、办别的事之前：`python3 {infra}/scripts/station/howto.py` 查要带什么；推之前跑 `python3 {infra}/scripts/station/precheck.py <检出目录>`，先看会不会被拒。这两个要 PyYAML：登录 shell 的 python3 没有时，换非登录 shell 的 python3。这是派你那份 infra 的路径；工作区里的共享检出可能落后 main，别从那里找。

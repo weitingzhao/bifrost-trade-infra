@@ -32,6 +32,8 @@ class CodexCard(unittest.TestCase):
         self.assertIn('11-station', text)
         self.assertIn('thread:local_abc', text)
         self.assertIn('handover', text)
+        # 2026-11-22, compute line's r1 visit: fetching in the shared checkout failed in the sandbox (exit 255).
+        self.assertIn('git clone http://192.168.10.73:30300/bifrost/', text)
         # 2026-11-22 entry test: the card sent it to the shared checkout, which lacked howto.py.
         self.assertIn(str(cc.INFRA / 'scripts/station/howto.py'), text)
         self.assertTrue((cc.INFRA / 'scripts/station/howto.py').is_file())
