@@ -345,6 +345,62 @@ spec:
           'system:serviceaccount:bifrost-platform-prod:bifrost-platform',
           'system:serviceaccount:bifrost-platform-stg:bifrost-platform'
         ]
+  variables:
+    - name: fixedGPUWakePod
+      expression: >-
+        object.kind == 'Job' && [object.spec.template.spec].all(p,
+          p.hostNetwork && p.nodeName == 'ubt-k3s-07' && p.restartPolicy == 'Never'
+          && has(p.automountServiceAccountToken) && !p.automountServiceAccountToken
+          && has(p.enableServiceLinks) && !p.enableServiceLinks
+          && (!has(p.serviceAccountName) || p.serviceAccountName in ['', 'default'])
+          && (!has(p.shareProcessNamespace) || !p.shareProcessNamespace)
+          && (!has(p.volumes) || size(p.volumes) == 0)
+          && (!has(p.initContainers) || size(p.initContainers) == 0)
+          && (!has(p.ephemeralContainers) || size(p.ephemeralContainers) == 0)
+          && (!has(p.resourceClaims) || size(p.resourceClaims) == 0)
+          && (!has(p.imagePullSecrets) || size(p.imagePullSecrets) == 0)
+          && (!has(p.securityContext) || !has(p.securityContext.sysctls) || size(p.securityContext.sysctls) == 0)
+          && !has(p.runtimeClassName)
+          && size(p.containers) == 1 && p.containers.all(c,
+            c.name == 'wake'
+            && c.image == '192.168.10.73:30500/bifrost-research@sha256:8cd0b34bbff05e1c6bc21b555e9d196813c484f6d49514583a78def32b4b83c5'
+            && c.command == ['python', '-I', '-B', '-c']
+            && c.args == ["import socket\npacket = bytes([255]) * 6 + bytes.fromhex('c87f545bb833') * 16\nwith socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:\n    sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)\n    sent = sock.sendto(packet, ('192.168.10.255', 9))\nif sent != len(packet):\n    raise SystemExit('WOL packet was not fully sent')\nprint(f'gpu-server: sent {sent} WOL bytes via host network')"]
+            && (!has(c.env) || size(c.env) == 0)
+            && (!has(c.envFrom) || size(c.envFrom) == 0)
+            && (!has(c.ports) || size(c.ports) == 0)
+            && (!has(c.volumeMounts) || size(c.volumeMounts) == 0)
+            && (!has(c.volumeDevices) || size(c.volumeDevices) == 0)
+            && !has(c.lifecycle) && !has(c.livenessProbe) && !has(c.readinessProbe) && !has(c.startupProbe)
+            && (!has(c.workingDir) || c.workingDir == '')
+            && (!has(c.resources.claims) || size(c.resources.claims) == 0)
+            && has(c.resources.limits) && has(c.resources.requests)
+            && c.resources.requests == {'cpu': '10m', 'memory': '16Mi'}
+            && c.resources.limits == {'cpu': '100m', 'memory': '64Mi'}
+            && [c.securityContext].all(s, s.runAsNonRoot && s.runAsUser == 65534
+              && !s.allowPrivilegeEscalation && s.readOnlyRootFilesystem
+              && (!has(s.procMount) || s.procMount == 'Default')
+              && s.seccompProfile.type == 'RuntimeDefault' && s.capabilities.drop == ['ALL'])))
+    - name: fixedGPUWake
+      # TD-287, #686: keep this exception aligned with computenodes/gpuWakeJob.
+      expression: >-
+        object.kind == 'Job' && request.operation == 'CREATE'
+        && request.userInfo.username == 'system:serviceaccount:bifrost-platform-prod:bifrost-platform'
+        && request.namespace == 'bifrost-platform-stg'
+        && object.metadata.name.startsWith('gpu4090-wol-')
+        && (!has(object.metadata.ownerReferences) || size(object.metadata.ownerReferences) == 0)
+        && (!has(object.metadata.finalizers) || size(object.metadata.finalizers) == 0)
+        && object.spec.backoffLimit == 0 && object.spec.activeDeadlineSeconds == 20
+        && object.spec.ttlSecondsAfterFinished == 120
+        && object.spec.parallelism == 1 && object.spec.completions == 1
+        && (!has(object.spec.manualSelector) || !object.spec.manualSelector)
+        && !has(object.spec.podFailurePolicy)
+        && (!has(object.spec.podReplacementPolicy) || object.spec.podReplacementPolicy == 'TerminatingOrFailed')
+        && (!has(object.spec.suspend) || !object.spec.suspend)
+        && (!has(object.spec.template.metadata.annotations) || size(object.spec.template.metadata.annotations) == 0)
+        && (!has(object.spec.template.metadata.labels) || object.spec.template.metadata.labels.all(k,
+            k in ['batch.kubernetes.io/controller-uid', 'batch.kubernetes.io/job-name', 'controller-uid', 'job-name']))
+        && variables.fixedGPUWakePod
   validations:
     - expression: >-
         (
@@ -377,7 +433,7 @@ spec:
           )
           : (
             (!has(object.spec.template.spec.volumes) || object.spec.template.spec.volumes.all(v, !has(v.hostPath)))
-            && (!has(object.spec.template.spec.hostNetwork) || object.spec.template.spec.hostNetwork == false)
+            && (!has(object.spec.template.spec.hostNetwork) || object.spec.template.spec.hostNetwork == false || variables.fixedGPUWake)
             && (!has(object.spec.template.spec.hostPID) || object.spec.template.spec.hostPID == false)
             && (!has(object.spec.template.spec.hostIPC) || object.spec.template.spec.hostIPC == false)
             && object.spec.template.spec.containers.all(c,
