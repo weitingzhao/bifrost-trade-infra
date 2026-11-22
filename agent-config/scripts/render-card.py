@@ -4,10 +4,12 @@ charters/cards/<id>.yaml. Prints at most one screen (40 lines); exits 1 when the
 Usage: render-card.py <seat id> | render-card.py --all (checks every card)."""
 import pathlib, sys, yaml
 root = pathlib.Path(__file__).resolve().parents[1] / 'charters'
-seats = {s['id']: s for s in yaml.safe_load((root / 'seats.yaml').read_text())['seats']}
+_t = yaml.safe_load((root / 'seats.yaml').read_text())
+seats = {s['id']: s for s in _t['seats'] + (_t.get('temporary') or []) if 'id' in s}
 def card(i):
     s = seats[i]; c = yaml.safe_load((root / 'cards' / f'{i}.yaml').read_text()); L = []
-    L.append(f"【{i}】{'主人席位' if s['kind']=='owner' else '临时席位'} · 领域 {s['domain']} · 坐的是 {s['harness']}（{c['as_of']}）")
+    who = '主人席位' if s['kind'] == 'owner' else f"临时席位（{s.get('invited_by')} 请来，为 {s.get('works_for', '-')} 干）"
+    L.append(f"【{i}】{who} · 领域 {s['domain']} · 坐的是 {s['harness']}（{c['as_of']}）")
     L.append('合约：' + '；'.join(str(x) for x in c['laws']))
     for title, key in (('我握的', 'owns'), ('对外答应的口子', 'promises'), ('我自己定、不用问', 'decide_alone'), ('别人来问我必须答', 'must_answer'), ('墙', 'walls')):
         L.append(f'{title}：'); L += ['  - ' + x for x in c[key]]

@@ -17,6 +17,11 @@ for r in rows:
     if d is not None and d not in t['domain_ids']: bad.append(f"{r['id']}: unknown domain_id {d}")
     if r['kind'] not in ('owner',): bad.append(f"{r['id']}: kind must be owner here")
 for x in t.get('temporary') or []:
-    if x.get('invited_by') not in ids: bad.append(f"temporary {x.get('run_key')}: invited_by not a seat or human")
-print('\n'.join(bad) or f'seats ok: {len(rows)} seats, {len(t.get("temporary") or [])} temporary, {len(t.get("humans") or [])} human')
+    who = x.get('id') or x.get('run_key')
+    if x.get('invited_by') not in ids: bad.append(f"temporary {who}: invited_by not a seat or human")
+    if x.get('domain_id') is not None and x['domain_id'] not in t['domain_ids']: bad.append(f"temporary {who}: unknown domain_id {x['domain_id']}")
+    if x.get('kind') != 'temporary': bad.append(f"temporary {who}: kind must be temporary")
+for x in t.get('outside_seats') or []:
+    if x.get('domain_id') is not None: bad.append(f"outside {x['id']}: holds no domain")
+print('\n'.join(bad) or f'seats ok: {len(rows)} seats, {len(t.get("temporary") or [])} temporary, {len(t.get("outside_seats") or [])} outside, {len(t.get("humans") or [])} human')
 sys.exit(1 if bad else 0)

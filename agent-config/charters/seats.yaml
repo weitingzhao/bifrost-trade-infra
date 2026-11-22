@@ -9,7 +9,8 @@ version: 1
 # 跟 platform config/domain-ownership.json 的 domains[].id 一致（读于 platform origin/main，2026-11-21）
 domain_ids: [foundation, plan, lineage, verification, delivery, approvals, compute, payload, coordination, crew, station, audit, triage]
 
-# 参谋长不在这张表里：它独立于所有席位之外，不握任何领域的 ownership，没有领域身份卡（Owner 更正，主统筹 11-21 转述）。
+# 参谋长不是席位：它独立于所有席位之外，不握任何领域的 ownership，没有领域身份卡（Owner 更正，主统筹 11-21 转述）。
+# 但它发信、收信，信箱要认得出它：记在最后的 outside_seats，只有会话和收信，没有领域、没有卡（11-22 沟通线读数发现缺它）。
 # name = Owner 11-21 定的新叫法（法 66）；id 仍是章程文件名。Audit（12）章程页 11-21 进了 main（3f4163d6），由 2-lineage 的会话兼坐：两行同一个 session。
 # mailbox = 这个会话在平台信箱里是不是收件人（thread:<session>）。平台判的是 writer 表里有没有这个 actor：会话第一次用平台工具写入时登记。
 # 量法（2026-11-21 15:10 Chicago，临时读数）：Crew 给它发过 send_message，成功 = registered，HTTP 422「not a registered actor」= not_registered；
@@ -19,7 +20,7 @@ seats:
   - {id: company-coordinator, charter: company-coordinator.md, domain: company, domain_id: null,        kind: owner, harness: claude, session: local_accccb4e-410c-4b5f-9f1b-b54c6915dc9a, mailbox: registered}
   - {id: 0-foundation-decouple, charter: 0-foundation-decouple.md, domain: "0", domain_id: foundation,   kind: owner, harness: claude, session: local_c00f7b95-4c6d-4324-a833-cc9b6f389b9a, mailbox: registered}
   - {id: 0-2-catalog,     charter: 0-2-catalog.md,     domain: "0.2", domain_id: foundation,            kind: owner, harness: claude, session: local_76b564a0-a591-4091-859b-6166a3b37d7f, mailbox: registered}
-  - {id: 1-plan,          charter: 1-plan.md,          domain: "1", domain_id: plan,                    kind: owner, harness: claude, session: local_6ab1ad67-09a8-4522-9b4a-a03125b10b2c, note: 占位席位，眼下没有活, mailbox: not_registered}
+  - {id: 1-plan,          charter: 1-plan.md,          domain: "1", domain_id: plan,                    kind: owner, harness: claude, session: local_6ab1ad67-09a8-4522-9b4a-a03125b10b2c, note: "占位，不唤醒（Crew 11-22 判：计划领域眼下没有派给它的活，信箱也没登记；起它只花 token。有活时由派活的人唤醒，第一次用平台工具即登记信箱）", mailbox: not_registered}
   - {id: 2-lineage,       charter: 2-lineage.md,       domain: "2", domain_id: lineage,                 kind: owner, harness: claude, session: local_7666e574-cf39-40a9-96bb-aa32d8a22b27, note: 占位席位，眼下没有活, mailbox: not_registered}
   - {id: 3-4-verify-release-ci, charter: 3-4-verify-release-ci.md, domain: "3,4", domain_id: verification, kind: owner, harness: claude, session: local_7de640c4-4b19-4a71-a0ac-ced2ce5fc7ff, also_domain_ids: [delivery], mailbox: registered}
   - {id: 5-approvals, name: approvals,     charter: 5-approvals.md,         domain: "5", domain_id: approvals,                   kind: owner, harness: claude, session: local_360734e0-481d-48e1-86c9-1866b3707707, mailbox: registered}
@@ -34,10 +35,15 @@ seats:
   - {id: 10-cockpit,      charter: 10-cockpit.md,      domain: "10", domain_id: null,                    kind: owner, harness: claude, session: local_d303ae46-113a-4d47-90e4-c8942f5fbbe5, mailbox: registered}
   - {id: win2-workshop, name: station,   charter: win2-workshop.md,   domain: "11", domain_id: station,                    kind: owner, harness: claude, session: local_f6f0f02b-092c-4c76-b68d-57f5b4c1a7f0, mailbox: registered}
 
-# 临时席位：干完就走，记在请它的主人名下。一行一次来访（run_key 是 dispatch 注册的 key，ended 写离开时间）。
-# 现在这张表只记了已发生的 Codex 来访，口径是「谁请的、干了哪块、插手几次」，数来自 9-harness 的 run-log（临时读数）。
-temporary: []
+# 临时席位：干完就走，记在请它的主人名下。一行一次来访：Codex 用 dispatch 注册的 run_key，Claude 会话用 session；ended 写离开时间。
+# 卡放 cards/<id>.yaml，和主人席位一样六栏。
+temporary:
+  - {id: 6-hw-upgrade, name: hw-upgrade, domain: "6", domain_id: compute, kind: temporary, harness: claude, session: local_6b7c1be6-8e08-4903-9681-422059395f5d, invited_by: company-coordinator, works_for: 6-compute, job: "08 新机入群、05 换盘重新入群（交接页 hw-upgrade-handover-2026-11-20.md）", started: 2026-11-20, ended: null, mailbox: registered, note: "11-22 03:1xZ 交接页写了完成与证据；节点表、td450 NODES、副盘存储类未做，归算力线定是否收尾"}
 
 # 人：同样是 labor。Owner 有两个身份，批法时是立法者，签名、输口令时是一个 labor（那几步也要登记、也被量）。
 humans:
   - {id: owner, role: lawgiver, harness: human, steps_recorded_as_labor: [signing, credential-entry, law-approval], mailbox: registered}
+
+# 不是席位、但收发信的线程（见文件头）。
+outside_seats:
+  - {id: chief-of-staff, name: 参谋长, kind: outside, harness: claude, session: local_3172e958-47d7-4138-9de2-2eb474e4d49c, domain_id: null, mailbox: registered, note: "写方案、最后验收；不握领域（Owner 11-20、11-21）"}
