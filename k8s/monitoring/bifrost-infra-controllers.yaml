@@ -1,0 +1,121 @@
+# Metrics line (LANE-metrics), 2026-11-22. Origin: coverage-45 (the 45 workloads with no metrics of their own).
+# The cheap ones. The Loki caches already run a memcached exporter side-car (port http-metrics 9150) that nobody
+# scraped, and the CloudNativePG operator serves metrics on 8080 (no Service, so a PodMonitor). The databases
+# themselves are scraped elsewhere (bifrost-postgres.yaml); this is the operator that reconciles them.
+# Network: neither monitoring nor cnpg-system has an ingress NetworkPolicy; the CI ones are noted where they are.
+# Apply: plan_manifest + apply_manifest (monitoring is level C). Rollback: delete these objects.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: bifrost-loki-caches
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: bifrost
+    release: kube-prometheus-stack
+    app.kubernetes.io/component: logging
+spec:
+  namespaceSelector:
+    matchNames:
+      - monitoring
+  selector:
+    matchExpressions:
+      - {key: app.kubernetes.io/instance, operator: In, values: [loki]}
+      - {key: app.kubernetes.io/component, operator: In, values: [memcached-chunks-cache, memcached-results-cache]}
+  endpoints:
+    - port: http-metrics
+      path: /metrics
+      interval: 60s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: bifrost-cnpg-operator
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: bifrost
+    release: kube-prometheus-stack
+    app.kubernetes.io/component: postgres
+spec:
+  namespaceSelector:
+    matchNames:
+      - cnpg-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cloudnative-pg
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: 60s
+---
+# 2026-11-22 (LANE-metrics, coverage-45): the repo server renders every app; slow renders and failed git fetches
+# show only here. Its NetworkPolicy admits 8084 from every namespace.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: bifrost-argocd-repo-server
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: bifrost
+    release: kube-prometheus-stack
+    app.kubernetes.io/component: cicd
+spec:
+  namespaceSelector:
+    matchNames:
+      - cicd
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: argocd-repo-server
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 60s
+---
+# 2026-11-22 (LANE-metrics, coverage-45): a push reaches CI through the EventListener and the triggers controller;
+# a dropped or slow trigger was visible nowhere. No NetworkPolicy selects either.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: bifrost-tekton-triggers
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: bifrost
+    release: kube-prometheus-stack
+    app.kubernetes.io/component: cicd
+spec:
+  namespaceSelector:
+    matchNames:
+      - tekton-pipelines
+      - cicd
+  selector:
+    matchExpressions:
+      - {key: app, operator: In, values: [tekton-triggers-controller]}
+  endpoints:
+    - port: http-metrics
+      path: /metrics
+      interval: 60s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: bifrost-ci-eventlistener
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: bifrost
+    release: kube-prometheus-stack
+    app.kubernetes.io/component: cicd
+spec:
+  namespaceSelector:
+    matchNames:
+      - cicd
+  selector:
+    matchLabels:
+      eventlistener: bifrost-ci
+  endpoints:
+    - port: http-metrics
+      path: /metrics
+      interval: 60s

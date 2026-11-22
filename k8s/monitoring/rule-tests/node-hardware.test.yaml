@@ -41,3 +41,43 @@ tests:
         exp_samples:
           - labels: 'bifrost_node:pods_running{node="ubt-k3s-04"}'
             value: 1
+
+  # 2026-11-22: the compute seat's three node records (their 7-day windows timed out as raw queries). The guest count
+  # takes only Running TaskRun pods in cicd; a Pending one and a pod of another kind are left out.
+  - name: container use per node and CI guests counted only when Running TaskRun pods
+    interval: 1m
+    input_series:
+      - series: 'container_cpu_usage_seconds_total{node="ubt-k3s-04",container="api",pod="a"}'
+        values: '0+60x10'
+      - series: 'container_cpu_usage_seconds_total{node="ubt-k3s-04",container="",pod="a"}'
+        values: '0+600x10'
+      - series: 'container_memory_working_set_bytes{node="ubt-k3s-04",container="api",pod="a"}'
+        values: '100x10'
+      - series: 'kube_pod_info{namespace="cicd",pod="t1",node="ubt-k3s-04",created_by_kind="TaskRun"}'
+        values: '1x10'
+      - series: 'kube_pod_info{namespace="cicd",pod="t2",node="ubt-k3s-04",created_by_kind="TaskRun"}'
+        values: '1x10'
+      - series: 'kube_pod_info{namespace="cicd",pod="g1",node="ubt-k3s-04",created_by_kind="ReplicaSet"}'
+        values: '1x10'
+      - series: 'kube_pod_status_phase{namespace="cicd",pod="t1",phase="Running"}'
+        values: '1x10'
+      - series: 'kube_pod_status_phase{namespace="cicd",pod="t2",phase="Running"}'
+        values: '0x10'
+      - series: 'kube_pod_status_phase{namespace="cicd",pod="g1",phase="Running"}'
+        values: '1x10'
+    promql_expr_test:
+      - expr: bifrost_node:container_cpu_used_cores
+        eval_time: 8m
+        exp_samples:
+          - labels: 'bifrost_node:container_cpu_used_cores{node="ubt-k3s-04"}'
+            value: 1
+      - expr: bifrost_node:container_memory_working_set_bytes
+        eval_time: 8m
+        exp_samples:
+          - labels: 'bifrost_node:container_memory_working_set_bytes{node="ubt-k3s-04"}'
+            value: 100
+      - expr: bifrost_node:ci_guests_running
+        eval_time: 8m
+        exp_samples:
+          - labels: 'bifrost_node:ci_guests_running{node="ubt-k3s-04"}'
+            value: 1
