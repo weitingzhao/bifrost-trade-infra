@@ -58,5 +58,19 @@ class CodexCard(unittest.TestCase):
             cc.write(self.run_dir(brief=None))
 
 
+    def test_seat_header_gives_the_seat_card_not_a_visitor_card(self):
+        # 2026-11-22, chief of staff's brief: Codex sits 12 Audit as a department manager with ownership.
+        d = self.run_dir(brief='seat: 12-audit\nreply_to: thread:local_abc\n\n# job\n')
+        self.assertTrue(cc.write(d))
+        text = (d / 'AGENTS.md').read_text()
+        self.assertIn('【12-audit】', text)
+        self.assertIn('12-audit.md', text)
+        self.assertNotIn('临时 Agent，只做', text)
+
+    def test_unknown_seat_refuses(self):
+        d = self.run_dir(brief='seat: no-such-seat\nreply_to: thread:local_abc\n')
+        with self.assertRaises(SystemExit):
+            cc.write(d)
+
 if __name__ == '__main__':
     unittest.main()
