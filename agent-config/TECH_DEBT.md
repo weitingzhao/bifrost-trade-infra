@@ -336,22 +336,8 @@
 | [TD-584](#td-584) | P3 | platform | 两轮计划决定同时跑时，同一张卡的确认记录可能写两条 | 不用批 |
 | [TD-585](#td-585) | P3 | owner-exec | 节点执行工具 `node-run.sh` 的 selftest 没进 CI | 不用批 |
 | [TD-586](#td-586) | P2 | owner-exec | 要 Owner 手的管理员级操作能走手机卡，但每件都要现写一次性脚本 | 待主统筹分派 |
-| [TD-587](#td-587) | P2 | cicd | CI 按代码树复用旧结果时连旧的对照 main 一起带过来，main 动过后同一棵树永远落不了地 | 不用批 |
 
 ## 条目
-
-### TD-587
-
-**P2 · infra `k8s/cicd/tekton/task-ci-platform-reuse.yaml`（复用步骤）· CI 按代码树复用旧结果时，连旧的对照 main 一起带过来，main 动过以后同一棵树永远落不了地**
-
-- **状态**：未开始（2026-11-22，CI 线发现，归 CI 线）。
-- **出处**：2026-11-22 platform `ready/releasepolicy-check-judgment` 连拒三次（land-fl8dp、land-l2nzp、land-c87zn），每次都回「CI did not judge … against main as it is now; push ready/ again」。
-- **证据**：第一次 CI（ci-platform-55fcp，18:24）跑的时候 main 是 3fd45bc4，结果里的 `base-commit` 就是 3fd45bc4。18:25 main 前进到 4fbc5d24。之后每次重推都触发了 CI：ci-platform-mqztz 是同一个 SHA；ci-platform-vlq9k 是 amend 出来的新 SHA，但树一样。这几次 CI 都走了复用（`tested-by: ci-platform-55fcp`），`base-commit` 仍是 3fd45bc4。落地步骤 `pipeline-land.yaml` 的 verdict 只认 `base-commit` 等于当前 main 的结果，所以判 stale 并拒绝。最后改一个注释字让树变了，才落地（land-m2bh6）。
-- **现在会不会发生**：会。凡是一个 ready 分支第一次跑 CI 后、落地前 main 动过，就会撞上。拒绝文字叫人「再推一次」，可再推没有用。
-- **后果**：落地卡住，每次白等 6–7 分钟；做事的人只能乱试（重推、amend），最后靠改无关内容绕过去。
-- **修法**：复用步骤只复用 `base-commit` 等于当前 main 的那次结果；对不上就不复用，照常跑增量。或者复用时把 `base-commit` 写成这次实际的 main，前提是证明增量范围不变。前一种简单，先做它。
-- **防线**：`scripts/landing/test_land.py` 或复用任务的自测加一条用例：旧结果的 base 不是当前 main 时，必须不复用。
-- **验收**：一个 ready 分支第一次 CI 跑完后 main 前进，再推同一个 SHA，能落地。
 
 ### TD-586
 

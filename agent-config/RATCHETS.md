@@ -470,3 +470,12 @@
 - platform `api/internal/agentrt/eventlog/cursorat_db_test.go`：`TestCursorAtReadsFromATime` 的两行固定用事务号 1、2，低于任何上限，测的只是「从某个时刻读起」，和别的测试开没开事务无关；15 秒等待删掉。
 - 同文件 `TestCursorAtWaitsForTheOldestOpenTransaction` 是阳性对照：另开一个不提交的旧事务，断言上限不高于它的事务号、用自己事务号写的那行在它之上并且读不到，把当初的原因当场抓一次。它不等旧事务结束后那行出现：那一步同样受别的测试的事务影响，第一版这么写，在全量 `-count=10` 里红过一次。
 - 覆盖不到的：别的连库测试如果也依赖上限（读 EventsAfter、等自己写的行），同样会被别人的长事务拖住；本条只修了这一个。
+
+
+### ready 推送不复用带旧 base 的增量结果（TD-587，2026-11-22）
+
+出处：2026-11-22 platform `ready/releasepolicy-check-judgment` 在 main 前进之后连推三次，落地连拒三次（land-fl8dp、land-l2nzp、land-c87zn）。每次 CI 都复用了 ci-platform-55fcp 的增量结果，它的 base-commit 是当时的旧 main；落地只认 base-commit 等于当前 main 的结果，所以同一棵树怎么重推都落不了地。
+
+- infra `scripts/release/platform_ci_reuse.py` 的 `same_increment`：ready 推送（trigger `platform-ci-ready`）不再站在增量结果上，自己重跑增量（1–2 分钟）；整套结果照旧可复用，推 main 那次照旧复用 ready 的增量（法 49）。Task `bifrost-ci-platform-reuse` 由 `embed_platform_ci_reuse.py` 从源码生成，2026-11-22 apply 进集群（plan-6a5b41c5-1795381054）。
+- `scripts/release/test_platform_ci_reuse.py::test_a_ready_push_never_reuses_an_increment`：ready 推送不复用增量；阳性对照：整套结果照旧复用，trigger 换成 `platform-ci` 时照旧复用增量。
+- 覆盖不到的：别的仓库的复用逻辑（infra 自己的 CI 不走这个复用步骤）；落地拒绝时提示「push ready/ again」的文字没改，现在再推会真的重跑。
