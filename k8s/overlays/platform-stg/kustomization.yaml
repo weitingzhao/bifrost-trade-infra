@@ -9,7 +9,6 @@ resources:
   - ops-ingressroute.yaml
   - ops-http-redirect.yaml
   - sa-kubeconfig.yaml
-  - redis-agents.yaml
   - owner-exec.yaml
   - ../../owner-exec/deployment
 
