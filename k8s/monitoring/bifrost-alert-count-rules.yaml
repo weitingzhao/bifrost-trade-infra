@@ -1,0 +1,28 @@
+# "How many alerts are on now, of which severity": one count every view reads by name (LANE-metrics, 2026-11-23).
+# Origin: the UI line measured City showing 6 firing and Console 5 warning in the same minute (11-23 16:10Z):
+# each view counted its own way (City: firing minus severity none; Console: warning only). The difference was one
+# info alert. The rule: firing alerts in Prometheus, by severity; severity none (Watchdog, InfoInhibitor: the alert
+# path's own heartbeat) and drills (drill="true") are not alerts. Each series is one alert (two namespaces of the same
+# rule are two). Silences in Alertmanager do not change it: an alert silenced is still on.
+# Apply: plan_manifest + apply_manifest (monitoring is level C). Rollback: delete this PrometheusRule.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: bifrost-alert-count-rules
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: bifrost
+    release: kube-prometheus-stack
+    app.kubernetes.io/component: recording
+spec:
+  groups:
+    - name: bifrost-alert-count
+      interval: 30s
+      rules:
+        # One series per severity that has an alert on; a severity with none has no series (read it as 0).
+        - record: bifrost_alerts:firing
+          expr: count by (severity) (ALERTS{alertstate="firing",severity!="none",drill!="true"})
+        # The total, always present (0 when nothing is on), for a single number.
+        - record: bifrost_alerts:firing_total
+          expr: count(ALERTS{alertstate="firing",severity!="none",drill!="true"}) or vector(0)

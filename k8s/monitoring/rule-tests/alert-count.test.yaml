@@ -1,0 +1,57 @@
+# promtool test for bifrost_alerts:firing (LANE-metrics, 2026-11-23). Origin: City showed 6 firing and Console 5
+# warning in the same minute; the shape below is PROD's at 16:10Z: Watchdog and InfoInhibitor (severity none), one
+# info, five warnings (one rule in two series), plus a drill and a pending alert that must not count.
+rule_files:
+  - bifrost-alert-count-rules.yaml
+
+evaluation_interval: 30s
+
+tests:
+  - name: PROD shape of 11-23 16:10Z counts 6, by severity info 1 and warning 5
+    interval: 30s
+    input_series:
+      - series: 'ALERTS{alertname="Watchdog",alertstate="firing",severity="none"}'
+        values: '1x10'
+      - series: 'ALERTS{alertname="InfoInhibitor",alertstate="firing",severity="none",namespace="monitoring"}'
+        values: '1x10'
+      - series: 'ALERTS{alertname="BifrostElasticStandbyMarker",alertstate="firing",severity="info"}'
+        values: '1x10'
+      - series: 'ALERTS{alertname="BifrostIBGatewaySecondaryDisconnected",alertstate="firing",severity="warning"}'
+        values: '1x10'
+      - series: 'ALERTS{alertname="etcdDatabaseHighFragmentationRatio",alertstate="firing",severity="warning",namespace="kube-system"}'
+        values: '1x10'
+      - series: 'ALERTS{alertname="BifrostMarketDataWarningLingering",alertstate="firing",severity="warning",namespace="plugin-market-data",check="a"}'
+        values: '1x10'
+      - series: 'ALERTS{alertname="BifrostMarketDataWarningLingering",alertstate="firing",severity="warning",namespace="plugin-market-data",check="b"}'
+        values: '1x10'
+      - series: 'ALERTS{alertname="KubeJobFailed",alertstate="firing",severity="warning",namespace="cicd"}'
+        values: '1x10'
+      - series: 'ALERTS{alertname="BifrostDrill",alertstate="firing",severity="critical",drill="true"}'
+        values: '1x10'
+      - series: 'ALERTS{alertname="KubePodNotReady",alertstate="pending",severity="warning"}'
+        values: '1x10'
+    promql_expr_test:
+      - expr: bifrost_alerts:firing
+        eval_time: 2m
+        exp_samples:
+          - labels: 'bifrost_alerts:firing{severity="info"}'
+            value: 1
+          - labels: 'bifrost_alerts:firing{severity="warning"}'
+            value: 5
+      - expr: bifrost_alerts:firing_total
+        eval_time: 2m
+        exp_samples:
+          - labels: 'bifrost_alerts:firing_total'
+            value: 6
+
+  - name: nothing on reads 0, not missing
+    interval: 30s
+    input_series:
+      - series: 'ALERTS{alertname="Watchdog",alertstate="firing",severity="none"}'
+        values: '1x10'
+    promql_expr_test:
+      - expr: bifrost_alerts:firing_total
+        eval_time: 2m
+        exp_samples:
+          - labels: 'bifrost_alerts:firing_total'
+            value: 0
