@@ -33,6 +33,7 @@ configMapGenerator:
 
 patches:
   - path: platform-agentd-deploy.patch.yaml
+  - path: platform-gpu-poweroff.patch.yaml
   - path: platform-serviceaccount.patch.yaml
   - path: images-pull-always.patch.yaml
   - path: platform-workers-env.patch.yaml
