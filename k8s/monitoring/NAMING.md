@@ -22,7 +22,7 @@ the referee (law 29) and goes to the Owner as a proposal.
 - `bifrost_<area>:<what>[_<window>]`: area before the colon, the reading after it,
   window last (`_5m`, `_1h`, `_1d`).
   Examples: `bifrost_node:disk_busy_ratio_5m`, `bifrost_metrics:coverage_ratio`.
-- Areas in use: `ci`, `metrics`, `module`, `node`, `pg`. A new area is fine; say
+- Areas in use: `alerts`, `ci`, `http`, `metrics`, `module`, `node`, `pg`. A new area is fine; say
   in the rule's comment what it covers.
 
 ## Alerts

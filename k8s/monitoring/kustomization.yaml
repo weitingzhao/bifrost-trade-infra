@@ -45,6 +45,7 @@ resources:
   - bifrost-compute-module-readout.yaml
   - bifrost-node-hardware-rules.yaml
   - bifrost-alert-count-rules.yaml
+  - bifrost-http-rules.yaml
   - bifrost-infra-controllers.yaml
   - maintainer-reconcile
   # Secret alertmanager-webhook-auth (PROD reporter bearer for the platform-api

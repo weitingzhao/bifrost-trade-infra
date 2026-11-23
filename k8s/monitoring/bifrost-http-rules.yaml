@@ -1,0 +1,26 @@
+# Requests and 5xx per route, per minute over the last hour: one reading every view takes by name (LANE-metrics, 2026-11-23).
+# Origin: City's counter rooms (one window per route) wrote these two PromQL by hand in counterQueries.json (UI/World ask
+# 11-23 18:48Z). Area `http` covers HTTP servers that export http_requests_total with handler (route pattern), method and
+# status (2xx..5xx buckets). Grouped by namespace, handler, method: every scrape job of a namespace adds up
+# (platform-api and platform-workers are two jobs). All namespaces are kept (about 240 series on 11-23).
+# The 5xx series exists only for routes that have had a 5xx in the window; a missing series means 0.
+# Apply: plan_manifest + apply_manifest (monitoring is level C). Rollback: delete this PrometheusRule.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: bifrost-http-rules
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/part-of: bifrost
+    release: kube-prometheus-stack
+    app.kubernetes.io/component: recording
+spec:
+  groups:
+    - name: bifrost-http
+      interval: 1m
+      rules:
+        - record: bifrost_http:requests_per_minute_1h
+          expr: 60 * sum by (namespace, handler, method) (rate(http_requests_total{namespace!=""}[1h]))
+        - record: bifrost_http:errors_5xx_per_minute_1h
+          expr: 60 * sum by (namespace, handler, method) (rate(http_requests_total{namespace!="",status="5xx"}[1h]))

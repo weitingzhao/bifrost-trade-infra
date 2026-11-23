@@ -1,0 +1,35 @@
+# promtool test for bifrost_http:* (LANE-metrics, 2026-11-23). Origin: City's counter rooms read per-route request and
+# 5xx rates; platform has two scrape jobs (platform-api, monitoring/bifrost-platform-workers) that must add up, and GET
+# and POST of one path must stay apart.
+rule_files:
+  - bifrost-http-rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  - name: two jobs add up per handler and method; GET and POST stay apart; 5xx only where there were 5xx
+    interval: 1m
+    input_series:
+      # 60 requests a minute from platform-api, 30 from workers, same route and method.
+      - series: 'http_requests_total{namespace="bifrost-platform-prod",job="platform-api",handler="/api/v1/x",method="GET",status="2xx"}'
+        values: '0+60x70'
+      - series: 'http_requests_total{namespace="bifrost-platform-prod",job="monitoring/bifrost-platform-workers",handler="/api/v1/x",method="GET",status="2xx"}'
+        values: '0+30x70'
+      # POST on the same path: 6 a minute, of which 2 are 5xx.
+      - series: 'http_requests_total{namespace="bifrost-platform-prod",job="platform-api",handler="/api/v1/x",method="POST",status="2xx"}'
+        values: '0+4x70'
+      - series: 'http_requests_total{namespace="bifrost-platform-prod",job="platform-api",handler="/api/v1/x",method="POST",status="5xx"}'
+        values: '0+2x70'
+    promql_expr_test:
+      - expr: bifrost_http:requests_per_minute_1h
+        eval_time: 70m
+        exp_samples:
+          - labels: 'bifrost_http:requests_per_minute_1h{namespace="bifrost-platform-prod",handler="/api/v1/x",method="GET"}'
+            value: 90
+          - labels: 'bifrost_http:requests_per_minute_1h{namespace="bifrost-platform-prod",handler="/api/v1/x",method="POST"}'
+            value: 6
+      - expr: bifrost_http:errors_5xx_per_minute_1h
+        eval_time: 70m
+        exp_samples:
+          - labels: 'bifrost_http:errors_5xx_per_minute_1h{namespace="bifrost-platform-prod",handler="/api/v1/x",method="POST"}'
+            value: 2
