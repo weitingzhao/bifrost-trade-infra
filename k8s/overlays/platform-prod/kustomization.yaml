@@ -7,6 +7,7 @@ resources:
   - namespace.yaml
   - ../../base-platform
   - ops-ingressroute.yaml
+  - harness-preview-ingress.yaml
   - ops-http-redirect.yaml
   - sa-kubeconfig.yaml
 
@@ -16,6 +17,10 @@ components:
   - ../../components/platform-config
 
 configMapGenerator:
+  - name: harness-preview
+    files:
+      - harness-preview.conf
+      - harness-previews.json
   - name: bifrost-platform-config
     files:
       - config/environments.yaml
@@ -32,6 +37,7 @@ configMapGenerator:
       - config/patrol-skills/cert-expiry-check.yaml
 
 patches:
+  - path: harness-preview-console.patch.yaml
   - path: platform-agentd-deploy.patch.yaml
   - path: platform-gpu-poweroff.patch.yaml
   - path: platform-serviceaccount.patch.yaml
