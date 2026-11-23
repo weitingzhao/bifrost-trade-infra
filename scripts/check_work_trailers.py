@@ -68,12 +68,23 @@ def workspace_root() -> pathlib.Path:
     return here.parents[1].parent
 
 
+def retired() -> set[str]:
+    """Retired repositories: tier: retired in the one registry (R0B)."""
+    registry = pathlib.Path(__file__).resolve().parents[1] / "k8s/cicd/repositories.yaml"
+    try:
+        text = registry.read_text()
+    except OSError:
+        return set()
+    return set(re.findall(r"name:\s*([^,\s]+),[^\n]*tier:\s*retired", text))
+
+
 def repos(root: pathlib.Path) -> list[pathlib.Path]:
     out = []
+    skip = retired()
     for path in sorted(root.glob("bifrost-*")):
         if not path.is_dir():
             continue
-        if path.name == "bifrost-analytics":
+        if path.name in skip:
             continue
         git_entry = path / ".git"
         if git_entry.is_dir():
@@ -115,7 +126,7 @@ def report(root: pathlib.Path, since_arg: str) -> str:
     gap = (total_m + total_u) / total_c if total_c else 0.0
     lines.append(f"{'TOTAL':<42} {total_c:7d} {total_m:8d} {total_u:11d} {gap:6.0%}")
     lines.append("")
-    lines.append(f"checkouts: {len(found)} (worktrees skipped; bifrost-analytics skipped)")
+    lines.append(f"checkouts: {len(found)} (worktrees and retired repositories skipped)")
     lines.append("gap = (missing + unassigned) / commits. Not a gate.")
     return "\n".join(lines)
 

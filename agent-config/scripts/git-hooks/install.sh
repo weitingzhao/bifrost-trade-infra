@@ -12,11 +12,14 @@ hooks=$(cd "$(dirname "$0")" && pwd -P)
 root=$(cd "$hooks/../../../.." && pwd -P)
 check=${1-}
 rc=0
+# Retired repositories (tier: retired in the one registry, R0B) get no hooks.
+registry="$hooks/../../../k8s/cicd/repositories.yaml"
+retired=$(sed -n 's/.*name: *\([^,]*\),.*tier: *retired.*/\1/p' "$registry" 2>/dev/null)
 for repo in "$root"/bifrost-*/; do
   repo=${repo%/}
   name=$(basename "$repo")
   [ -e "$repo/.git" ] || continue
-  [ "$name" = bifrost-analytics ] && continue   # archived
+  case " $(echo $retired) " in *" $name "*) continue ;; esac
   cur=$(git -C "$repo" config --get core.hooksPath)
   case "$cur" in
     "" | "$hooks")
