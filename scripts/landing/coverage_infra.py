@@ -151,6 +151,11 @@ def statics(infra, platform):
     # This fixed two-repository workspace has no flex-query revision. The
     # default release-chain entry remains the full cross-repository check.
     run([sys.executable, "-I", infra / "scripts/check-release-chain.py", "--scope", "infra"], cwd=infra)
+    # R0B (2026-11-23): the lists of repositories against the registry. It
+    # reports and passes; failing on a difference is the Owner's call (law 33).
+    registry = infra / "scripts/check_repo_registry.py"
+    run([sys.executable, "-I", registry, "--self-test"], cwd=infra)
+    run([sys.executable, "-I", registry], cwd=infra)
     run([sys.executable, "-I", infra / "agent-config/scripts/check_hardcoded_paths.py",
          "--ref", "HEAD", "--new-only"], cwd=infra)
 
