@@ -1,0 +1,32 @@
+# Station（11）的自我说明：领活、交回结果要带什么（法 77；格式 station.requires/v1，见 scripts/station/README.md）。
+# 放在派活脚本旁边；归属表 station 那一行用 "self" 指到这里，地图从 /catalog/domain 和 ?task= 给出去。
+# 出处：11-22 地图线实测 find_by_task("领活") 没有结果，因为还没有哪个领域写过这件事；领活交活的路归 Station（charters 11-station §1）。
+format: station.requires/v1
+tool: work
+about: 人和 Agent 干活的台面：活从哪来、交到哪、办事要带什么、进门卡。
+owner: station
+task: 领活、交回结果（我是新来的或被请来的，活从哪来、做完交给谁）
+how: 活由请你的主人席位用一份任务书 BRIEF.md 给你，开头两行写着谁请的（invited_by）和交回给谁（reply_to）。做完写 REPORT.md，用平台信箱 send_message 发给 reply_to，kind 填 handover。计划树不是领活入口。全文在 docs/AGENT_WORK.md。
+checked_by: scripts/agent-host/codex-card.py
+
+bring:
+  - id: brief-header
+    what: 任务书开头写明 invited_by（请你的主人席位）和 reply_to（thread:<会话号>）。主人席位请 Codex 时，从 scripts/agent-host/BRIEF.template.md 起任务书。
+    get_from: 请你的那个主人席位；模板在 scripts/agent-host/BRIEF.template.md。
+    refused_with: {says: "BRIEF.md has no reply_to"}
+    precheck: checked
+  - id: seat-or-visitor
+    what: 先弄清自己是坐席位的主人，还是被请来的临时 Agent。席位按 agent-config/charters/seats.yaml 的会话号对；不在表里就是临时 Agent，照任务书做、交回给请你的人。派 Codex 坐席位时，任务书头写 seat:<席位 id>。
+    get_from: seats.yaml（Crew 管）；进门卡会告诉你。
+    refused_with: {says: "has no card"}
+    precheck: checked
+  - id: hand-back
+    what: 交回只给 reply_to 那一个地址：写 REPORT.md（做成了什么、证据、没验什么、花了多少），再发平台信箱 handover，正文一屏以内，写上报告路径。中途卡住用同一个地址发 ask 或 help，接着做不依赖答案的部分。
+    get_from: docs/AGENT_WORK.md「交回」；派活脚本 dispatch.sh 退出时会把报告摘要登记成 submitted（submitted 不等于做完）。
+    refused_with: {file: none, says: 交回不经检查；没交回的看不到，主人席位按 reply_to 收信}
+    precheck: not-covered
+
+must_answer:   # 找 Station 必须答的（平台信箱 thread:local_f6f0f02b-092c-4c76-b68d-57f5b4c1a7f0）
+  - 新来的人从哪里进门、活从哪来、交到哪
+  - 派 Codex 怎么派、进门卡上写了什么、为什么卡住
+  - 某件工具要带什么（scripts/station/howto.py 查不到的）
