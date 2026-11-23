@@ -504,8 +504,30 @@ spec:
                   code, out = call(token, 'POST', api + '/pulls/%d/update?style=rebase' % number)
                   if code == 200:
                       return None, 'rebased'
-                  return None, ('refused: the branch is behind main and Gitea could not rebase it (%s %s). Rebase it '
-                                'onto main and push it to a ready/ branch again' % (code, (out or {}).get('message', '')))
+                  return None, ('refused: the branch is behind main and Gitea could not rebase it (%s %s).%s Rebase it '
+                                'onto main and push it to a ready/ branch again'
+                                % (code, (out or {}).get('message', ''), stacked(token, api, number)))
+
+              def stacked(token, api, number):
+                  """' Commits X of this branch are already on main ...' when a commit of the pull request
+                  has a Change-Id that one of main's last 50 commits has: the branch was stacked on a commit
+                  that landed first. Gitea answers such a rebase with a bare 500 (2026-11-23, land-fdqjc),
+                  which left the pusher to guess. Best effort: '' when nothing is found or read."""
+                  try:
+                      code, rows = call(token, 'GET', api + '/pulls/%d/commits?limit=50' % number)
+                      code_main, recent = call(token, 'GET', api + '/commits?sha=main&limit=50&stat=false&files=false')
+                      if code != 200 or code_main != 200 or not isinstance(rows, list) or not isinstance(recent, list):
+                          return ''
+                      on_main = {change_id(c.get('commit', {}).get('message', '')) for c in recent if isinstance(c, dict)}
+                      on_main.discard(None)
+                      dup = [str(r.get('sha', ''))[:8] for r in rows if isinstance(r, dict)
+                             and change_id(r.get('commit', {}).get('message', '')) in on_main]
+                  except Exception:
+                      return ''
+                  if not dup:
+                      return ''
+                  return (' Commits %s of this branch are already on main with the same Change-Id: the branch '
+                          'was stacked on a commit that landed first; a rebase onto main drops them.' % ', '.join(dup))
 
               def merge(token, api, pull, commit, base, tries=24, pause=5):
                   """(the commit now on main for this pull request, '') after the merge; ('', 'moved') when

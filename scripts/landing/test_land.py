@@ -402,7 +402,11 @@ class Gitea:
             if "/pulls/7/commits" in path:
                 # After a rebase the list still shows the commits from before it, as Gitea's does.
                 rows = [kw.get("listed", self.shown)] + ([self.shown_older] if self.older else [])
-                return 200, [{"sha": sha} for sha in rows]  # newest first, as Gitea lists them
+                return 200, [{"sha": sha, "commit": {"message": self.commits.get(sha, {}).get("message", "")}}
+                             for sha in rows]  # newest first, as Gitea lists them
+            if "/commits?sha=main" in path:  # main's last commits; `stacked`: one carries the older commit's Change-Id
+                return 200, [{"sha": "6" * 40, "commit": {"message": "fix: first, landed\n\nChange-Id: Ifirst"
+                                                           if kw.get("stacked") else "fix: other\n\nChange-Id: Iother"}}]
             if "/git/commits/" in path:
                 sha = path.rsplit("/", 1)[1]
                 if sha not in self.commits:
@@ -569,6 +573,18 @@ def test_a_rebase_gitea_cannot_do_is_a_refusal_that_says_what_to_do():
     outcome, problem = run_land(gitea)
     assert outcome == "" and "behind main" in problem and "conflict" in problem and "push it to a ready/ branch again" in problem
     assert gitea.merges() == []
+
+
+def test_a_rebase_refused_because_the_branch_sits_on_a_commit_that_landed_first_says_so():
+    """2026-11-23, land-fdqjc: a branch stacked on a commit that landed first got Gitea's bare 500, and
+    the pusher had to guess why (箭10's note). The refusal names the commits main already has."""
+    gitea = Gitea(behind=True, conflict=True, two=True, stacked=True)
+    problem = run_land(gitea)[1]
+    assert "already on main with the same Change-Id" in problem and ("4" * 8) in problem and SHA[:8] not in problem
+    assert "push it to a ready/ branch again" in problem and gitea.merges() == []
+    # Control: main has no commit of the branch, and the refusal stays as it was.
+    plain = run_land(Gitea(behind=True, conflict=True, two=True))[1]
+    assert "behind main" in plain and "already on main" not in plain
 
 
 def test_a_branch_moved_since_the_run_is_not_merged():
