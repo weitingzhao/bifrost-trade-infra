@@ -336,7 +336,7 @@
 | [TD-584](#td-584) | P3 | platform | 两轮计划决定同时跑时，同一张卡的确认记录可能写两条 | 不用批 |
 | [TD-585](#td-585) | P3 | owner-exec | 节点执行工具 `node-run.sh` 的 selftest 没进 CI | 不用批 |
 | [TD-586](#td-586) | P2 | owner-exec | 要 Owner 手的管理员级操作能走手机卡，但每件都要现写一次性脚本 | 待主统筹分派 |
-| [TD-588](#td-588) | P2 | cicd | 每日单元运行用 bifrost.units.yaml 手动钉的 ui，钉子落后时报假回归；改成自动前进 | 不用批 |
+| [TD-588](#td-588) | P2 | cicd | 每日单元运行用 bifrost.units.yaml 手动钉的 ui，钉子落后时报假回归；改成跟着 STG 用的 ui 走 | 不用批 |
 | [TD-589](#td-589) | P3 | cicd | 动作记录有 regret 字段，却没记撤法到底用没用过、实际撤回用了多久，后悔药有没有效看不出来 | 不用批 |
 
 ## 条目
@@ -363,9 +363,8 @@
 - **证据**：落地 CI 用 `uiRevision: main` 编 console（`pipeline-ci-platform.yaml`），每日单元运行用钉子 26cd74d1（11-21）。51c04df9、14debc3d（11-22）让 console import 了 ui 的新模块，落地是绿的；单元运行从那以后每次都红（unit plan 0169d550、2668f75b、84118c52）。ci-full-d4619165e453-20261123 配 ui eef54b6b 是绿的。当时手动把钉子挪到 eef54b6b（platform 85779276）。
 - **现在会不会发生**：会。console 再用到 ui 的新导出，而那次提交没挪钉子时，就会再来一次。
 - **后果**：一条假回归挂着不关，别的线读到会以为 main 坏了（这次 UI 线交接就差点这么写）；单元运行的 console 三个任务每天白跑、白红。
-- **修法**：钉子跟 ui main 自动前进，落地 CI 和单元运行都只用钉子上的 ui。删掉「谁需要谁手动挪」这一步：做事的人当时缺的是信息（不知道有这个钉子），不靠加门去补（Owner 11-15「先补环境，不加环节」）。前进的时机：ui main 的 CI 绿了、且 STG 已经用这个 ui 提交发布过。前进本身是一个提交，有自己的 CI，键按树算，没变的模块不重跑。
-  - 11-23 补的证据，说明落地 CI 也要改用钉子：今天整套和增量各红过一次 console 测试，platform 都没改。observer.test.tsx 数界面上的「Not observed」，ui main 加了一个阶段，期望就从 6 变成 7。lifecycle.test.tsx 数卸载后的计时器，也随 ui 组件变。console CI 编的是会自己动的 ui main，同一个 platform 提交今天绿、明天红。改用钉子不是加一道门，而是把一个不固定的输入固定下来；ui 变了，在钉子前进的那个提交里看得见。
-- **防线**：前进逻辑加一条测试：ui main 动了而钉子没跟上时，下一次单元运行前必须已经挪到位。
+- **修法**（2026-11-23 晚重判，取代前两版）：单元运行测的应当是会发出去的组合。STG 发布用的就是 ui main（11-23 每次都是），所以 ui 钉子改成 `advance: stg`：算计划时 ui 的提交取 STG 当前那次发布用的 uiRevision（发布记录里有），不再写死、也不要机器人去挪。落地 CI 照旧用 ui main，不改用钉子：它测的正是会发出去的东西；11-23 整套和增量各红一次 console 测试，是 platform 和当时的 ui main 真的对不上，是该给 UI 线的真信号，钉子不该把它盖住（前一版写的「落地 CI 也改用钉子」作废）。要做的：unitplan 认 `advance: stg`，五处算计划的地方（buildfrom、scopeof、unitwatch、ciconfig、unitexec 派单）拿到同一个解析函数；同一提交的计划会随 STG 前进而变，单元运行「谁引入了回归」那段（unitwatch daily introducedBy）按输入键回溯，要核它在钉子变动时不误判。
+- **防线**：unitplan 加测试：`advance: stg` 时计划里的 ui 提交等于解析函数给的那个；解析不到时退回文件里写的提交并在计划里注明。
 - **验收**：console 用了 ui 新导出的提交，不用任何人手动挪钉子，第二天的单元运行照样是绿的。
 
 ### TD-586
