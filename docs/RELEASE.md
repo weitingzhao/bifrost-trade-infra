@@ -93,7 +93,7 @@ scripts/release/release-check.sh diff old.json new.json --allow <file>
 > 状态：**已应用到集群**（Owner 2026-10-12 21:13，文件取自提交 `79c8088`；应用前在集群里试跑过一正一反）。平台那一半随 `26a10b5` 在正式环境上。
 > 2026-10-13 18:32 起线上的 PROD 流水线取自提交 `b9ec378`：源检查与上面相同，只有 `rollout` 改成重启后按摘要核对 Pod（护栏 ⑤ 收口片；同日 18:25 STG 流水线也取自这个提交）。要退回到只有源检查、不核对摘要的那一版，用 `0e3d33b`（与 `79c8088` 逐字节相同），见 `agent-config/work/multi-agent/OWNER-STEPS-digest-s2-s3.md` 的「撤回」。
 
-`bifrost-deliver-platform-prod` 在 mirror-sync 后、clone 前拒绝两种情况：平台提交没有整 SHA 匹配的 Succeeded `bifrost-ci-platform`，或无法证明 STG 克隆了同一整 SHA。STG 取 `bifrost-deliver-platform` 中克隆了这个整 SHA 的、成功的 run 里创建时间最新的一条；它之后又起过的 STG 发布（失败、在途、交叠或别的提交）不影响（2026-11-11 清理第 1 波删掉了「PROD 只认最新一次 STG」：没有证据它拦下过真问题）。这个提交在 STG 没有成功过（run 只留 7 天）就拒绝。查询失败或证据畸形也拒绝。
+`bifrost-deliver-platform-prod` 在 mirror-sync 后、clone 前拒绝两种情况：平台提交没有整 SHA 匹配的 Succeeded `bifrost-ci-platform`，或无法证明 STG 克隆了同一整 SHA。STG 取 `bifrost-deliver-platform` 中克隆了这个整 SHA 的、成功的 run 里创建时间最新的一条；它之后又起过的 STG 发布（失败、在途、交叠或别的提交）不影响（2026-11-11 清理第 1 波删掉了「PROD 只认最新一次 STG」：没有证据它拦下过真问题）。这个提交在 STG 没有成功过（run 只留 1 天，见 `k8s/cicd/tekton/cronjob-pipelinerun-ttl.yaml` 的 MAX_AGE_SECONDS；11-19 起从 7 天降下来，原因写在那里）就拒绝。查询失败或证据畸形也拒绝。
 
 Platform CI records the actual checkout identities in pipeline results: `platform-commit`,
 `platform-tree` (the 40-hex output of `git rev-parse HEAD^{tree}` from the platform
@@ -155,7 +155,7 @@ git show 27e4467:k8s/cicd/tekton/pipeline-deliver-platform-prod.yaml | kubectl a
 | `identity cannot read PipelineRuns/TaskRuns in cicd` | 检查没跑在 tekton-deliver 下 | platform 那一半还没到 PROD，或这条 run 是手建的、没给 check-source 指身份 |
 | `no exact-SHA Succeeded full CI` | 开关 `requireFullCI` 为 `on` 时：这个提交没有成功的全量 `bifrost-ci-platform`：没有 run、全量 run 是红的，或者只有 `api-scope=console` 的 run 成功（R5:5.7-1：只改 console 的分支与落地只跑一部分 Go 测试；没有 `api-scope` 结果的旧 run 算全量） | 等 CI；推上 main 的那一轮是全量的。CI 没起，先查这个提交在不在 Gitea 上（它是主仓库，推上去钩子就起 CI），再起一次 |
 | `no exact-SHA Succeeded CI` | 开关 `requireFullCI`（PROD 流水线参数，默认 `off`；release.sh 读 `BIFROST_RELEASE_REQUIRE_FULL_CI`）关着时：这个提交没有成功的 `bifrost-ci-platform`，全量或部分都没有（部分 = `api-scope` 为 `console` 或落地 CI 的 `incremental`）。Owner 2026-11-06：还没有用户，PROD 不强制全量；以后打开开关，回到上一行的要求 | 等 CI；落地 CI 绿了就算 |
-| `no STG delivery` | 集群里一条 `bifrost-deliver-platform` 的 run 都没有（run 只留 7 天） | 发一次 STG |
+| `no STG delivery` | 集群里一条 `bifrost-deliver-platform` 的 run 都没有（run 只留 1 天） | 发一次 STG |
 | `no Succeeded STG delivery of this commit` | 集群里没有一条成功的、克隆了这个提交的 STG 发布 | 先把这个提交发到 STG |
 | `STG clone commit is ambiguous` | 一条成功的 STG 发布的拉代码记录里没有或有多个 commit 结果 | 再发一次 STG |
 | `STG run X has missing or unparsable creationTimestamp` | 一条成功的 STG run 的创建时间字段坏了 | 删掉那条 run（`delete_pipeline_run`） |
@@ -170,7 +170,7 @@ git show 27e4467:k8s/cicd/tekton/pipeline-deliver-platform-prod.yaml | kubectl a
 
 钉住路径生成的 JSON 在应用或回退这条 Pipeline 之后要重新生成（它在生成那一刻读线上的定义）。
 
-**这道检查生效之后怎么把平台退回旧提交**：旧提交在 STG 成功发布的 run 还在集群里（7 天内）就可以直接再发 PROD；不在了会被拒。两条路：① Owner 先把 Pipeline 恢复成不含检查的定义（上面第 3 条命令），再发旧提交；退回到不含 check-source 身份接线的平台（`2726c47` 之前）之后，检查要一直保持撤回。② 先把旧提交成功发到 STG（不必是最新的一次，2026-11-11 起），再发 PROD；只适用于含身份接线的平台提交。Owner 动手时用的清单见 `agent-config/work/multi-agent/OWNER-STEPS-2026-10-13.md`。
+**这道检查生效之后怎么把平台退回旧提交**：旧提交在 STG 成功发布的 run 还在集群里（1 天内）就可以直接再发 PROD，约 1–2 分钟；不在了会被拒，要先把旧提交重发一次 STG，整个撤回约 4–10 分钟（2026-11-23 Foundation 的后悔药盘点，临时读数）。更常用、也更快的撤法是 revert 那个提交再走 `ready/`（落地中位约 3 分钟），平台会自己把它发到 STG 和 PROD。`gitops_rollback_app` 对 bifrost-platform-stg 和 -prod 不起作用：这两个应用开着自动同步，Argo CD 会立刻同步回去；2026-11-23 起这个动作对开着自动同步的应用直接拒绝（409）。两条路：① Owner 先把 Pipeline 恢复成不含检查的定义（上面第 3 条命令），再发旧提交；退回到不含 check-source 身份接线的平台（`2726c47` 之前）之后，检查要一直保持撤回。② 先把旧提交成功发到 STG（不必是最新的一次，2026-11-11 起），再发 PROD；只适用于含身份接线的平台提交。Owner 动手时用的清单见 `agent-config/work/multi-agent/OWNER-STEPS-2026-10-13.md`。
 
 ## Platform STG / PROD running-image verification（guardrail 5，slices 2–3）
 
