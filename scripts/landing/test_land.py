@@ -629,6 +629,17 @@ def test_a_change_id_in_the_body_is_not_a_trailer(message):
     assert outcome == "" and "no Change-Id trailer" in problem and gitea.merges() == []
 
 
+def test_trailers_split_by_a_blank_line_are_refused_saying_so():
+    """Why: 2026-11-23, plan's 986bef69 (land-fd7bz) carried its Change-Id, but Co-Authored-By stood in a
+    paragraph of its own below the block, and the refusal said "no Change-Id trailer". Positive control:
+    the same message without the blank line lands its Change-Id."""
+    split = "fix\n\nbody\n\nClaude-Session: s\nChange-Id: Iabc\n\nCo-Authored-By: A B <a@b.c>\n"
+    assert module()["change_id"](split) is None
+    outcome, problem = run_land(Gitea(message=split))
+    assert outcome == "" and "outside the last paragraph" in problem and SHA[:12] in problem
+    assert module()["change_id"](split.replace("Iabc\n\nCo", "Iabc\nCo")) == "Iabc"
+
+
 @pytest.mark.parametrize("message, found", [
     ("fix" + TRAILERS, "I" + "1" * 40),
     ("fix\n\nbody\n\nClaude-Session: s\nChange-Id: Iabc\nCo-Authored-By: A B <a@b.c>\n", "Iabc"),

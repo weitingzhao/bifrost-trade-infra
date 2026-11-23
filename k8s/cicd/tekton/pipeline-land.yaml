@@ -335,6 +335,19 @@ spec:
                   found = [line.split(': ', 1)[1].strip() for line in last if line.startswith('Change-Id: ')]
                   return found[-1] if found and re.fullmatch(r'\S+', found[-1]) else None
 
+              def misplaced_change_id(message):
+                  """True when a paragraph before the last is a trailer block with a Change-Id and every
+                  paragraph after it holds trailers only: the trailers were split by a blank line (plan's
+                  986bef69 on 2026-11-23 had Co-Authored-By alone below the block)."""
+                  parts = re.split(r'\n[ \t]*\n', message.strip())
+                  for i in range(1, len(parts) - 1):
+                      if change_id('x\n\n' + parts[i]):
+                          rest = [line for part in parts[i + 1:] for line in part.splitlines()
+                                  if not line.startswith('(cherry picked from commit ')]
+                          if rest and all(TRAILER.match(line) for line in rest):
+                              return True
+                  return False
+
               def listed(token, api, number, commit):
                   """(the pull request's commit ids, '') for a pull request this run has just opened or
                   found, whose list is fresh; it must hold the commit this run is for."""
@@ -389,7 +402,14 @@ spec:
                       code, row = call(token, 'GET', api + '/git/commits/' + sha)
                       if code != 200 or not isinstance(row, dict) or row.get('sha') != sha:
                           return [], 'refused: could not read commit %s (%s)' % (sha[:12], code)
-                      found = change_id((row.get('commit') or {}).get('message') or '')
+                      message = (row.get('commit') or {}).get('message') or ''
+                      found = change_id(message)
+                      if not found and misplaced_change_id(message):
+                          # 2026-11-23 (plan's 986bef69, land-fd7bz): the Change-Id was there, but a
+                          # blank line put Co-Authored-By in a paragraph of its own below it, and
+                          # "has no Change-Id" sent the pusher looking for a missing line.
+                          return [], ('refused: commit %s has its Change-Id outside the last paragraph: the '
+                                      'trailers go in the last paragraph, with no blank line between them' % sha[:12])
                       if not found:
                           return [], ('refused: commit %s has no Change-Id trailer (scripts/git-hooks adds it; '
                                       'a clone without the hook adds it by hand)' % sha[:12])

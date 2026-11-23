@@ -68,6 +68,7 @@ refusals:   # 合入会说的每一句；kind：you=推的人改，system=系统
   - {match: "refused: not a ready/ branch with a full commit id", kind: you, do: "推到 refs/heads/ready/<名字>，用完整的 40 位提交号"}
   - {match: "refused: this repository is not in LANDING_REPOS", kind: you, do: "只有 infra、platform 走 ready/；别的仓库用 push-main.sh"}
   - {match: "refused: commit %s has no Change-Id trailer", kind: you, do: "补尾注后推一个新的 ready/ 分支（见 bring.trailers）"}
+  - {match: "refused: commit %s has its Change-Id outside the last paragraph", kind: you, do: "尾注（含 Co-Authored-By）挪到最后一段、中间不留空行，amend 后推一个新的 ready/ 分支"}
   - {match: "refused: no CI run of", kind: you, do: "看 CI 为什么红；修好再推"}
   - {match: "refused: CI did not judge", kind: you, do: "main 在 CI 跑的时候动了；再推一次 ready/"}
   - {match: "refused: CI for", kind: system, do: "CI 超时没结束，找 CI 线"}
