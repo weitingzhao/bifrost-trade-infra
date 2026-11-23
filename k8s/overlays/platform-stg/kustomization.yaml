@@ -7,6 +7,7 @@ resources:
   - namespace.yaml
   - ../../base-platform
   - ops-ingressroute.yaml
+  - harness-preview-ingress.yaml
   - ops-http-redirect.yaml
   - sa-kubeconfig.yaml
   - owner-exec.yaml
@@ -18,6 +19,9 @@ components:
   - ../../components/platform-config
 
 configMapGenerator:
+  - name: harness-preview
+    files:
+      - harness-preview.conf
   - name: bifrost-platform-config
     files:
       - config/environments.yaml
@@ -27,6 +31,7 @@ configMapGenerator:
       disableNameSuffixHash: true
 
 patches:
+  - path: harness-preview-console.patch.yaml
   - path: resident-capacity.patch.yaml
   - target:
       group: apps

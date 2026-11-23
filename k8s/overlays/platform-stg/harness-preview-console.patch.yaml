@@ -1,0 +1,18 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-console
+spec:
+  template:
+    spec:
+      containers:
+        - name: platform-console
+          volumeMounts:
+            - name: harness-preview
+              mountPath: /etc/nginx/conf.d/harness-preview.conf
+              subPath: harness-preview.conf
+              readOnly: true
+      volumes:
+        - name: harness-preview
+          configMap:
+            name: harness-preview
