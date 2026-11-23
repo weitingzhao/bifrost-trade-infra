@@ -4,139 +4,38 @@
 # holds them to it:
 #   public: true   <-> agent-config/gitea-primary.txt and
 #                      k8s/cicd/github-sync/cronjob-reconcile.yaml (GitHub follows)
-#   landing: true  <-> LANDING_REPOS in k8s/cicd/tekton/pipeline-land.yaml (ready/)
-#   state: active  <-> the repository list in agent-config/AGENT_FACTS.md
+#   ready: true    <-> LANDING_REPOS in k8s/cicd/tekton/pipeline-land.yaml (ready/)
+#   tier other than retired <-> the repository list in agent-config/AGENT_FACTS.md
 #
-# layer is how much a mistake hurts and whether it can be taken back
+# tier is how much a mistake hurts and whether it can be taken back
 # (working version of the Owner's 2026-11-23 direction, the R0A report):
 #   foundation  platform, infrastructure, CI referee, trust roots
 #   shared      what several parties depend on
 #   payload     business applications, plugins, the subsidiaries' projects
 #   experiment  temporary; expires, never reaches PROD
-# A repository's layer is the highest of the domains it holds. state is
-# active or retired (read-only; its names cleared from the running cluster).
-# domain is the map's claim (config/catalog-review.json in bifrost-platform).
+# A repository's tier is the highest of the domains it holds. tier: retired
+# marks a retired repository (read-only; its names cleared from the running
+# cluster); the map does not count it missing from Gitea.
+# domain is a domain id of the ownership table and the map's claim
+# (config/catalog-review.json in bifrost-platform). Field names are the ones
+# the map reads (catalog reconcile, platform f5b63b43).
 #
 # Adding a repository: one entry here. Making it public (GitHub) is the
 # Owner's card, and then its line in gitea-primary.txt.
 
 repositories:
-  - name: bifrost-platform
-    layer: foundation
-    domain: foundation
-    state: active
-    public: true
-    landing: true
-    about: the control plane (Go api, React console, MCP); holds 14 domains
-
-  - name: bifrost-trade-infra
-    layer: foundation
-    domain: unknown
-    state: active
-    public: true
-    landing: true
-    about: every manifest, Tekton, the governance layer (agent-config), scripts
-
-  - name: primary-probe
-    layer: foundation
-    domain: delivery
-    state: active
-    public: false
-    landing: false
-    about: probes Gitea's branch protection (Gitea primary, step 1)
-
-  - name: repo-template
-    layer: foundation
-    domain: delivery
-    state: active
-    public: false
-    landing: false
-    about: the template new repositories are created from (main rules, CI hooks)
-
-  - name: bifrost-ui
-    layer: shared
-    domain: foundation
-    state: active
-    public: true
-    landing: false
-    about: "@bifrost/ui: shared components and the City frame"
-
-  - name: bifrost-trade-core
-    layer: shared
-    domain: payload
-    state: active
-    public: true
-    landing: false
-    about: the Trade Python library (bifrost-core) api, worker and flex-query use
-
-  - name: bifrost-trade-api
-    layer: payload
-    domain: payload
-    state: active
-    public: true
-    landing: false
-    about: the Trade API
-
-  - name: bifrost-trade-worker
-    layer: payload
-    domain: payload
-    state: active
-    public: true
-    landing: false
-    about: "the Trade daemon (D10: STG at 0 replicas)"
-
-  - name: bifrost-trade-frontend
-    layer: payload
-    domain: payload
-    state: active
-    public: true
-    landing: false
-    about: the Trade UI
-
-  - name: bifrost-research
-    layer: payload
-    domain: payload
-    state: active
-    public: true
-    landing: false
-    about: Research OLAP, dbt, research-api
-
-  - name: bifrost-platform-plugin
-    layer: payload
-    domain: payload
-    state: active
-    public: true
-    landing: false
-    about: the IB Gateway plugin
-
-  - name: bifrost-platform-plugin-market-data
-    layer: payload
-    domain: payload
-    state: active
-    public: true
-    landing: false
-    about: the Massive market data plugin
-
-  - name: bifrost-platform-plugin-flex-query
-    layer: payload
-    domain: payload
-    state: active
-    public: true
-    landing: false
-    about: the IB Flex Query plugin
-
-  - name: bifrost-finance
-    layer: payload
-    domain: payload
-    state: active
-    public: false
-    landing: false
-    about: the Finance application (finance-stg, finance-prod)
-
-  - name: bifrost-analytics
-    layer: payload
-    domain: payload
-    state: retired
-    public: false
-    landing: false
-    about: archived 2026-08-21, merged into bifrost-research (dbt); not in Gitea
+  - {name: bifrost-platform, tier: foundation, domain: foundation, public: true, ready: true, purpose: "the control plane (Go api, React console, MCP); holds 14 domains"}
+  - {name: bifrost-trade-infra, tier: foundation, domain: foundation, public: true, ready: true, purpose: "every manifest, Tekton, the governance layer (agent-config), scripts"}
+  - {name: primary-probe, tier: foundation, domain: delivery, public: false, ready: false, purpose: "probes Gitea's branch protection (Gitea primary, step 1)"}
+  - {name: repo-template, tier: foundation, domain: delivery, public: false, ready: false, purpose: "the template new repositories are created from (main rules, CI hooks)"}
+  - {name: bifrost-ui, tier: shared, domain: foundation, public: true, ready: false, purpose: "@bifrost/ui: shared components and the City frame"}
+  - {name: bifrost-trade-core, tier: shared, domain: payload, public: true, ready: false, purpose: "the Trade Python library (bifrost-core) api, worker and flex-query use"}
+  - {name: bifrost-trade-api, tier: payload, domain: payload, public: true, ready: false, purpose: "the Trade API"}
+  - {name: bifrost-trade-worker, tier: payload, domain: payload, public: true, ready: false, purpose: "the Trade daemon (D10: STG at 0 replicas)"}
+  - {name: bifrost-trade-frontend, tier: payload, domain: payload, public: true, ready: false, purpose: "the Trade UI"}
+  - {name: bifrost-research, tier: payload, domain: payload, public: true, ready: false, purpose: "Research OLAP, dbt, research-api"}
+  - {name: bifrost-platform-plugin, tier: payload, domain: payload, public: true, ready: false, purpose: "the IB Gateway plugin"}
+  - {name: bifrost-platform-plugin-market-data, tier: payload, domain: payload, public: true, ready: false, purpose: "the Massive market data plugin"}
+  - {name: bifrost-platform-plugin-flex-query, tier: payload, domain: payload, public: true, ready: false, purpose: "the IB Flex Query plugin"}
+  - {name: bifrost-finance, tier: payload, domain: payload, public: false, ready: false, purpose: "the Finance application (finance-stg, finance-prod)"}
+  - {name: bifrost-analytics, tier: retired, domain: payload, public: false, ready: false, purpose: "archived 2026-08-21, merged into bifrost-research (dbt); not in Gitea"}
