@@ -41,7 +41,12 @@ spec:
               value: ":8780"
             - name: PLATFORM_DATA_DIR
               value: /app/data
+            - name: HARNESS_GRANT_SIGNER_FILE
+              value: /var/run/bifrost-harness-signer/key
           volumeMounts:
+            - name: harness-grant-signer
+              mountPath: /var/run/bifrost-harness-signer
+              readOnly: true
             - name: platform-config
               mountPath: /app/config
               readOnly: true
@@ -70,6 +75,14 @@ spec:
               cpu: "1"
               memory: 512Mi
       volumes:
+        - name: harness-grant-signer
+          secret:
+            secretName: bifrost-harness-grant-signer
+            optional: true
+            defaultMode: 0400
+            items:
+              - key: key
+                path: key
         - name: platform-config
           configMap:
             name: bifrost-platform-config
