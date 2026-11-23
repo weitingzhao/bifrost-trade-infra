@@ -8,7 +8,7 @@ tool: land
 about: 合入与验证、发布：把改动合进 infra、platform 的 main，判它能不能进、能不能发。
 owner: verification
 task: 把改动合进 infra 或 platform 的 main
-how: 从最新的 origin/main 牵分支，提交，推到 refs/heads/ready/<名字>。推上去 CI 自动跑，绿了自动进 main，不用起 CI、不用开 PR。看进没进：在 origin/main 上按自己的 Change-Id 找，或 wait_for_pipeline_run（pipeline 填 bifrost-land，revision 填全长提交号）。被拒了平台会发信给推的人。
+how: 从最新的 origin/main 牵分支，提交，推到 refs/heads/ready/<名字>。推上去 CI 自动跑，绿了自动进 main，不用起 CI、不用开 PR。看进没进、为什么没进：wait_for_pipeline_run（pipeline 填 bifrost-land，revision 填推的全长提交号），结果里 outcome 是 landed 就进了，否则 refusal 写着原因（没有尾注的提交也查得到）；或在 origin/main 上按自己的 Change-Id 找。被拒不会有人发信给你，get_commit_evidence 也看不到落地结果：推完要自己等这一次运行（2026-11-23，plan 的两个分支以为是 CI 慢，挂了一个多小时，原因是缺 Change-Id）。
 precheck: python3 scripts/station/precheck.py <检出目录> [<提交>]
 checked_by: k8s/cicd/tekton/pipeline-land.yaml
 
