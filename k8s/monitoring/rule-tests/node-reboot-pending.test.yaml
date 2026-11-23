@@ -1,0 +1,83 @@
+# promtool unit test for BifrostNodeRebootPending (LANE-W33).
+# Run: make check-alert-rules.
+# promtool starts at epoch zero, so an earlier reboot request has a negative timestamp.
+rule_files:
+  - bifrost-node-reboot-rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  - name: reboot required for more than fourteen days warns after fifteen minutes
+    interval: 1m
+    input_series:
+      - series: 'bifrost_node_reboot_required{node="node-overdue"}'
+        values: '1x20'
+      - series: 'bifrost_node_reboot_required_since_seconds{node="node-overdue"}'
+        values: '-1296000x20'
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: BifrostNodeRebootPending
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              node: node-overdue
+            exp_annotations:
+              summary: "Node has been pending reboot for more than 14 days"
+              description: >-
+                Node node-overdue has had /var/run/reboot-required for
+                more than 14 days. This alert records the fact and does not
+                page. Reboot with scripts/k3s/rolling-reboot.sh --execute
+                --approval <id>.
+
+  - name: reboot required for less than fourteen days stays silent
+    interval: 1m
+    input_series:
+      - series: 'bifrost_node_reboot_required{node="node-recent"}'
+        values: '1x20'
+      - series: 'bifrost_node_reboot_required_since_seconds{node="node-recent"}'
+        values: '-86400x20'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: BifrostNodeRebootPending
+        exp_alerts: []
+
+  - name: old reboot timestamp stays silent when reboot is not required
+    interval: 1m
+    input_series:
+      - series: 'bifrost_node_reboot_required{node="node-clear"}'
+        values: '0x20'
+      - series: 'bifrost_node_reboot_required_since_seconds{node="node-clear"}'
+        values: '-1296000x20'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: BifrostNodeRebootPending
+        exp_alerts: []
+
+  - name: crossing fourteen days starts the fifteen minute hold at the next evaluation
+    interval: 1m
+    input_series:
+      - series: 'bifrost_node_reboot_required{node="node-crossing"}'
+        values: '1x30'
+      # At 10m the age is exactly 14d. The strict comparison first matches at 11m.
+      - series: 'bifrost_node_reboot_required_since_seconds{node="node-crossing"}'
+        values: '-1209000x30'
+    alert_rule_test:
+      - eval_time: 24m
+        alertname: BifrostNodeRebootPending
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: BifrostNodeRebootPending
+        exp_alerts: []
+      - eval_time: 26m
+        alertname: BifrostNodeRebootPending
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              node: node-crossing
+            exp_annotations:
+              summary: "Node has been pending reboot for more than 14 days"
+              description: >-
+                Node node-crossing has had /var/run/reboot-required for
+                more than 14 days. This alert records the fact and does not
+                page. Reboot with scripts/k3s/rolling-reboot.sh --execute
+                --approval <id>.
