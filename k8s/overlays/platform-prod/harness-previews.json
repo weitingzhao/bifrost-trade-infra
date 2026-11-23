@@ -1,4 +1,5 @@
 {
   "opencode": "https://opencode-preview.ops.bifrost.lan/L3Zhci9saWIvcHJpdmF0ZS9iaWZyb3N0LWhhcm5lc3Mvb3BlbmNvZGU/session",
-  "deepseek": "https://deepseek-preview.ops.bifrost.lan/"
+  "deepseek": "https://deepseek-preview.ops.bifrost.lan/",
+  "authorization": "ops-session"
 }
