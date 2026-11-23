@@ -13,7 +13,14 @@ dir="$(cd "$1" && pwd)"; node="$2"; task="$3"; repo="$4"; branch="$5"; shift 5
 run_key="${RUN_KEY:-$(basename "$dir")}"
 # Entry card (Station, 2026-11-21): Codex reads AGENTS.md in its working dir on every turn, so the card is in
 # front of the run at start, after compaction and before it asks. Refuses when BRIEF.md has no reply_to.
-python3 "$infra/scripts/agent-host/codex-card.py" "$dir"
+# The card needs PyYAML. After the 11-22 reboot the first python3 on PATH was Homebrew's, without it, and the
+# card step failed (Station, 11-23). Take the first python3 that has it; fail with that sentence otherwise.
+py=""
+for cand in python3 /opt/anaconda3/bin/python3 /usr/bin/python3; do
+  if command -v "$cand" >/dev/null 2>&1 && "$cand" -c 'import yaml' 2>/dev/null; then py="$cand"; break; fi
+done
+[[ -n "$py" ]] || { echo "dispatch.sh: no python3 with PyYAML (the entry card needs it)" >&2; exit 2; }
+"$py" "$infra/scripts/agent-host/codex-card.py" "$dir"
 python3 - "$dir/desc.json" "$task" "$repo" "$branch" "$node" <<'PY'
 import json, sys
 path, task, repo, branch, node = sys.argv[1:6]
