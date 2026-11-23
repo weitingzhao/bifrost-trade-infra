@@ -5,11 +5,11 @@ k8s/cicd/repositories.yaml is the one list of the organisation's repositories
 (Foundation owns it). Four other places list repositories, each for its own
 purpose; this compares each with the registry entry by entry:
 
-  public: true   <-> agent-config/gitea-primary.txt
-  public: true   <-> the read-primaries.py arguments in
-                     k8s/cicd/github-sync/cronjob-reconcile.yaml (GitHub follows)
-  landing: true  <-> the keys of LANDING_REPOS in k8s/cicd/tekton/pipeline-land.yaml
-  state: active  <-> the repository table of agent-config/AGENT_FACTS.md section 2
+  public: true          <-> agent-config/gitea-primary.txt
+  public: true          <-> the read-primaries.py arguments in
+                            k8s/cicd/github-sync/cronjob-reconcile.yaml (GitHub follows)
+  ready: true           <-> the keys of LANDING_REPOS in k8s/cicd/tekton/pipeline-land.yaml
+  tier is not retired   <-> the repository table of agent-config/AGENT_FACTS.md section 2
 
 Origin: 2026-11-23, R0B (Foundation's design, the CI line writes the check).
 It reports and passes: exit 0 whatever it finds. Making it fail the build is
@@ -97,11 +97,20 @@ def facts(root):
     return out
 
 
+def active(row):
+    """A repository in use: tier is not retired (the registry's fields since
+    infra 30f731b6, aligned with the map line's reading); the first version's
+    state: active is still read."""
+    if "tier" in row:
+        return row.get("tier") != "retired"
+    return row.get("state") == "active"
+
+
 def differences(root):
     rows = registry(root)
-    want_public = {r["name"] for r in rows if r.get("public") and r.get("state") == "active"}
-    want_landing = {r["name"] for r in rows if r.get("landing") and r.get("state") == "active"}
-    want_active = {r["name"] for r in rows if r.get("state") == "active"}
+    want_active = {r["name"] for r in rows if active(r)}
+    want_public = {r["name"] for r in rows if r.get("public") and active(r)}
+    want_landing = {r["name"] for r in rows if (r.get("ready") or r.get("landing")) and active(r)}
     out = []
     for where, have, want, what in (
         (PRIMARY, primary(root), want_public, "public"),
@@ -126,9 +135,9 @@ def self_test():
         for rel in (REGISTRY, PRIMARY, RECONCILE, LAND, FACTS):
             (root / rel).parent.mkdir(parents=True, exist_ok=True)
         (root / REGISTRY).write_text(yaml.safe_dump({"repositories": [
-            {"name": "a", "state": "active", "public": True, "landing": True},
-            {"name": "b", "state": "active", "public": True, "landing": False},
-            {"name": "c", "state": "retired", "public": False, "landing": False},
+            {"name": "a", "tier": "foundation", "public": True, "ready": True},
+            {"name": "b", "tier": "payload", "public": True, "ready": False},
+            {"name": "c", "tier": "retired", "public": False, "ready": False},
         ]}))
         (root / PRIMARY).write_text("# comment\na\nb\n")
         (root / RECONCILE).write_text(yaml.safe_dump({"spec": {"containers": [
