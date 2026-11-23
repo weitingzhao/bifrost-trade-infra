@@ -1,0 +1,142 @@
+# The repositories of the bifrost Gitea organisation, one entry each: the
+# one list (R0B, structural elasticity; Foundation owns it, the map line
+# reads it). Every other list of repositories follows this one and a check
+# holds them to it:
+#   public: true   <-> agent-config/gitea-primary.txt and
+#                      k8s/cicd/github-sync/cronjob-reconcile.yaml (GitHub follows)
+#   landing: true  <-> LANDING_REPOS in k8s/cicd/tekton/pipeline-land.yaml (ready/)
+#   state: active  <-> the repository list in agent-config/AGENT_FACTS.md
+#
+# layer is how much a mistake hurts and whether it can be taken back
+# (working version of the Owner's 2026-11-23 direction, the R0A report):
+#   foundation  platform, infrastructure, CI referee, trust roots
+#   shared      what several parties depend on
+#   payload     business applications, plugins, the subsidiaries' projects
+#   experiment  temporary; expires, never reaches PROD
+# A repository's layer is the highest of the domains it holds. state is
+# active or retired (read-only; its names cleared from the running cluster).
+# domain is the map's claim (config/catalog-review.json in bifrost-platform).
+#
+# Adding a repository: one entry here. Making it public (GitHub) is the
+# Owner's card, and then its line in gitea-primary.txt.
+
+repositories:
+  - name: bifrost-platform
+    layer: foundation
+    domain: foundation
+    state: active
+    public: true
+    landing: true
+    about: the control plane (Go api, React console, MCP); holds 14 domains
+
+  - name: bifrost-trade-infra
+    layer: foundation
+    domain: unknown
+    state: active
+    public: true
+    landing: true
+    about: every manifest, Tekton, the governance layer (agent-config), scripts
+
+  - name: primary-probe
+    layer: foundation
+    domain: delivery
+    state: active
+    public: false
+    landing: false
+    about: probes Gitea's branch protection (Gitea primary, step 1)
+
+  - name: repo-template
+    layer: foundation
+    domain: delivery
+    state: active
+    public: false
+    landing: false
+    about: the template new repositories are created from (main rules, CI hooks)
+
+  - name: bifrost-ui
+    layer: shared
+    domain: foundation
+    state: active
+    public: true
+    landing: false
+    about: "@bifrost/ui: shared components and the City frame"
+
+  - name: bifrost-trade-core
+    layer: shared
+    domain: payload
+    state: active
+    public: true
+    landing: false
+    about: the Trade Python library (bifrost-core) api, worker and flex-query use
+
+  - name: bifrost-trade-api
+    layer: payload
+    domain: payload
+    state: active
+    public: true
+    landing: false
+    about: the Trade API
+
+  - name: bifrost-trade-worker
+    layer: payload
+    domain: payload
+    state: active
+    public: true
+    landing: false
+    about: "the Trade daemon (D10: STG at 0 replicas)"
+
+  - name: bifrost-trade-frontend
+    layer: payload
+    domain: payload
+    state: active
+    public: true
+    landing: false
+    about: the Trade UI
+
+  - name: bifrost-research
+    layer: payload
+    domain: payload
+    state: active
+    public: true
+    landing: false
+    about: Research OLAP, dbt, research-api
+
+  - name: bifrost-platform-plugin
+    layer: payload
+    domain: payload
+    state: active
+    public: true
+    landing: false
+    about: the IB Gateway plugin
+
+  - name: bifrost-platform-plugin-market-data
+    layer: payload
+    domain: payload
+    state: active
+    public: true
+    landing: false
+    about: the Massive market data plugin
+
+  - name: bifrost-platform-plugin-flex-query
+    layer: payload
+    domain: payload
+    state: active
+    public: true
+    landing: false
+    about: the IB Flex Query plugin
+
+  - name: bifrost-finance
+    layer: payload
+    domain: payload
+    state: active
+    public: false
+    landing: false
+    about: the Finance application (finance-stg, finance-prod)
+
+  - name: bifrost-analytics
+    layer: payload
+    domain: payload
+    state: retired
+    public: false
+    landing: false
+    about: archived 2026-08-21, merged into bifrost-research (dbt); not in Gitea
