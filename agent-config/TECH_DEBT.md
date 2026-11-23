@@ -336,8 +336,22 @@
 | [TD-584](#td-584) | P3 | platform | 两轮计划决定同时跑时，同一张卡的确认记录可能写两条 | 不用批 |
 | [TD-585](#td-585) | P3 | owner-exec | 节点执行工具 `node-run.sh` 的 selftest 没进 CI | 不用批 |
 | [TD-586](#td-586) | P2 | owner-exec | 要 Owner 手的管理员级操作能走手机卡，但每件都要现写一次性脚本 | 待主统筹分派 |
+| [TD-588](#td-588) | P2 | cicd | 落地 CI 用 ui main 编 console，每日单元运行用 bifrost.units.yaml 钉的 ui；钉子落后时 main 落地是绿的，单元运行却每天报回归 | 不用批 |
 
 ## 条目
+
+### TD-588
+
+**P2 · platform `bifrost.units.yaml:18`（ui 钉子，advance: manual）· 落地 CI 和每日单元运行用的 bifrost-ui 不是同一个提交，钉子落后时会报假回归**
+
+- **状态**：未开始（2026-11-23，CI 线发现，归 CI 线）。
+- **出处**：2026-11-23 11:07Z，控制器在 platform d4619165 上记了一条「console build/test/typecheck」回归，迟迟不关；UI 线交接里写成了「早期日检失败」。11-21 e6f7fad5 有过同样的一条。
+- **证据**：落地 CI 用 `uiRevision: main` 编 console（`pipeline-ci-platform.yaml`），每日单元运行用钉子 26cd74d1（11-21）。51c04df9、14debc3d（11-22）让 console import 了 ui 的新模块，落地是绿的；单元运行从那以后每次都红（unit plan 0169d550、2668f75b、84118c52）。ci-full-d4619165e453-20261123 配 ui eef54b6b 是绿的。当时手动把钉子挪到 eef54b6b（platform 85779276）。
+- **现在会不会发生**：会。console 再用到 ui 的新导出，而那次提交没挪钉子时，就会再来一次。
+- **后果**：一条假回归挂着不关，别的线读到会以为 main 坏了（这次 UI 线交接就差点这么写）；单元运行的 console 三个任务每天白跑、白红。
+- **修法**：二选一，倾向第一种。① 落地 CI 也用钉子上的 ui 编 console：一个提交需要新 ui 时，落地就红，逼它同一个提交挪钉子（文件第 15 行本来的规矩）。② 钉子改成跟 ui main 自动前进。② 会让单元结果和输入的对应关系变松，所以先做 ①。
+- **防线**：做完 ① 后，落地 CI 和单元运行对同一个提交用的是同一个 ui，加一条测试断言这两处读的是同一个来源。
+- **验收**：console 用了 ui 新导出、却没挪钉子的提交，在落地时就红，而不是第二天的单元运行才红。
 
 ### TD-586
 
