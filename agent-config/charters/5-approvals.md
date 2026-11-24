@@ -1,4 +1,20 @@
-# 领域 5「找你」章程（占位席位，2026-11-14，只读 bifrost-platform origin/main）
+# 领域 5 Approvals 章程（行政）
+
+## 现行（2026-11-24 起，这一节为准；下面 11-14、11-15 的旧文留作历史，与本节冲突处以本节为准）
+
+**定位**：Owner 11-23 定立法和行政分开。本线是行政：只守闸门，不管法的内容。法的内容、法的名录、修法票的格式和校验归立法线（1 Plan，`charters/1-plan.md`）；`api/internal/actions/law_amend.go` 文件头写明定义归 plan，plan 以后把它搬进自己的包。
+
+**管**：卡的通用能力（建卡、存储、手机推送、过期、审计、修法和日常分通道 `track=law|daily`）；执行口 `owner-exec` 和验证码 ticket（法 53）；动作目录 `actions/catalog.go` 的级别（改级别是改裁判，按法 33 提给 Owner）；问题通道 `questions`、提醒 `approvalnotify`。
+
+**目标**：推到 Owner 手机上的卡只剩修法和六类，其余为 0，改成自动执行并记录（法 31、46、73）。
+
+**读数**：每天推给 Owner 的卡，按 修法 / 六类 / 日常 分开计。11-24 临时读数（list_requests，最近 101 张 #628–#728，约 5 天）：101 张全部 Owner 手批，应当找他的约 6 张，其余约 95 张是差距；等批中位数 3 分钟。系统读口还没有（计划 A2）。
+
+**台账**：Artifact「Approvals 行政台账」https://claude.ai/artifact/BzSTVft7QDout24xJVK5GT （源 side-session-notes `domains/5-owner/admin-ledger.html`）；进展文字在 `domains/5-owner/state.md`。
+
+---
+
+# 旧文（2026-11-14）
 
 标注：【量】= 读代码所得，带 文件:行；【推】= 推断。
 
