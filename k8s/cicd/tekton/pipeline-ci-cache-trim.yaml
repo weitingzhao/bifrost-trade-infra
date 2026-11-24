@@ -1,6 +1,7 @@
 # Wraps task-ci-cache-trim.yaml so the platform action start_pipeline_run can
 # start it (that action starts Pipelines). revision is unused: the platform
-# passes one to every run it starts. LANE-ci-w1, 2026-11-19.
+# passes one to every run it starts. LANE-ci-w1, 2026-11-19. Defaults trim to
+# 100 GB (Owner 2026-11-24), since the action cannot pass mode or cap-gb.
 apiVersion: tekton.dev/v1
 kind: Pipeline
 metadata:
@@ -12,8 +13,8 @@ metadata:
 spec:
   params:
     - {name: revision, type: string, default: main}
-    - {name: mode, type: string, default: measure}
-    - {name: cap-gb, type: string, default: "200"}
+    - {name: mode, type: string, default: trim}
+    - {name: cap-gb, type: string, default: "100"}
     - {name: idle-days, type: string, default: "14"}
   tasks:
     - name: trim

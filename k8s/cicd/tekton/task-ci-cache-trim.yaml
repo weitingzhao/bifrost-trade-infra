@@ -1,13 +1,15 @@
 # Size and trim of the shared CI build cache, the claim ci-build-cache
 # (pvc-ci-build-cache.yaml). LANE-ci-w1, 2026-11-19.
 #
-# Why: LANE-compute's read of the NAS (#632, 06:22Z) puts ci-build-cache at
-# about 413 GB of volume2's 468 GB, growing about 13.9 GB a day (about 37 days
-# to full). That number is derived (volume2 used minus every other directory),
-# not read: the line that held it was cut from the card's output, and volume2
-# "used" also counts snapshots and recycle bins that du does not see. So the
-# first run of this Task is mode=measure, which only reads.
-#
+# Why: LANE-compute's read of the NAS (#632, 11-19) put ci-build-cache at about
+# 413 GB, but derived (volume2 used minus the other directories), not read; the
+# whole /volume2 holds 429 GB on 2026-11-24 (kubelet, which reports the export
+# for every NFS claim), most of it backups. The first du of the cache itself
+# (2026-11-24 22:53Z) read 33.5 GB: go/build 33.1 GB, go/mod 0.3 GB, npm 0.1 GB.
+# Owner 2026-11-24: the CI cache stays under 100 GB of the NAS SSD. So the
+# default is mode=trim with cap-gb=100 (start_pipeline_run passes only the
+# revision), and a run that cannot get under the cap fails.
+
 # Layout (task-ci-platform-test-api.yaml, pipeline-ci-platform.yaml,
 # bifrost-platform scripts/ci/unit-*): go/build is GOCACHE, go/mod/<month> and
 # npm/<month> are the module and npm caches. Every CI run already deletes the
@@ -37,11 +39,11 @@ spec:
   params:
     - name: mode
       type: string
-      default: measure
+      default: trim
       description: measure (read only) | trim
     - name: cap-gb
       type: string
-      default: "200"
+      default: "100"
     - name: idle-days
       type: string
       default: "14"
@@ -102,3 +104,8 @@ spec:
           find go/build -type f -mtime +"${days}" -delete 2>/dev/null || true
         done
         sizes after
+        total_mb="$(du -sm . | cut -f1)"
+        if [ "${total_mb}" -gt "${cap_mb}" ]; then
+          echo "still over the cap: ${total_mb} MB > ${cap_mb} MB"
+          exit 1
+        fi
