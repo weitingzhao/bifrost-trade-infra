@@ -54,6 +54,7 @@ temporary:
   - {id: bakeoff-opencode, domain: "11", domain_id: station, kind: temporary, harness: opencode, account: opencode@4090, invited_by: 11-station, works_for: 11-station, job: "外壳对照 METRICS-PY-1、METRICS-READ-1（D8b）", started: "2026-11-24", ended: "2026-11-24", stops: 0, interventions: 0, note: "两题都交单，指标线照方法复跑都通过"}
   - {id: bakeoff-deepseek, domain: "11", domain_id: station, kind: temporary, harness: deepseek, account: null, invited_by: 11-station, works_for: 11-station, job: "同上", started: "2026-11-24", ended: "2026-11-24", stops: 3, interventions: 0, note: "READ 交单通过；PY 三次撑满 32K 上下文没交单。11-24 已卸"}
   - {id: station-desk-mini01, domain: "11", domain_id: station, kind: temporary, harness: codex, account: codex@mini-01, session: codex-01a20bde-35a2-7600-8947-e24375a43229, invited_by: 11-station, works_for: 11-station, job: "工坊在 mini-01 的常驻值守：挂门铃，收信就醒（launchd lan.bifrost.station-desk 跑 codex exec resume），照任务书在 mini 上干活、或用能力目录答「找谁、怎么办」，回信后 ack", started: "2026-11-24", ended: null, mailbox: registered, note: "第一封真信（问停 4090 harness 找谁）11-24 04:56Z 答对并 ack；信箱写 thread:01a20bde-35a2-7600-8947-e24375a43229"}
+  - {id: station-claude-mini02, domain: "11", domain_id: station, kind: temporary, harness: claude, account: claude@mini-02, session: local_55b686ee-e170-4854-824d-a79d9b6705b3, invited_by: 11-station, works_for: 11-station, job: "mini-02 上的常驻 Claude（Owner 11-24 在桌面版开的会话，auto 模式）：先做 A8 进门测试，之后挂门铃接工坊派的活", started: "2026-11-24", ended: null, mailbox: registered, stops: 1, interventions: 0, note: "A8：infra 3d08996d 合进 main，被拒 0 次；卡过 1 次是 mini-02 没配 git 身份（已配）。指出进门页缺自建克隆和接血缘钩子两条（docs/AGENT_WORK.md 已补）"}
 
 # 人：同样是 labor。Owner 有两个身份，批法时是立法者，签名、输口令时是一个 labor（那几步也要登记、也被量）。
 # 账号（工坊 11-24 起，C5 定的格式）：每行 account 只写标签，不写口令和令牌。标签 = 外壳 + 登录所在的机器，
@@ -62,7 +63,7 @@ temporary:
 accounts:
   - {id: claude@macpro, harness: claude, host: Mac Pro .40, holder: owner, fallback: claude@mini-01, note: "【量】全部主人席位今天都在这里跑"}
   - {id: claude@mini-01, harness: claude, host: mini-01 .52, holder: owner, fallback: claude@mini-02, note: "【量】11-24 桌面版会话交过一件活（D3）"}
-  - {id: claude@mini-02, harness: claude, host: mini-02 .50, holder: owner, fallback: claude@macpro, note: "装齐，还没交过活（D5）"}
+  - {id: claude@mini-02, harness: claude, host: mini-02 .50, holder: owner, fallback: claude@macpro, note: "【量】11-24 A8 进门测试交过一件活（D5）"}
   - {id: codex@macpro, harness: codex, host: Mac Pro .40, holder: owner, fallback: codex@mini-01, note: "dispatch.sh 请来的 Codex 用它"}
   - {id: codex@mini-01, harness: codex, host: mini-01 .52, holder: owner, fallback: codex@mini-02, note: "【量】METRICS-RT-1 指标线复跑通过"}
   - {id: codex@mini-02, harness: codex, host: mini-02 .50, holder: owner, fallback: codex@macpro, note: "【量】METRICS-RT-1 指标线复跑通过"}
