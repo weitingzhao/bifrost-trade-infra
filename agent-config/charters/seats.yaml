@@ -7,7 +7,7 @@
 # 对账脚本：agent-config/scripts/check-seats.py（只读、不进 CI；进 CI 是新增裁判检查，要先交 Owner）。
 version: 1
 # 跟 platform config/domain-ownership.json 的 domains[].id 一致（读于 platform origin/main，2026-11-21）
-domain_ids: [foundation, plan, lineage, verification, delivery, approvals, compute, payload, coordination, crew, station, audit]
+domain_ids: [foundation, plan, lineage, verification, delivery, approvals, compute, payload, coordination, station, audit]
 
 # 参谋长不是席位：它独立于所有席位之外，不握任何领域的 ownership，没有领域身份卡（Owner 更正，主统筹 11-21 转述）。
 # 但它发信、收信，信箱要认得出它：记在最后的 outside_seats，只有会话和收信，没有领域、没有卡（11-22 沟通线读数发现缺它）。
