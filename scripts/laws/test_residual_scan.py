@@ -32,3 +32,10 @@ def test_words_ending_in_fa_are_not_citations():
     assert cites("算法 2 和方法 3") == []
     assert cites("立法 1 轮") == []
     assert cites("两份读法 0 分歧") == []
+
+
+def test_exceptions_are_read_from_the_file(tmp_path):
+    f = tmp_path / "exceptions.txt"
+    f.write_text("# comment\nbifrost-platform:a/b.go:46  # why\n\n")
+    assert scan.exceptions(f) == {"bifrost-platform:a/b.go:46"}
+    assert scan.exceptions(tmp_path / "missing.txt") == set()

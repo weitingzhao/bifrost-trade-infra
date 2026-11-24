@@ -1,0 +1,6 @@
+# Citations of a law by number that are right as they are. One per line:
+# repo:path:law  # why. Read by residual_scan.py; they count as 例外, not as
+# a citation of material, a repealed law or no law. Adding one is a commit.
+bifrost-platform:console/src/pages/shell/owner/__tests__/lawFramework.test.tsx:11  # asserts the repealed law 11 is not shown
+bifrost-platform:console/src/pages/shell/owner/__tests__/lawFramework.test.tsx:90  # a test register's number
+bifrost-trade-infra:agent-config/claude/auto-mode/project.autoMode.json:46  # the auto mode rules are the Owner's; he changes them

@@ -38,7 +38,7 @@ QUERY = """SELECT json_agg(b ORDER BY (b->>'law')::int) FROM (
 # 法 N, but not a word ending in 法 followed by a number (合法 0, 读法 0, 算法 2:
 # round 1 counted twelve 「合法 0」 as citations of a law 0).
 CITE = r"(?:(?<![合方算办做写用语手说想看读解打玩立执修宪司违守依无设])法 ?|[Ll]aw |OWNER_LAW ?#)([0-9]{1,3})(?![0-9])"
-SKIP = (":!**/node_modules/**", ":!*.lock", ":!**/OWNER_LAW.md")
+SKIP = (":!**/node_modules/**", ":!*.lock", ":!**/OWNER_LAW.md", ":!scripts/laws/**")  # the scan's own examples are not citations
 SHADOW_FILES = ("agent-config/CLAUDE.md", "agent-config/OWNER_EXEC.md", "agent-config/claude/skills", "agent-config/charters")
 OWNER_DATE = re.compile(r"Owner[ ,，（(]*20[0-9]{2}-[0-9]{2}-[0-9]{2}|（Owner [0-9]{2}-[0-9]{2}")
 
@@ -57,6 +57,24 @@ def state(law):
     if law.get("op") == "transcribed" or not (law.get("frame") or {}).get("level") is not None:
         return "素材"
     return "现行"
+
+
+EXCEPTIONS = pathlib.Path(__file__).resolve().parent / "exceptions.txt"
+
+
+def exceptions(path=EXCEPTIONS):
+    """The citations that are right as they are, each repo:path:law with a
+    reason after #, kept in the repository so that adding one has a commit
+    (the audit line's review, 2026-11-24: an exception list in a ledger
+    anyone can edit would make the target 0 true by itself)."""
+    out = set()
+    if not path.exists():
+        return out
+    for line in path.read_text().splitlines():
+        key = line.split("#", 1)[0].strip()
+        if key:
+            out.add(key)
+    return out
 
 
 def repos():
@@ -97,8 +115,11 @@ def main():
         ROOT = pathlib.Path(a.root).resolve()
     laws = {str(l["law"]): l for l in read_laws(a.laws)}
     cited = refs()
+    allowed = exceptions()
     for c in cited:
         c["state"] = state(laws[c["law"]]) if c["law"] in laws else "无"
+        if f'{c["repo"]}:{c["path"]}:{c["law"]}' in allowed:
+            c["state"] = "例外"
     if a.law:
         for c in cited:
             if c["law"] == a.law:
