@@ -61,7 +61,7 @@ def render(text, laws):
     by = {str(l["law"]): l for l in laws}
     lines = text.split("\n")
     start = next(i for i, l in enumerate(lines) if l.startswith("## 登记"))
-    seen, last = set(), None
+    seen, last, drop = set(), None, set()
     for i in range(start, len(lines)):
         m = ROW.match(lines[i])
         if not m:
@@ -70,14 +70,23 @@ def render(text, laws):
         seen.add(n)
         last = i
         law = by.get(n)
+        # A repealed law leaves the file (Owner 2026-11-24: a repealed law
+        # must not linger as poison; it stays only in the platform's ledger).
+        if law and repealed(law):
+            drop.add(i)
+            continue
         # A transcribed law is the file's own row: keep its bytes (the
         # transcription trimmed them; the file stays as written).
         if law and law.get("op") != "transcribed":
             lines[i] = row(law)
-    extra = [row(by[n]) for n in sorted(by, key=int) if n not in seen]
+    extra = [row(by[n]) for n in sorted(by, key=int) if n not in seen and not repealed(by[n])]
     if extra:
         lines[last + 1:last + 1] = extra
-    return "\n".join(lines)
+    return "\n".join(l for i, l in enumerate(lines) if i not in drop)
+
+
+def repealed(law):
+    return law.get("status") == "废止"
 
 
 def main():
