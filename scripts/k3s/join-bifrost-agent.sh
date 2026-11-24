@@ -32,4 +32,7 @@ bash "${VISION_HOME}/configure-insecure-registry.sh"
 
 echo ""
 echo "Done. Verify: kubectl get nodes -o wide"
-echo "Label prod pool: kubectl label node ${K3S_NODE_NAME} bifrost.io/host-id=mini-pc-a bifrost.io/workload-pool=prod --overwrite"
+# No label hint here: the old one named mini-pc-a (ubt-k3s-02) and pool=prod, and running it would
+# have put ubt-k3s-06 into the PROD pool under 02's identity (2026-11-24). New nodes use
+# scripts/k3s/node-join.sh, which sets bifrost.io/host-id=<node> and the pool at join.
+echo "Labels: set bifrost.io/host-id=${K3S_NODE_NAME} and bifrost.io/workload-pool=<pool> (scripts/k3s/node-join.sh does it at join)."

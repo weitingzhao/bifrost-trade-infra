@@ -32,15 +32,15 @@ nodes:
     grid: { row: 1, col: 0 }
 
   - id: ubt-k3s-06
-    # Left the cluster 2026-10-17 (Owner): the agent host, running the PROD and
-    # the STG agentd (agent-06, agent-06-stg) behind per-user egress rules.
-    label: ubt-k3s-06 (Ubuntu · Agent host)
+    # Agent host 2026-10-17 .. 2026-11-23; the Owner had it wiped and rejoined
+    # on 2026-11-24 (the agent seats moved to the Mac minis). general pool + CI home.
+    label: ubt-k3s-06
     host: 192.168.10.79
     ssh_port: 22
     group: linux
     compose_roles: []
-    k3s_roles: [agent_host]
-    in_k3s_cluster: false   # 16 vCPU / 32 GB; scripts/agent-host/
+    k3s_roles: [k3s_agent, cicd_build]
+    in_k3s_cluster: true   # ubt-k3s-06 · K3s node Ready since 2026-11-24 · 16 vCPU / 30 GB · ci home
     grid: { row: 1, col: 2 }
 
   - id: mini-pc-c

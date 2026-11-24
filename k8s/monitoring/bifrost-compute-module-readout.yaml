@@ -121,6 +121,7 @@ spec:
             or label_replace(label_replace(vector(1), "instance", "192.168.10.77:9100", "", ""), "home", "general", "", "")
             or label_replace(label_replace(vector(1), "instance", "192.168.10.80:9100", "", ""), "home", "ci", "", "")
             or label_replace(label_replace(vector(1), "instance", "192.168.10.81:9100", "", ""), "home", "ci", "", "")
+            or label_replace(label_replace(vector(1), "instance", "192.168.10.79:9100", "", ""), "home", "ci", "", "")
     # Meta-alert (LANE-compute, 2026-11-19). On 2026-11-14 the live PrometheusRule bifrost-alerting-rules lost its `release: kube-prometheus-stack`
     # label (a single-file kubectl apply does that, see kustomization.yaml), Prometheus' ruleSelector stopped selecting it and all 71 of its rules
     # (BifrostClusterNodeDown, BifrostProdWorkloadUnavailable, the elastic-standby marker...) were silently not evaluated for about 4.5 days.
