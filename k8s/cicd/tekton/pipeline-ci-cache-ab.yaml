@@ -13,7 +13,9 @@
 # test-api a build cache changes; no database or Redis is needed.
 # The module cache is the NAS one for every pass (0.3 GB, read only here).
 #
-# Started by start_pipeline_run (revision: the bifrost-platform commit). It
+# Started by start_pipeline_run (revision: the bifrost-platform commit), which
+# binds no workspace, so the step clones the commit itself into an emptyDir at
+# /workspace/source (test-api's path, so the cache keys match). It
 # writes only the NAS cache's go/build (as every CI run does) and its emptyDir.
 # Delete this file and the Pipeline after the measure (LANE-ci-w1).
 apiVersion: tekton.dev/v1
@@ -32,8 +34,6 @@ spec:
     - name: giteaBase
       type: string
       default: http://gitea.cicd.svc.cluster.local:3000/bifrost
-  workspaces:
-    - name: source
   results:
     - name: timings
       value: $(tasks.measure.results.timings)
@@ -41,33 +41,25 @@ spec:
     - name: freeze-check
       taskRef:
         name: bifrost-release-freeze-check
-    - name: clone
+    - name: measure
       runAfter: [freeze-check]
-      taskRef:
-        kind: Task
-        name: bifrost-git-clone-gitea
+      timeout: 1h
       params:
-        - name: url
-          value: $(params.giteaBase)/bifrost-platform.git
         - name: revision
           value: $(params.revision)
-        - name: subdir
-          value: bifrost-platform
-      workspaces:
-        - name: output
-          workspace: source
-    - name: measure
-      runAfter: [clone]
-      timeout: 1h
-      workspaces:
-        - name: source
-          workspace: source
+        - name: giteaBase
+          value: $(params.giteaBase)
       taskSpec:
-        workspaces:
-          - name: source
+        params:
+          - name: revision
+            type: string
+          - name: giteaBase
+            type: string
         results:
           - name: timings
         volumes:
+          - name: source
+            emptyDir: {}
           - name: build-cache
             persistentVolumeClaim:
               claimName: ci-build-cache
@@ -84,7 +76,24 @@ spec:
                 valueFrom:
                   fieldRef:
                     fieldPath: spec.nodeName
+              - name: REVISION
+                value: $(params.revision)
+              - name: REPO
+                value: $(params.giteaBase)/bifrost-platform.git
+              # The read-only identity test-api clones with, as an HTTP header only.
+              - name: GIT_USERNAME
+                valueFrom:
+                  secretKeyRef:
+                    name: gitea-ci-reader
+                    key: username
+              - name: GIT_PASSWORD
+                valueFrom:
+                  secretKeyRef:
+                    name: gitea-ci-reader
+                    key: password
             volumeMounts:
+              - name: source
+                mountPath: /workspace/source
               - name: build-cache
                 mountPath: /ci-cache
               - name: local-cache
@@ -99,7 +108,14 @@ spec:
             script: |
               #!/usr/bin/env bash
               set -euo pipefail
-              cd "$(workspaces.source.path)/bifrost-platform/api"
+              git_auth="$(printf '%s:%s' "${GIT_USERNAME}" "${GIT_PASSWORD}" | base64 | tr -d '\n')"
+              unset GIT_USERNAME GIT_PASSWORD
+              src=/workspace/source/bifrost-platform
+              git init -q "${src}"
+              git -C "${src}" -c http.extraHeader="Authorization: Basic ${git_auth}" fetch -q --depth 1 "${REPO}" "${REVISION}"
+              git -C "${src}" checkout -q FETCH_HEAD
+              unset git_auth
+              cd "${src}/api"
               export GOMODCACHE="/ci-cache/go/mod/$(date -u +%Y-%m)"
               go mod download
               out=""
@@ -120,4 +136,4 @@ spec:
               pass local-warm /local-cache/build
               pass nfs-2 /ci-cache/go/build
               du -sm /local-cache/build
-              printf '%s' "${out}" > "$(results.timings.path)"
+              printf '%s' "${out} node=${NODE_NAME:-?}" > "$(results.timings.path)"
