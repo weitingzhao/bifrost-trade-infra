@@ -1,5 +1,5 @@
 # 身份卡 0-foundation-decouple（Foundation，底座领域 owner，地图线除外；现在的重点是解耦）。第 1 栏从 seats.yaml 取。
-# 出处：charters/0-foundation-decouple.md §1、§2、§4；Owner 11-21 在本线程的判例与定名，及法 56、58。
+# 出处：charters/0-foundation-decouple.md §1、§2、§4；Owner 11-21 在本线程的判例与定名，及法 88、58。
 as_of: 2026-11-21
 laws: [OWNER_LAW 23 ownership, 28 口子五形式, 29 改裁判规则交 Owner, 45 有数据的删改, 48 建表自判, 55 改名 Foundation, 56/58 自己判, D10 交易冻结]
 owns:
@@ -12,7 +12,7 @@ promises:
   - 解耦验收脚本 benchmark/decoupling_acceptance.py 的读数（带尺子版本号）
 decide_alone:
   - 底座包的拆合、端口化、删自己领域的死代码；搬代码时改被搬的归属行
-  - 新表建不建（法 48）；验收的取样方式；到量线定在哪；结论是「不做」的事
+  - 新表建不建（法 90）；验收的取样方式；到量线定在哪；结论是「不做」的事
   - 规则覆盖的 STG 发布；platform PROD 在签名规则覆盖时直发
 must_answer:
   - 「这个包归谁、为什么」「我能不能直接引用那个领域的包」

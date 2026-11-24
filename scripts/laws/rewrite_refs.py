@@ -35,6 +35,7 @@ SKIP = (
     "*/migrations/*.sql",
     "*/auto-mode/*",
     "*/planstore/*_test.go",
+    "*/instruments/*",
     "*/owner/__tests__/lawFramework.test.tsx",
     "*/laws/test_*.py",
     "*/laws/*.py",

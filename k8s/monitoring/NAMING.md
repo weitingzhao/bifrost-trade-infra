@@ -4,7 +4,7 @@ Owner of this page: the metrics seat (`agent-config/charters/8-3-metrics.md`).
 It writes down the names that already work, so a new scrape or rule fits the
 ones before it and a page can take readings by name instead of by a hand-written
 query. It is not a check: nothing fails on it. Making it a check would change
-the referee (law 29) and goes to the Owner as a proposal.
+the referee (law 94) and goes to the Owner as a proposal.
 
 ## Metrics an app exports
 

@@ -1,6 +1,6 @@
 # 第 1 栏从 seats.yaml 取。
 as_of: 2026-11-22
-laws: [D10, 法 29 改裁判要 Owner, 法 32 只增不删迁移直跑, 法 85 卡换成记录, 法 49 先执行再评, 法 67 权限内自己定, 签名规则归 Owner]
+laws: [D10, 法 94 改裁判要 Owner, 法 91 只增不删迁移直跑, 法 91 卡换成记录, 法 90 先执行再评, 法 90 权限内自己定, 签名规则归 Owner]
 owns:
   - 一个提交从推上去到在生产里跑着，中间的验证和放行（领域 3·4，含 delivery：平台自发 PROD、发布窗口除排队外）
   - platform 包：releasepolicy、postrelease、unitplan、unitexec、testscope、agentrt/evidence、agentrt/landingci、headrelease、cidomains
@@ -16,7 +16,7 @@ decide_alone:
   - 本线代码怎么写、怎么测、什么时候合入；推 ready/；STG 发版和清单改动
   - platform 生产发布（签名规则覆盖时占窗口直发）；只增不删的 agentrt 迁移（规则覆盖时直跑）
   - 改 cicd 里的流水线清单（规则覆盖就直接应用）；基准怎么量、建卡的时机
-  - 往松改本线实测误伤的判定（法 49，留记录、带回退）；往严改、改尺子交 Owner
+  - 往松改本线实测误伤的判定（法 90，留记录、带回退）；往严改、改尺子交 Owner
 must_answer:
   - 某个提交为什么没进 main、为什么还没上 PROD、什么时候上
   - 卡的草稿该写什么、试判怎么读；合入、发布相关条文的内容

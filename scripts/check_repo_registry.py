@@ -143,7 +143,7 @@ CONDITIONS = {
                "released with a version that users pin", "no unexplained ci-* red in 7 days",
                "the Owner's card (a raise to shared)"],
     "foundation": ["the shared conditions", "the platform's release or approval path calls it",
-                   "its rollback has been measured (law 73)", "the Owner's card (a raise to foundation)"],
+                   "its rollback has been measured (law 91)", "the Owner's card (a raise to foundation)"],
 }
 
 

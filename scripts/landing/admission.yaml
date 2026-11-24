@@ -1,4 +1,4 @@
-# CI 线（3·4）的自我说明：合入 main 要带什么（法 77；格式 station.requires/v1，见 scripts/station/README.md）。
+# CI 线（3·4）的自我说明：合入 main 要带什么（法 95；格式 station.requires/v1，见 scripts/station/README.md）。
 # 放在合入脚本旁边，归属表 verification 那一行用 "self" 指到这里，地图从 /catalog/domain 和 ?task= 给出去。
 # 内容归 CI 线（底稿 ci-speed/self-description-ci-v0.yaml，11-22）；Station 加了 push-form、agent-config 两条，管格式。
 # 被拒次数是临时读数（集群留着的 land 运行，11-21 02:21Z 到 11-22 03:14Z，被拒 39 次）；11-21 22:28Z 起每次被拒的原因进证据账 pipeline_seen.refusal（系统存档）。
@@ -39,7 +39,7 @@ bring:
     refused_with: {says: "refused: no CI run of"}
     precheck: not-covered
   - id: domain-row
-    what: platform 新加的包要在 config/domain-ownership.json 的 packages 里有一行，写明归哪个领域和理由；落在已有主人目录下的新文件自动跟着走（法 72、75）。
+    what: platform 新加的包要在 config/domain-ownership.json 的 packages 里有一行，写明归哪个领域和理由；落在已有主人目录下的新文件自动跟着走（法 94、75）。
     get_from: 地图的认领口子：MCP get_owner（repo、path，可带 domain）或 GET /api/v1/catalog/owner?repo=&path=&domain=，没主的路径会给出最近的有主上级和可以原样粘贴的那一行（claim.row）、写进哪个文件哪一节（claim.say），和改动放同一个提交。拿不准归谁问地图线（0.2，归属表的主人）。
     refused_with: {repo: bifrost-platform, says: "has no row in config/domain-ownership.json"}
     precheck: not-covered

@@ -1,5 +1,5 @@
 # 席位表（机器读）。Crew 块（9 号，原 Harness 接入 / Labor）起草，2026-11-21。
-# 出处：Owner 2026-11-21 在参谋长线程定的（法 59–65，经主统筹转述）：ownership 在 Agent；有主人席位、有临时席位（干完就走）；
+# 出处：Owner 2026-11-21 在参谋长线程定的（法 90–65，经主统筹转述）：ownership 在 Agent；有主人席位、有临时席位（干完就走）；
 # 人和 Agent 都是 labor。本表回答「谁在干活」：不管工具，不评结果。
 # 对账：每页 charters/*.md（README 除外）恰有一个 seat 行（charter 字段）；domain_id 必须是平台领域表里的 id 或 null；
 # kind=temporary 的行必须有 invited_by（指向一个 kind=owner 的席位或一个人）；kind=human 的行 harness 写 human。

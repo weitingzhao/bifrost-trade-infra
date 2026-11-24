@@ -1,4 +1,4 @@
-# Station（11）的自我说明：领活、交回结果要带什么（法 77；格式 station.requires/v1，见 scripts/station/README.md）。
+# Station（11）的自我说明：领活、交回结果要带什么（法 95；格式 station.requires/v1，见 scripts/station/README.md）。
 # 放在派活脚本旁边；归属表 station 那一行用 "self" 指到这里，地图从 /catalog/domain 和 ?task= 给出去。
 # 出处：11-22 地图线实测 find_by_task("领活") 没有结果，因为还没有哪个领域写过这件事；领活交活的路归 Station（charters 11-station §1）。
 format: station.requires/v1

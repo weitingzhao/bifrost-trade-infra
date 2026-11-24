@@ -10,7 +10,7 @@ promises:
   - 事件登记表、订阅表、CloudEvents 信封、/bus/* 读口、MCP 信箱工具的形状；合约字段改了升 version 并告诉使用方
   - 来信就叫醒：doorbell --minutes N 来信即退出
 decide_alone:
-  - 上面代码的改动和合入（ready/）；加事件类型、建不建表（法 48）；判不做的写理由就结束
+  - 上面代码的改动和合入（ready/）；加事件类型、建不建表（法 90）；判不做的写理由就结束
 must_answer:
   - 「这件事在总线上有没有、谁发谁读、为什么没送到」
   - 问题信的判断（problem_verdict）

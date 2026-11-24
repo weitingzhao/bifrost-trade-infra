@@ -29,7 +29,7 @@
 
 ## 3. 权限
 - 自己定：读、量、写结论文件、写本章程。
-- 不做：拦人；不写规矩、不改裁判规则（法 29、33，严和松都要 Owner 批）；不碰拦截的实现（preflight、codeguard、签名规则、auto mode，归 Foundation、CI 线、Approvals、Owner）；不写代码、不推分支，除非先过 owner-decision-check 与法 49 并留痕；不碰交易、钱、令牌、集群写。
+- 不做：拦人；不写规矩、不改裁判规则（法 94、33，严和松都要 Owner 批）；不碰拦截的实现（preflight、codeguard、签名规则、auto mode，归 Foundation、CI 线、Approvals、Owner）；不写代码、不推分支，除非先过 owner-decision-check 与法 90 并留痕；不碰交易、钱、令牌、集群写。
 - 被 auto mode 拦下就停下报告，不绕。
 
 ## 4. 完成标准（Audit 自己，来自参谋长文稿第四节）

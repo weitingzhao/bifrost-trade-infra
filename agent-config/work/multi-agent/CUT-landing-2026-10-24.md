@@ -1042,7 +1042,7 @@ B1 + B6 → B3 → B5 → B4，每块：设计细节 → Codex 设计复核 → 
 - 建卡事务：锁卡片流 `landing-cards:<repo>`（**不锁仓库流**，Ask 期间不挡最终闸）→ 读仓库流折叠（不加锁的快照）判触发仍适用 → 读该触发已有绑定（求 n、确认没有未结的卡）→ `Ask(key, SameByKey)`（有界超时）→ 同事务写卡片流 note `landing_card{v, key, question_id, kind, root, op, trigger_seq, n, template_version, options:{字母→语义}}`。
 - 唯一性：追加校验在卡片流锁下拒绝同 `(trigger_seq, n)` 的第二条 `landing_card`，也拒绝同 `question_id` 的第二条。
 - 断点：Ask 成功而事务失败 → 卡是孤儿、没有绑定。下一轮同 key 再 Ask：卡仍受保护（open 或已答未读）就拿回同一张并绑定；已过期 / 撤回 → 问题库建新卡，绑定新卡；孤儿卡已不可答，不会产生第二个答案来源。已答未读的孤儿在 7 天内一定被绑回。
-- 接管核对（661 改法 2）：拿回的卡要核对 requester、task、选项标签与映射一致（`SameByKey` 只比 task 与标签，落地另在绑定前比 `kind`、模板版本与 key 本身——key 已编码其余字段）。
+- 接管核对（661 改法 90）：拿回的卡要核对 requester、task、选项标签与映射一致（`SameByKey` 只比 task 与标签，落地另在绑定前比 `kind`、模板版本与 key 本身——key 已编码其余字段）。
 
 **3. 读答复与分派**（新 `store.HandleLandingCard`，§8 的处理不改）
 - 每轮读「每个触发的最新绑定」对应的卡；只认 console 答复、有 by / at。按绑定里的映射把字母转成语义，再按 `kind` 分派：

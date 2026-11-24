@@ -320,7 +320,7 @@ add_metric code.image-version-spread.research "distinct research image tags" res
 fi
 
 # ---------------------------------------------------------------- metric 5
-# Facts written by hand into Ops source (law 30, Owner 2026-11-17: everything
+# Facts written by hand into Ops source (law 93, Owner 2026-11-17: everything
 # Ops shows is computed from its source). Each string literal or JSX text with
 # a date, a state word (CLOSED, Signed, Live...) or a ratio/count ("6/6",
 # "4 moved") counts once; comments and test code do not. There is no in-file

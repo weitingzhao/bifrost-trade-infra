@@ -18,7 +18,7 @@
 #                construction (nvme-smart sends two NVMe admin opcodes from a whitelist and never opens a namespace).
 # TIER host    — a free command, run in the node's own namespaces (hostPID + nsenter): THE NODE'S ROOT. The card says so
 #                in its first line. The command text is the Owner's control (he reads it and enters his code, every card).
-#                Owner decision 2026-11-18 (OWNER_LAW #35): the host tier may be used on a node that runs Trade or IB
+#                Owner decision 2026-11-18 (OWNER_LAW #91): the host tier may be used on a node that runs Trade or IB
 #                services. So the tool no longer refuses such a node. Instead it LISTS, in the first lines of the card, the
 #                Trade, redis-ib, IB gateway and daemon Pods that run on the node when the card is generated (--pods-file),
 #                and prints the list again at run time. D10 is not lifted: no orders, no change to a trading service, nothing

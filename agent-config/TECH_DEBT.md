@@ -359,10 +359,10 @@
 **P3 · platform `action_record`（regret / regret_state 字段）· 只记了「能不能撤」，没记「撤没撤、撤了多久」**
 
 - **状态**：未开始（2026-11-23，Foundation 的后悔药盘点转给 CI 线）。
-- **出处**：Foundation 后悔药（法 73）盘点，共享笔记 `biz-align/regret-inventory-2026-11-23.md`（临时读数，18:48Z，664 条 PipelineRun）。
+- **出处**：Foundation 后悔药（法 91）盘点，共享笔记 `biz-align/regret-inventory-2026-11-23.md`（临时读数，18:48Z，664 条 PipelineRun）。
 - **证据**：动作记录里有 regret、regret_state，写的是撤法；没有一行记某次撤回实际用了哪条撤法、从决定撤到撤完用了多久。今天量撤回时长只能读 PipelineRun 现算（revert 再落地中位约 3 分钟；超过 1 天的 PROD 回退约 4–10 分钟），都是临时读数。
 - **现在会不会发生**：会。每次撤回都不留下可汇总的记录。
-- **后果**：后悔药到底管不管用、多快，说不出系统存档的数；法 73 的「能撤」只能靠推断。
+- **后果**：后悔药到底管不管用、多快，说不出系统存档的数；法 91 的「能撤」只能靠推断。
 - **修法**：撤回那一刻在动作记录里补一行：被撤的动作、用的撤法（revert 落地 / 重发旧提交 / 别的）、开始和结束时间。来源可以是 revert 提交的 land 结果（标题以 Revert 开头、带被撤的 Change-Id），或者对旧提交起的 PROD 发布。
 - **防线**：写入那条加测试；Ops 上能按天看撤回次数和中位时长。
 - **验收**：一次真实撤回之后，能读到它用了哪条撤法、多少分钟（系统存档）。
@@ -386,7 +386,7 @@
 **P3 · infra `scripts/owner-exec/node-run.sh` · 节点执行工具的 selftest（24 个用例，不需要集群）没有进 CI**
 
 - **状态**：未开始（2026-11-18）。归属：算力线；改动落在 platform（解耦线维护的 `api/cmd/infracheck`）。
-- **出处**：2026-11-18 把节点执行工具落进 infra（OWNER_LAW #35）时发现。
+- **出处**：2026-11-18 把节点执行工具落进 infra（OWNER_LAW #91）时发现。
 - **证据**：infra 的 quick 清单由 platform 的 `api/cmd/infracheck` 生成（`scripts/landing/coverage_infra.py` 的 `quick()` 调它）；`scripts/owner-exec` 不在清单里，不在 `RELEASE_TREES`（`scripts/release`、`scripts/gitea`）里。把测试塞进发布门的目录会改到签名规则管着的树，所以这次没有那样做。
 - **现在会不会发生**：工具改坏了不会有人发现，直到有人下一次手跑 `bash scripts/owner-exec/node-run.sh selftest`。工具只生成卡面文字，不执行；Owner 读每一张卡并输码，是主要控制。
 - **后果**：selftest 里的检查（Pod 名是 RFC 1123 标签、设备档无 hostPID 和 hostPath、主机档卡面列出 Trade/IB Pod、命令文本关卡、配方白名单）可能悄悄退化。#601 就是因为没核名字格式白批了一次。
@@ -415,7 +415,7 @@
 **P2 · platform api/internal/agentrt/store/*_test.go 与 api/internal/agentrt/planstore · 伸进内部的集成测试代替了合约测试**
 
 - **状态**：按现状收口（2026-11-18，主统筹定）。已进 platform main：计划领域合约 `planstore/doc.go` 和 33 条黑盒测试（`f85dbef0`）；31 条测试原样搬进计划领域（到 `a76668fe`）；端口接线测试改经合约（`a928f0f9`、`d04fc8d0`）；计划读血缘改走端口（`b6c6abc2`）；收回 22 个导出名。留在 store 的：19 条穿过别的领域的测试、3 条用进程级开关的测试。不继续搬的原因：`TestTestsRunInParallel` 要求 store 至少 100 条（现在 102），下限不改；绕行记在共享笔记 `duty/detours.md`。这一条留着，等这些测试有了不靠 store 的写法再关。
-- **违反的标准**：OWNER_LAW #28「领域之间只通过合约说话，评判和测试只对着合约做」。跨领域的行为应由两类测试覆盖：各领域对着自己对外合约的黑盒测试，加少数只走对外入口的流程测试。这批两类都不是。
+- **违反的标准**：OWNER_LAW #95「领域之间只通过合约说话，评判和测试只对着合约做」。跨领域的行为应由两类测试覆盖：各领域对着自己对外合约的黑盒测试，加少数只走对外入口的流程测试。这批两类都不是。
 - **出处**：2026-11-17 计划代码搬出 store（platform `159c4f0b`、`90f25319`）。解耦线当时把这批记成「已知现状、不算欠账」，判断次序错了（先下结论、没先说标准）；主统筹转 Owner 12:1x 的意见更正为欠账。
 - **证据**：store 包里 30 个测试文件仍断言计划代码，靠的是 store_test 包里未导出的整套夹具（`newWorld`/`seededDB`/`seedTemplate`、`newKernelWorld`、`ask`/`answer`、`pv*`、时钟开关 `CtxOf`/`OwnClock`/`FreezeClock`、`SetHook` 等，合计几百行），其中一部分同时断言 store 的接线（端口绑定、记录员导入、外部工作写入）。planstore 为它们多导出 21 个名字：11 个端口调用名和 6 个自留常量（用户 `store/planports_export_test.go`），`ChangeBlocks`、`PendingChangeLimit`（`store/export_test.go`），`ImportOf`、`StreamRoot`（`store/pending_projection_parity_test.go`）。逐文件明细：共享笔记 `biz-align/planstore-tests-2026-11-17.md`。
 - **影响**：计划领域的内部改一处，store 的测试就要跟着改；合约之外的 21 个名字谁都能用；测试过了也说明不了计划领域的对外合约是否成立。

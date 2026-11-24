@@ -1,6 +1,6 @@
 """Self-descriptions keep the station.requires/v1 format, and the precheck refuses what land refuses.
 
-Origin: 2026-11-21, Owner (via the coordinator, law 76/77): agents meet the process one refusal at a time; 11-21
+Origin: 2026-11-21, Owner (via the coordinator, law 95/77): agents meet the process one refusal at a time; 11-21
 saw 39 landing refusals, 8 for a missing Change-Id and 10 for a rebase conflict (CI line's count, a reading of
 the land runs the cluster kept). Reconciling the guide with the land script is the CI line's own test, run
 in CI: scripts/landing/test_admission.py (11-22); this file keeps only the format and the precheck.

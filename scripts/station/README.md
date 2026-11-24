@@ -1,6 +1,6 @@
 # 办事指南：想办一件事，要带什么
 
-Station 管（法 77，2026-11-21）。给任何一个新来的成员：办之前先查这里，不靠一次次被拒碰出来。
+Station 管（法 95，2026-11-21）。给任何一个新来的成员：办之前先查这里，不靠一次次被拒碰出来。
 
 - 派活：`python3 scripts/station/pick.py <外壳>` 挑账号和机器，告诉你任务书发给哪个常驻线程。
 - 查：`python3 scripts/station/howto.py find <关键词>` 在能力目录 `agent-config/CAPABILITIES.md` 里按事查找谁、怎么办；`python3 scripts/station/howto.py` 列出能查的事；`python3 scripts/station/howto.py land` 打印合入 main 要带什么。

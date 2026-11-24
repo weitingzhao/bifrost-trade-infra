@@ -1,4 +1,4 @@
-# Hard-coded facts in Ops source (law 30, Owner 2026-11-17): a string literal,
+# Hard-coded facts in Ops source (law 93, Owner 2026-11-17): a string literal,
 # or JSX text, carrying a date, a state word, or a written-down ratio or count.
 # Prints "<file>:<line>: [<kind>] <text>"; scan.sh counts the lines.
 # A proxy: it catches some honest text and misses a hand-kept list. Only the

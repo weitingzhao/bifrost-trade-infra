@@ -5,7 +5,7 @@
 
 ## 0. 边界（主统筹 2026-11-20 开线，Owner 原话经沟通线转引）
 
-- **管**：Prometheus、exporter、Loki 的抓取和规则；告警规则写到 Alertmanager 为止；系统存档的评估读数（法 47）；指标命名和标签规范。
+- **管**：Prometheus、exporter、Loki 的抓取和规则；告警规则写到 Alertmanager 为止；系统存档的评估读数（法 93）；指标命名和标签规范。
 - **不管**：
   - 「发生了什么」（事件、信、叫醒、状态变化）归沟通线（`8-2-comm-desk.md`）。交界：读数越线的规则归本线写；变成 `alert.rule.fired` 送到人、闭环，归沟通线。
   - 模块总清单归地图线（`0-2-catalog.md`）。本线只拿它当分母，用同一个运行时键对齐。
@@ -15,10 +15,10 @@
 ## 1. 管哪块（坏了叫我）
 
 - infra `k8s/monitoring/`：抓取（ServiceMonitor、PodMonitor、blackbox、集群外主机）、规则（`*-rules.yaml`、`td-d2-postgres-rules.yaml`）、规则测试 `rule-tests/`、演练 `drills/`、promtail。例外：`bifrost-compute-module-readout.yaml` 的读数定义归算力线，本线只管它的命名和测试。
-- 静态检查脚本 `scripts/check_alert_rules.py`、`check_http_metrics_coverage.py`、`check_alert_routing.py` 的日常运行。改它们的判定条件算改裁判，按法 29 交 Owner。
+- 静态检查脚本 `scripts/check_alert_rules.py`、`check_http_metrics_coverage.py`、`check_alert_routing.py` 的日常运行。改它们的判定条件算改裁判，按法 94 交 Owner。
 - platform `api/internal/evalreadings/`（评估读口）。
 
-## 2. 对外合约（OWNER_LAW #28）
+## 2. 对外合约（OWNER_LAW #95）
 
 | 形式 | 开放的东西 | 承诺什么 | 谁在用 |
 |---|---|---|---|

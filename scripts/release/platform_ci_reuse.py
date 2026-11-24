@@ -32,7 +32,7 @@ def claims_reuse(results):
 
 
 def same_increment(current):
-    # 2026-11-21 (CI line, under law 49; replaces Owner 2026-11-16 "an incremental run is
+    # 2026-11-21 (CI line, under law 90; replaces Owner 2026-11-16 "an incremental run is
     # never reused"): a run of the same platform tree, ui commit and infra commit stands on
     # an incremental original, unless it asks for the whole suite. The push to main after a
     # landing is such a run: 58 of them ran every test again on 2026-11-20 and found 0

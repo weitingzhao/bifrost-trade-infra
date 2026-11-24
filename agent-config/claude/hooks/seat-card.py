@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Put the seat's identity card in front of the agent (Station, Owner law 67, 2026-11-21).
+"""Put the seat's identity card in front of the agent (Station, Owner law 90, 2026-11-21).
 
 The card itself is Crew's (charters/seats.yaml + charters/cards/<id>.yaml, rendered by
 scripts/render-card.py). Station only delivers it, at three moments:
@@ -33,7 +33,7 @@ WAY_IN = (
     '活从哪来、交到哪：bifrost-trade-infra/docs/AGENT_WORK.md（任务书 BRIEF.md 由请你的主人席位给，交回给它）。\n'
     '你若是被某个主人席位请来的临时席位：照它给的任务书做，交回给它；边界以 CLAUDE.md §3、§5 为准。'
 )
-ASK_HEAD = '你正要停下来找人。先对一下自己的身份卡（法 67：权限内的事自己定，不问别人）：'
+ASK_HEAD = '你正要停下来找人。先对一下自己的身份卡（法 90：权限内的事自己定，不问别人）：'
 ASK_TAIL = '要问的是权限外的事，先过 .claude/skills/owner-decision-check/。'
 
 

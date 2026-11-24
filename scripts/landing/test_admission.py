@@ -1,7 +1,7 @@
 """The CI line's self-description (admission.yaml) is reconciled with the land script it describes.
 
-Origin: 2026-11-22, law 77 (Owner, via the coordinator): every domain says what it takes to use it, and the
-brief requires that a check changing without its description changing is found by a machine (law 30, no
+Origin: 2026-11-22, law 95 (Owner, via the coordinator): every domain says what it takes to use it, and the
+brief requires that a check changing without its description changing is found by a machine (law 93, no
 second hand-kept copy). Station's scripts/station/test_requires.py did this outside the CI's test list
 (infracheck's quick list runs scripts/landing, not scripts/station); this file is the same reconciliation
 where the CI runs it. On 11-21 the land runs the cluster kept had 39 refusals (a reading, not archived).

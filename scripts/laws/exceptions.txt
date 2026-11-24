@@ -4,3 +4,5 @@
 bifrost-platform:console/src/pages/shell/owner/__tests__/lawFramework.test.tsx:11  # asserts the repealed law 11 is not shown
 bifrost-platform:console/src/pages/shell/owner/__tests__/lawFramework.test.tsx:90  # a test register's number
 bifrost-trade-infra:agent-config/claude/auto-mode/project.autoMode.json:46  # the auto mode rules are the Owner's; he changes them
+bifrost-trade-infra:k8s/cicd/tekton/pipeline-ci-platform.yaml:49  # inside an inline task script: its text is part of the task's digest, pinned in the freeze chain's effects registry; changes with the next real edit of that script
+bifrost-trade-infra:k8s/cicd/tekton/task-ci-platform-reuse.yaml:49  # inside the task's script: same digest as above
