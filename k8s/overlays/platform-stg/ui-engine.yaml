@@ -19,10 +19,10 @@ spec:
       priorityClassName: bifrost-default-nonpreempting
       containers:
         - name: ui-engine
-          # bifrost-engine:89dd9a221e086bfe7ba733f704c41a25d29547b8 (ci-engine-hdh4d: delivery lanes in the world's status words),
+          # bifrost-engine:7a67cf69cf3564cbf55b0ae19619797494e12894 (ci-engine-gl29p: lanes say boundary for what is not measured by design),
           # by digest at the registry's NodePort as the platform's own images: the node's kubelet cannot resolve
           # registry.cicd.svc.cluster.local (2026-11-24, ImagePullBackOff for 21 minutes).
-          image: 192.168.10.73:30500/bifrost-engine@sha256:3cc1f31a587c305852df2e4c64b6574bc33253872cfdc4e14c5e6a881a3d26ee
+          image: 192.168.10.73:30500/bifrost-engine@sha256:1d2d0fd1d845522be16b713c75b558c1ab49d7f474f59da6a645b12f9bc5ed40
           imagePullPolicy: IfNotPresent
           ports: [{name: http, containerPort: 8796}]
           env:
