@@ -1,7 +1,7 @@
 # The UI engine backend in bifrost-platform-stg (bifrost-engine, R0C; Owner lifted the repo pause for it
 # 2026-11-24, OWNER_LAW 84). From the engine's own draft (bifrost-engine deploy/platform-stg.draft.yaml).
-# The image is the CI's tag of one commit (pipeline-ci-engine.yaml), never a moving tag: moving it is
-# this line. No ServiceAccount of its own and no token mounted: the engine reads the platform's public
+# The image is the CI's build of one commit (pipeline-ci-engine.yaml), pinned by digest, never a moving
+# tag: moving it is this line. No ServiceAccount of its own and no token mounted: the engine reads the platform's public
 # read routes with the viewer's own token and needs no Kubernetes API, so there is no RBAC either.
 apiVersion: apps/v1
 kind: Deployment
@@ -19,7 +19,10 @@ spec:
       priorityClassName: bifrost-default-nonpreempting
       containers:
         - name: ui-engine
-          image: registry.cicd.svc.cluster.local:5000/bifrost-engine:ab729631c6b795d91bbda3be82a820b2ab0099c6
+          # bifrost-engine:ab729631c6b795d91bbda3be82a820b2ab0099c6 (ci-engine-78hmv), by digest at the
+          # registry's NodePort as the platform's own images: the node's kubelet cannot resolve
+          # registry.cicd.svc.cluster.local (2026-11-24, ImagePullBackOff for 21 minutes).
+          image: 192.168.10.73:30500/bifrost-engine@sha256:78a5afb8d5535fef2765f534730a89903c55324263365643f8ec7be0fd4c5c67
           imagePullPolicy: IfNotPresent
           ports: [{name: http, containerPort: 8796}]
           env:
