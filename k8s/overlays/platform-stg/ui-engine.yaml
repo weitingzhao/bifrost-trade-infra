@@ -1,0 +1,48 @@
+# The UI engine backend in bifrost-platform-stg (bifrost-engine, R0C; Owner lifted the repo pause for it
+# 2026-11-24, OWNER_LAW 84). From the engine's own draft (bifrost-engine deploy/platform-stg.draft.yaml).
+# The image is the CI's tag of one commit (pipeline-ci-engine.yaml), never a moving tag: moving it is
+# this line. No ServiceAccount of its own and no token mounted: the engine reads the platform's public
+# read routes with the viewer's own token and needs no Kubernetes API, so there is no RBAC either.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ui-engine
+  labels: {app.kubernetes.io/name: ui-engine, app.kubernetes.io/component: ui-engine}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app.kubernetes.io/name: ui-engine}}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: ui-engine, app.kubernetes.io/component: ui-engine}
+    spec:
+      automountServiceAccountToken: false
+      priorityClassName: bifrost-default-nonpreempting
+      containers:
+        - name: ui-engine
+          image: registry.cicd.svc.cluster.local:5000/bifrost-engine:ab729631c6b795d91bbda3be82a820b2ab0099c6
+          imagePullPolicy: IfNotPresent
+          ports: [{name: http, containerPort: 8796}]
+          env:
+            - {name: PLATFORM_API_URL, value: "http://platform-api:8780"}
+            # The bus reader name of /engine/v1/traffic: the Console's own, so the switch replaces that reader.
+            - {name: BUS_CLIENT, value: "console"}
+          readinessProbe: {httpGet: {path: /engine/v1/live, port: http}, initialDelaySeconds: 2, periodSeconds: 10}
+          livenessProbe: {httpGet: {path: /engine/v1/live, port: http}, initialDelaySeconds: 10, periodSeconds: 20}
+          resources:
+            requests: {cpu: 25m, memory: 64Mi}
+            limits: {cpu: 250m, memory: 192Mi}
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ui-engine
+  labels: {app.kubernetes.io/name: ui-engine}
+spec:
+  type: ClusterIP
+  selector: {app.kubernetes.io/name: ui-engine}
+  ports: [{name: http, port: 8796, targetPort: http}]

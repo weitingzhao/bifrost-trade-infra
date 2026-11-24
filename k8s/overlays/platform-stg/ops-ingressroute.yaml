@@ -25,6 +25,13 @@ spec:
       services:
         - name: owner-exec
           port: 8787
+    # The UI engine backend (ui-engine.yaml): /engine/v1/... straight from Traefik.
+    - match: Host(`stg.ops.bifrost.lan`) && PathPrefix(`/engine`)
+      kind: Rule
+      priority: 50
+      services:
+        - name: ui-engine
+          port: 8796
     - match: Host(`stg.ops.bifrost.lan`)
       kind: Rule
       priority: 10
