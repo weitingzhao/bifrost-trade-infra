@@ -479,3 +479,13 @@
 - infra `scripts/release/platform_ci_reuse.py` 的 `same_increment`：ready 推送（trigger `platform-ci-ready`）不再站在增量结果上，自己重跑增量（1–2 分钟）；整套结果照旧可复用，推 main 那次照旧复用 ready 的增量（法 49）。Task `bifrost-ci-platform-reuse` 由 `embed_platform_ci_reuse.py` 从源码生成，2026-11-22 apply 进集群（plan-6a5b41c5-1795381054）。
 - `scripts/release/test_platform_ci_reuse.py::test_a_ready_push_never_reuses_an_increment`：ready 推送不复用增量；阳性对照：整套结果照旧复用，trigger 换成 `platform-ci` 时照旧复用增量。
 - 覆盖不到的：别的仓库的复用逻辑（infra 自己的 CI 不走这个复用步骤）；落地拒绝时提示「push ready/ again」的文字没改，现在再推会真的重跑。
+
+
+### 单元运行的 ui 跟着 STG 走（TD-588，2026-11-24 关）
+
+出处：2026-11-21、11-23 两次，每日单元运行的 console 三项红（d4619165、e6f7fad5）。console 用了 ui 的新导出，bifrost.units.yaml 里手动钉的 ui 还没挪，单元运行编的是旧 ui，报了不存在的回归。
+
+- platform 5a37d7b6：钉子写 `advance: stg`，算计划时 ui 取 platform 当前 STG 发布用的那个提交（releases.Service.Follow，一分钟缓存，发布进行中沿用上次）；五处算计划的地方用同一个跟随函数；取不到就用文件里的提交，计划里注明。
+- `api/internal/unitplan/follow_test.go::TestAPinWithAdvanceSTGIsPlannedAtTheFollowersCommit`（阳性对照：manual 钉子不问跟随函数）、`TestAnAdvanceThatIsNeitherManualNorSTGIsRefused`；`api/internal/releases/follow_test.go::TestFollowGivesTheReleasesCommitAndKeepsItWhileUnreadable`。
+- 验收：11-24 11:07Z 日检，console 的 build、lint、typecheck、4 片 test 全过，期间钉子没人动（TaskRun 状态，临时读数）。
+- 覆盖不到的：ui 那边带来的红，日检会算到最近一次改过该任务输入的 platform 提交上，不点名 ui 的提交；R0E（ui 打 tag、使用方钉 tag）之后再看。
