@@ -19,7 +19,7 @@ JSON) and every repository's main, and reports:
 
   scripts/laws/residual_scan.py                  # summary
   scripts/laws/residual_scan.py --json out.json  # full list with places
-  scripts/laws/residual_scan.py --law 46         # where law 46 is cited
+  scripts/laws/residual_scan.py --law 50         # where law 50 is cited
 """
 import argparse
 import json
@@ -35,7 +35,9 @@ QUERY = """SELECT json_agg(b ORDER BY (b->>'law')::int) FROM (
   SELECT DISTINCT ON (event_stream_id) body_json AS b FROM agentrt.event
   WHERE event_type = 'law_recorded' AND starts_with(event_stream_id, 'law:')
   ORDER BY event_stream_id, event_id DESC) x"""
-CITE = r"(?:法 ?|[Ll]aw |OWNER_LAW ?#)([0-9]{1,3})(?![0-9])"
+# 法 N, but not a word ending in 法 followed by a number (合法 0, 读法 0, 算法 2:
+# round 1 counted twelve 「合法 0」 as citations of a law 0).
+CITE = r"(?:(?<![合方算办做写用语手说想看读解打玩立执修宪司违守依无设])法 ?|[Ll]aw |OWNER_LAW ?#)([0-9]{1,3})(?![0-9])"
 SKIP = (":!**/node_modules/**", ":!*.lock", ":!**/OWNER_LAW.md")
 SHADOW_FILES = ("agent-config/CLAUDE.md", "agent-config/OWNER_EXEC.md", "agent-config/claude/skills", "agent-config/charters")
 OWNER_DATE = re.compile(r"Owner[ ,，（(]*20[0-9]{2}-[0-9]{2}-[0-9]{2}|（Owner [0-9]{2}-[0-9]{2}")
