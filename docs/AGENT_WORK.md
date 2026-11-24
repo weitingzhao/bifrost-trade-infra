@@ -4,7 +4,7 @@
 出处：参谋长给 Station 的第一轮任务书第 2 条；Crew、8.2 沟通台面、1 号计划 11-21 各自答了自己那一段，这页照它们的现状写，不替它们定。
 规矩和硬边界不在这页，在根 `CLAUDE.md`（Codex 从 `AGENTS.md` 进去）。
 
-办一件事要带什么（合入、以后还有发布窗口、建卡、发信），办之前查 [`scripts/station/`](../scripts/station/README.md)：`howto.py <工具>` 打印要带什么、缺了去哪拿；`precheck.py <检出目录>` 跑合入时同样的检查，先告诉你会因为什么被拒。
+办一件事要带什么（合入、以后还有发布窗口、建卡、发信），办之前查 [`scripts/station/`](../scripts/station/README.md)：`howto.py <工具>` 打印要带什么、缺了去哪拿；`precheck.py <检出目录>` 跑合入时同样的检查，先告诉你会因为什么被拒。要办的事不知道找谁，查能力目录 [`agent-config/CAPABILITIES.md`](../agent-config/CAPABILITIES.md)，或跑 `python3 scripts/station/howto.py find <关键词>`（例：`find 发信`）。
 
 ## 1. 活从哪来
 
