@@ -1,0 +1,12 @@
+# Installed on gpu-server (ubt-ai-4090) by card #721, 2026-11-24 (compute line).
+# Strata listens on 127.0.0.1:8082 only; this socket exposes it on the LAN to
+# the two Mac minis and nothing else (systemd IP filtering, not the firewall).
+[Unit]
+Description=Strata inference on the LAN, for the two Mac minis only (compute line, 2026-11-24)
+[Socket]
+ListenStream=192.168.10.60:8082
+FreeBind=true
+IPAddressDeny=any
+IPAddressAllow=192.168.10.50 192.168.10.52
+[Install]
+WantedBy=sockets.target

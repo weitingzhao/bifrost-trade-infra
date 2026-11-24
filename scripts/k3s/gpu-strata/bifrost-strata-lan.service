@@ -1,0 +1,8 @@
+# Pair of bifrost-strata-lan.socket (card #721).
+[Unit]
+Description=Forward LAN 192.168.10.60:8082 to Strata on 127.0.0.1:8082
+Requires=bifrost-strata-lan.socket
+After=bifrost-strata-lan.socket
+[Service]
+ExecStart=/usr/lib/systemd/systemd-socket-proxyd 127.0.0.1:8082
+DynamicUser=yes
