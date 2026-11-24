@@ -29,6 +29,8 @@ K3S_URL="${K3S_URL:-https://192.168.10.73:6443}"
 KUBECONFIG="${KUBECONFIG:-${HOME}/.kube/bifrost-k3s.yaml}"
 SSH_OPTS=(-o ConnectTimeout=15 -o ServerAliveInterval=30)
 LABELS="bifrost.io/host-id=${NAME},bifrost.io/workload-pool=${POOL}"
+NFS_SERVER="${NFS_SERVER:-192.168.10.20}"
+NFS_HOT_PATH="${NFS_HOT_PATH:-/volume1/k3s-hot}"
 
 [[ "${NAME}" =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]] || { echo "node name ${NAME} is not a valid Kubernetes name" >&2; exit 2; }
 [[ "${IP}" =~ ^192\.168\.10\.[0-9]{1,3}$ ]] || { echo "${IP} is not on 192.168.10.0/24" >&2; exit 2; }
@@ -74,6 +76,15 @@ esac
 step "3/6 copy install scripts"
 scp "${SSH_OPTS[@]}" "${ROOT}/scripts/k3s/install-agent.sh" "${ROOT}/scripts/k3s/configure-insecure-registry.sh" "${TARGET}:~/"
 
+# 3b. NFS client before the join: CI and data volumes mount NFS from the NAS. 07 (11-04,
+#     TD-517) and 06 (11-24, card #746) joined without nfs-common and pods there failed
+#     FailedMount until it was installed by hand. Install it and prove a read-only mount
+#     of the hot export works; if not, stop before the node takes any pod.
+step "3b/6 nfs-common and a read-only NFS mount"
+ssh -t "${SSH_OPTS[@]}" "${TARGET}" "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nfs-common && test -x /sbin/mount.nfs \
+  && d=\$(mktemp -d) && sudo mount -t nfs -o ro ${NFS_SERVER}:${NFS_HOT_PATH} \$d && sudo umount \$d && rmdir \$d" \
+  || { echo "STOP: nfs-common or a read-only mount of ${NFS_SERVER}:${NFS_HOT_PATH} failed on ${NAME}; fix that before joining." >&2; exit 1; }
+
 # 4. Join, labels included. The token goes over the ssh channel into a 600 file
 #    (never on this computer's command line), then the terminal session that runs
 #    sudo reads and deletes it.
@@ -87,12 +98,6 @@ ssh -t "${SSH_OPTS[@]}" "${TARGET}" "t=\$(cat ~/.bifrost-join-token); rm -f ~/.b
 # 5. Registry mirror config (same hosts as every node).
 step "5/6 registry"
 ssh -t "${SSH_OPTS[@]}" "${TARGET}" 'sudo REGISTRY_HOSTS="192.168.10.73:30500 registry.cicd.svc.cluster.local:5000" bash ~/configure-insecure-registry.sh'
-
-# 5b. NFS client: CI and data volumes mount NFS from the NAS. ubt-k3s-06 rejoined
-#     without it on 2026-11-24 and CI pods there failed FailedMount x20 ("might need a
-#     /sbin/mount.nfs helper") until nfs-common was installed (card #746).
-step "5b/6 nfs-common"
-ssh -t "${SSH_OPTS[@]}" "${TARGET}" 'sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nfs-common && test -x /sbin/mount.nfs'
 
 # 6. Ready.
 step "6/6 wait for Ready"

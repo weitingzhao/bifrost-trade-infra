@@ -14,12 +14,11 @@ NFS_SERVER="${NFS_SERVER:-192.168.10.20}"
 NFS_HOT_PATH="${NFS_HOT_PATH:-/volume1/k3s-hot}"
 NFS_TEST_MOUNT="${NFS_TEST_MOUNT:-/mnt/test-nas-k3s}"
 
-DEFAULT_NODES=(
-  "vision@192.168.10.73"
-  "vision@192.168.10.70"
-  "vision@192.168.10.75"
-  "vision@192.168.10.77"
-)
+# Default: every amd64 node the cluster knows, read with the caller's kubectl
+# (TD-517: a hand-written list missed 07 and 06).
+mapfile -t DEFAULT_NODES < <(kubectl get nodes -l kubernetes.io/arch=amd64 \
+  -o jsonpath='{range .items[*]}{.status.addresses[?(@.type=="InternalIP")].address}{"\n"}{end}' | sed 's/^/vision@/')
+[[ ${#DEFAULT_NODES[@]} -gt 0 ]] || { echo "no nodes from kubectl; set K3S_NFS_NODES" >&2; exit 1; }
 
 if [[ -n "${K3S_NFS_NODES:-}" ]]; then
   # shellcheck disable=SC2206

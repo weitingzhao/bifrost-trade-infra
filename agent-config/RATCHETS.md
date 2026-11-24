@@ -489,3 +489,14 @@
 - `api/internal/unitplan/follow_test.go::TestAPinWithAdvanceSTGIsPlannedAtTheFollowersCommit`（阳性对照：manual 钉子不问跟随函数）、`TestAnAdvanceThatIsNeitherManualNorSTGIsRefused`；`api/internal/releases/follow_test.go::TestFollowGivesTheReleasesCommitAndKeepsItWhileUnreadable`。
 - 验收：11-24 11:07Z 日检，console 的 build、lint、typecheck、4 片 test 全过，期间钉子没人动（TaskRun 状态，临时读数）。
 - 覆盖不到的：ui 那边带来的红，日检会算到最近一次改过该任务输入的 platform 提交上，不点名 ui 的提交；R0E（ui 打 tag、使用方钉 tag）之后再看。
+
+
+### 新节点入群就装好 NFS 客户端（TD-517，2026-11-24 关）
+
+出处：2026-11-04 ubt-k3s-07 入群没装 nfs-common，nfs-fast 的 provisioner 挂不上；2026-11-24 ubt-k3s-06 重新入群又漏了，CI 的 Pod 落上去 FailedMount 约 20 小时（00:58Z–20:39Z，吃掉 11 次 platform CI，CI 线报），卡 #746 装上才好。两次都是入群脚本不装客户端、install-nfs-common-nodes.sh 的节点表是手写的。
+
+- `scripts/k3s/node-join.sh`：入群前先装 nfs-common、确认 /sbin/mount.nfs 在、只读挂一次 NAS 的 k3s-hot，任何一步失败就停，不装 k3s。
+- `scripts/k3s/install-nfs-common-nodes.sh`：默认节点表改成 `kubectl get nodes` 读出的全部 amd64 节点，不再手写 IP。
+- `scripts/k3s/test_nfs_client_on_join.py`：断言 node-join.sh 里装客户端和只读挂载在装 k3s 之前；断言节点表脚本里没有手写的 IP。
+- 覆盖不到的：老的 `join-bifrost-agent.sh` 没改（新节点走 node-join.sh）；已在集群里的节点有没有装，靠这次 06 补装和 07 的 11-04 手装，没有逐台核；cicd 命名空间里卡在挂卷的 Pod 没有告警，CI 线已转给指标线。
+
