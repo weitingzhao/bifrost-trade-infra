@@ -3,6 +3,8 @@
 
 Usage: howto.py            lists what can be looked up, by task
        howto.py <tool>     prints what that tool needs, where to get it, and how to check before going
+       howto.py find <word> searches the capability directory (agent-config/CAPABILITIES.md) for a task:
+                           who owns it, how to do it, what to bring (Station, 2026-11-24)
 """
 import pathlib
 import sys
@@ -40,7 +42,30 @@ def show(d):
     return '\n'.join(lines)
 
 
+CAPS = INFRA / 'agent-config' / 'CAPABILITIES.md'
+
+
+def find(words):
+    """Rows of the capability directory whose text holds every word, each under its section heading."""
+    hits, section = [], ''
+    for line in CAPS.read_text().splitlines():
+        if line.startswith('#'):
+            section = line.lstrip('#').strip()
+        elif line.startswith(('|', '- ', '1', '2', '3', '4', '5', '6', '7', '8', '9')) and not line.startswith('|---'):
+            low = f"{section} {line}".lower()  # a heading like 「找 Owner」 names every row under it
+            if all(w.lower() in low for w in words):
+                hits.append(f'[{section}] {line}')
+    return hits
+
+
 def main(argv):
+    if argv[:1] == ['find']:
+        if len(argv) < 2:
+            print('howto.py find <关键词>…', file=sys.stderr)
+            return 2
+        hits = find(argv[1:])
+        print('\n'.join(hits) if hits else f"能力目录里没有「{' '.join(argv[1:])}」；目录第 4 节是已知空白，找工坊（11-station）补。")
+        return 0 if hits else 1
     docs = load()
     if not argv:
         for name, d in docs.items():
