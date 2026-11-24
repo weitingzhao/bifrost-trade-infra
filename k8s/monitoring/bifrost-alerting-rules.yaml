@@ -38,6 +38,24 @@ spec:
             summary: "Bifrost pod stuck in ContainerCreating"
             description: "Pod {{ $labels.namespace }}/{{ $labels.pod }} has been ContainerCreating for 15m. Check its events: FailedMount with exit 32 means the node lacks nfs-common (scripts/k3s/install-nfs-common-nodes.sh)."
 
+        - alert: BifrostCIPodStuckPending
+          # 2026-11-24: ubt-k3s-06 rejoined without nfs-common (the TD-173 case again). For about
+          # 20 hours (00:58Z-20:39Z) the CI pods scheduled there could not mount their NFS volume and
+          # sat in Init; 11 platform CI runs timed out and a PROD release waited, and nothing fired:
+          # BifrostPodStuckCreating covers neither cicd nor a pod stuck in its init containers.
+          # Pending is the phase until every init container has run, so this catches mounts, images,
+          # init containers and scheduling alike. Before that day no cicd pod stayed Pending 15m in
+          # 11-21..11-23 and 4 did in 11-17..11-20 (Prometheus, read 2026-11-24).
+          expr: |
+            (kube_pod_status_phase{namespace="cicd",phase="Pending"} == 1)
+            * on(namespace, pod) group_left(node) max by (namespace, pod, node) (kube_pod_info{namespace="cicd"})
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "CI pod stuck in Pending"
+            description: "CI pod {{ $labels.pod }} on node {{ $labels.node }} has been Pending for 15m; its run is likely to time out. Check its events: FailedMount with exit 32 means the node lacks nfs-common (scripts/k3s/install-nfs-common-nodes.sh)."
+
         - alert: BifrostAPIHighErrorRate
           # research and the plugin namespaces too (TD-161): research-api, market-data-api and
           # flex-query-api export the Trade APIs' http_requests_total{handler,method,status}

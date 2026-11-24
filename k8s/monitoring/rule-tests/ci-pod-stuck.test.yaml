@@ -1,0 +1,60 @@
+# promtool unit test for BifrostCIPodStuckPending.
+# Origin: 2026-11-24, ubt-k3s-06 rejoined without nfs-common; CI pods there sat in Init
+# (phase Pending) for about 20 hours, 11 platform CI runs timed out, and no alert fired.
+# Run: make check-alert-rules.
+rule_files:
+  - bifrost-alerting-rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  # The 11-24 case: a CI pod Pending on a node fires after 15 minutes, naming the node.
+  - name: CI pod pending 15m fires with its node
+    interval: 1m
+    input_series:
+      - series: 'kube_pod_status_phase{namespace="cicd",pod="ci-platform-abcde-test-api-pod",phase="Pending"}'
+        values: '1x20'
+      - series: 'kube_pod_info{namespace="cicd",pod="ci-platform-abcde-test-api-pod",node="ubt-k3s-06"}'
+        values: '1x20'
+    alert_rule_test:
+      - eval_time: 14m
+        alertname: BifrostCIPodStuckPending
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: BifrostCIPodStuckPending
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              namespace: cicd
+              pod: ci-platform-abcde-test-api-pod
+              node: ubt-k3s-06
+              phase: Pending
+            exp_annotations:
+              summary: "CI pod stuck in Pending"
+              description: "CI pod ci-platform-abcde-test-api-pod on node ubt-k3s-06 has been Pending for 15m; its run is likely to time out. Check its events: FailedMount with exit 32 means the node lacks nfs-common (scripts/k3s/install-nfs-common-nodes.sh)."
+
+  # A normal CI pod is Pending for seconds (queue p90 59s over 11-17..11-24) and must not fire.
+  - name: CI pod pending a few minutes then running does not fire
+    interval: 1m
+    input_series:
+      - series: 'kube_pod_status_phase{namespace="cicd",pod="ci-infra-fghij-lint-pod",phase="Pending"}'
+        values: '1x3 0x17'
+      - series: 'kube_pod_info{namespace="cicd",pod="ci-infra-fghij-lint-pod",node="ubt-k3s-08"}'
+        values: '1x20'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: BifrostCIPodStuckPending
+        exp_alerts: []
+
+  # Only cicd: a Pending pod elsewhere is BifrostPodStuckCreating's or another rule's business.
+  - name: pending pod outside cicd does not fire
+    interval: 1m
+    input_series:
+      - series: 'kube_pod_status_phase{namespace="bifrost-stg",pod="api-0",phase="Pending"}'
+        values: '1x20'
+      - series: 'kube_pod_info{namespace="bifrost-stg",pod="api-0",node="ubt-k3s-06"}'
+        values: '1x20'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: BifrostCIPodStuckPending
+        exp_alerts: []
