@@ -17,7 +17,14 @@
 # binds no workspace, so the step clones the commit itself into an emptyDir at
 # /workspace/source (test-api's path, so the cache keys match). It
 # writes only the NAS cache's go/build (as every CI run does) and its emptyDir.
-# Delete this file and the Pipeline after the measure (LANE-ci-w1).
+# Kept as a re-runnable measure (e.g. after the NAS or the network changes).
+#
+# Result 2026-11-24 (ubt-k3s-06, platform 8a88beb8, two runs 23:46Z / 23:51Z):
+#   nfs-1 56s / 55s, local-cold 173s / 172s, local-warm 40s / 40s, nfs-2 45s / 50s.
+# A warm local cache saves about 10 s of this work (about 5% of a 3.5-minute
+# full CI); a cold one costs about 2 minutes. Decision (LANE-ci-w1): the cache
+# stays on the NAS SSD, capped at 100 GB (task-ci-cache-trim.yaml); CI is not
+# pinned to per-domain nodes for the cache's sake.
 apiVersion: tekton.dev/v1
 kind: Pipeline
 metadata:
