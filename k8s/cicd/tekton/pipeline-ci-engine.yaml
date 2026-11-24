@@ -32,6 +32,13 @@ spec:
   workspaces:
     - name: source
   results:
+    # What the run tested, for the evidence ledger: the platform reads source-commit and
+    # source-tree as the run's own repository (runfacts) and writes a row of
+    # bifrost-ci-engine for that tree (Foundation's s1, 2026-11-24: no row was written).
+    - name: source-commit
+      value: $(tasks.clone.results.commit)
+    - name: source-tree
+      value: $(tasks.clone.results.tree)
     - name: image
       description: The image pushed for the commit, or "" when the ref is not main.
       value: $(tasks.image.results.image)
