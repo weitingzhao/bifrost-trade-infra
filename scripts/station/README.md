@@ -2,6 +2,7 @@
 
 Station 管（法 77，2026-11-21）。给任何一个新来的成员：办之前先查这里，不靠一次次被拒碰出来。
 
+- 派活：`python3 scripts/station/pick.py <外壳>` 挑账号和机器，告诉你任务书发给哪个常驻线程。
 - 查：`python3 scripts/station/howto.py find <关键词>` 在能力目录 `agent-config/CAPABILITIES.md` 里按事查找谁、怎么办；`python3 scripts/station/howto.py` 列出能查的事；`python3 scripts/station/howto.py land` 打印合入 main 要带什么。
   - 例：`python3 scripts/station/howto.py find 发信` 先列出怎么用 `send_message` 给别的席位提问、求助或交回工作（按线程或席位寻址），接着说明发信可以叫醒挂着门铃的闲置会话。
 - 改了治理文件、自己的克隆里跑不了治理一致性检查：`bash scripts/station/workspace.sh <检出目录>` 拼一个临时工作区（治理文件取自你的检出，别的仓库链接到共享检出），再跑它打印的根下的 `scripts/check-governance-consistency.sh`。Codex 安装那一项在临时根下必报漂移，查的是本机不是改动，其余照读。

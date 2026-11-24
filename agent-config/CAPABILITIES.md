@@ -29,6 +29,7 @@
 
 | 要办的事 | 归哪条线 | 怎么办 | 要带什么 / 前提 | 出处 |
 |---|---|---|---|---|
+| 要请一个 Agent 干活，该派到哪台机器、哪个账号、交给谁 | 11-station | `python3 infra:scripts/station/pick.py <claude\|codex\|opencode> [--skip <额度用完的账号>]`：打印账号标签、机器、那台机器上的常驻线程地址 | 额度用完的账号用 --skip 跳过；全跳完就是要 Owner 定账号 | `CH/seats.yaml` 的 accounts 表 |
 | 在工坊值守那里问「找谁、怎么办」，或请它在 mini 上照任务书干一件活 | 11-station（mini-01 值守） | `send_message` 到 `thread:01a20bde-35a2-7600-8947-e24375a43229`，任务书放正文或 artifact | 它每封信醒一次，回信 reply_to 你的信 | `CH/seats.yaml` 的 station-desk-mini01 行 |
 | 叫醒 4090（gpu-server） | 6-compute | `wake_compute_node`，B 级，直接调（MCP bifrost-platform 或 bifrost-kubernetes） | 节点名 `gpu-server`；它平时关着，NotReady 加封锁是常态 | `CAT:360`、`DOM:483`、`MCP:413`、`AF` 节点表 gpu-server 行 |
 | 关 4090 | 6-compute | `poweroff_compute_node`，D 级：先排空再关机，建卡等批 | Owner 醒着；卡写清楚上面跑着什么 | `CAT:354`、`DOM:484`、`MCP:421` |
