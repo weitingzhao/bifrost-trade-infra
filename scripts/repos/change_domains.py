@@ -17,10 +17,10 @@ import collections
 import json
 import subprocess
 
-# The structure's own bookkeeping: the ownership table, the gates' baselines,
+# The structure's own bookkeeping: the ownership table (and the console's copy), the gates' baselines,
 # the unit declarations and the map's reviews change with every move and are
 # not users of the moved code.
-BOOKKEEPING = ("config/domain-ownership.json", "config/catalog-", "bifrost.units.yaml", "api/internal/codeguard/")
+BOOKKEEPING = ("config/domain-ownership.json", "console/domain-ownership.json", "config/catalog-", "bifrost.units.yaml", "api/internal/codeguard/")
 
 
 def git(repo, *args):
