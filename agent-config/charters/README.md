@@ -26,4 +26,4 @@
 | ~~`9-crew.md`~~ | 9 Crew：2026-11-24 并入 11 工坊（见 `11-station.md` 第 1 节「人」） |
 | `10-cockpit.md` | 10 Cockpit · Ops 游戏化 |
 | `11-station.md` | 11 Station（人和 Agent 干活的台面；原窗 2 · Agent 工坊） |
-| `13-triage.md` | 13 Triage（判原因、定去向；维护法的原文和墙的单子；占位） |
+| `13-triage.md` | 已并入 12 Audit（指针页，地图线合并领域后删） |
