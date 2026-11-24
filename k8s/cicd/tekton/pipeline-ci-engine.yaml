@@ -63,6 +63,9 @@ spec:
       taskSpec:
         workspaces:
           - name: source
+        results:
+          - name: version
+            description: package.json's version, for the image's ENGINE_VERSION.
         steps:
           - name: test
             # node:22-alpine on 2026-11-24 (the engine wants Node >= 22.18 for its type stripping).
@@ -80,6 +83,7 @@ spec:
               npm ci --no-audit --no-fund
               npm test
               npm run typecheck
+              node -p "require('./package.json').version" | tr -d '\n' > "$(results.version.path)"
     - name: image
       runAfter: [test]
       when:
@@ -89,12 +93,16 @@ spec:
       params:
         - name: revision
           value: $(tasks.clone.results.commit)
+        - name: version
+          value: $(tasks.test.results.version)
       workspaces:
         - name: source
           workspace: source
       taskSpec:
         params:
           - name: revision
+            type: string
+          - name: version
             type: string
         workspaces:
           - name: source
@@ -108,6 +116,7 @@ spec:
               - --context=$(workspaces.source.path)/engine
               - --destination=registry.cicd.svc.cluster.local:5000/bifrost-engine:$(params.revision)
               - --build-arg=ENGINE_COMMIT=$(params.revision)
+              - --build-arg=ENGINE_VERSION=$(params.version)
               - --custom-platform=linux/amd64
               - --insecure
               - --skip-tls-verify
