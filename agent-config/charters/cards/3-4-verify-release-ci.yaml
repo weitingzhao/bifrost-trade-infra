@@ -1,6 +1,6 @@
 # 第 1 栏从 seats.yaml 取。
 as_of: 2026-11-22
-laws: [D10, 法 29 改裁判要 Owner, 法 32 只增不删迁移直跑, 法 46 卡换成记录, 法 49 先执行再评, 法 67 权限内自己定, 签名规则归 Owner]
+laws: [D10, 法 29 改裁判要 Owner, 法 32 只增不删迁移直跑, 法 85 卡换成记录, 法 49 先执行再评, 法 67 权限内自己定, 签名规则归 Owner]
 owns:
   - 一个提交从推上去到在生产里跑着，中间的验证和放行（领域 3·4，含 delivery：平台自发 PROD、发布窗口除排队外）
   - platform 包：releasepolicy、postrelease、unitplan、unitexec、testscope、agentrt/evidence、agentrt/landingci、headrelease、cidomains

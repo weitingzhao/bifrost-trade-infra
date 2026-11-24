@@ -2,7 +2,7 @@
 
 标记：【量】= 读仓库或自己做过、有提交号或文件可查；【推】= 推断或还没定。
 一句话：Agent 这个员工的一切归这一条线：谁坐哪个岗位、岗位的身份卡、手边的工具和能力、住在哪台机器上、用哪个账号、怎么领活交活。任何一个成员上来，不靠口头交代，一个人把一块活从写代码走到上线交出来，中间不被卡住。工坊给能力，不管流程。
-出处：Owner 11-14 的验收句；11-21 改名 Station（法 66）；11-23 Owner 在参谋长线程定工坊和 Crew 合成一条线、算力单独留（任务书在共享笔记 `domains/11-station/from-chief-of-staff-merge-station-and-crew-2026-11-23.md`）。原 Crew 章程 `9-crew.md` 的内容并进本页，那页改成指针。
+出处：Owner 11-14 的验收句；11-21 Owner 定名 Station；11-23 Owner 在参谋长线程定工坊和 Crew 合成一条线、算力单独留（任务书在共享笔记 `domains/11-station/from-chief-of-staff-merge-station-and-crew-2026-11-23.md`）。原 Crew 章程 `9-crew.md` 的内容并进本页，那页改成指针。
 台账：Artifact https://claude.ai/artifact/MpzwpxG8Hqn26VdvFZjG5R （源文件在共享笔记 `domains/11-station/ledger.html`）。原 Crew 台账 SSzE4XUUEwHVWnw8bWiKye 保留为历史。
 
 ## 1. 管哪块（坏了叫它）

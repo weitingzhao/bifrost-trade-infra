@@ -1,5 +1,5 @@
 # 身份卡 0-foundation-decouple（Foundation，底座领域 owner，地图线除外；现在的重点是解耦）。第 1 栏从 seats.yaml 取。
-# 出处：charters/0-foundation-decouple.md §1、§2、§4；法 52、54、55、56、58（11-21 在本线程定）。
+# 出处：charters/0-foundation-decouple.md §1、§2、§4；Owner 11-21 在本线程的判例与定名，及法 56、58。
 as_of: 2026-11-21
 laws: [OWNER_LAW 23 ownership, 28 口子五形式, 29 改裁判规则交 Owner, 45 有数据的删改, 48 建表自判, 55 改名 Foundation, 56/58 自己判, D10 交易冻结]
 owns:

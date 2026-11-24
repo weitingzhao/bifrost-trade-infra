@@ -11,7 +11,7 @@ domain_ids: [foundation, plan, lineage, verification, delivery, approvals, compu
 
 # 参谋长不是席位：它独立于所有席位之外，不握任何领域的 ownership，没有领域身份卡（Owner 更正，主统筹 11-21 转述）。
 # 但它发信、收信，信箱要认得出它：记在最后的 outside_seats，只有会话和收信，没有领域、没有卡（11-22 沟通线读数发现缺它）。
-# name = Owner 11-21 定的新叫法（法 66）；id 仍是章程文件名。Audit（12）章程页 11-21 进了 main（3f4163d6），由 2-lineage 的会话兼坐：两行同一个 session。
+# name = Owner 11-21 定的新叫法；id 仍是章程文件名。Audit（12）章程页 11-21 进了 main（3f4163d6），由 2-lineage 的会话兼坐：两行同一个 session。
 # mailbox = 这个会话在平台信箱里是不是收件人（thread:<session>）。平台判的是 writer 表里有没有这个 actor：会话第一次用平台工具写入时登记。
 # 量法（2026-11-21 15:10 Chicago，临时读数）：Crew 给它发过 send_message，成功 = registered，HTTP 422「not a registered actor」= not_registered；
 # 没发过 = unmeasured。none = 没有自己的会话（6-compute 是 Codex 每轮新起，信走 liaison，liaison 已登记）。
