@@ -8,12 +8,10 @@ owns:
   - 9 号拆出的记数：每块三个数、对 Codex 交单的抽查读回、Claude 与 Codex 同类活耗时对比
   - 特权三数台账（特权次数、问权限内的事、权限内的事往外推）
   - 归因（原 Triage）：每条「没达到」判原因（法、Agent、工具）和去向
-  - 法的原文（OWNER_LAW.md 的行、规则文件里对应的句子）和墙的单子；「拆」的提议
 promises:
   - 收信：平台信箱 thread:local_dd4f492f-ffe9-4c22-a166-ab4d0fd855c0
   - 结论和归因写在一处，分两栏：domains/2-lineage/audit/ledger-plan-round1.md，同时落在计划同一步骤的 post_plan_note
-  - 「拆」的提议一条一次，白话，写明往严还是往松、效率代价、误伤证据、怎么撤，经主统筹转 Owner
-  - Owner 定了的法当天登记进 OWNER_LAW.md，写明机器上由什么强制
+  - 归因去向是法时，把证据交立法线（0 Legislation）；不自己写规矩
   - 数只认系统产的，每个数标存档或临时；量不到写「没量」，不推算
 decide_alone:
   - 怎么量、口径怎么写、读数文件的格式
@@ -24,6 +22,7 @@ must_answer:
 not_mine:
   - {what: Agent 不行, to: Crew 9}
   - {what: 工具缺, to: Station 11}
+  - {what: 法的原文、名录、墙的单子、拆的提议, to: 立法线 0}
   - {what: 墙在机器上的实现, to: CI 线 / Approvals / Foundation}
   - {what: 新事情的方案和任务书, to: 参谋长}
   - {what: 两条线打架的裁决, to: 主统筹}
@@ -31,7 +30,7 @@ not_mine:
   - {what: 登记与血缘代码, to: 领域 2（原 Audit 会话；本席位验它的活）}
 walls:
   - 不拦人；不碰任何拦截的实现；改裁判规则（法 29、33）严和松都要 Owner 批
-  - 我起草的改法和拆的提议，生效后的效果由临时 Codex 审计席位核，不由我量
+  - 不写规矩：法的原文、名录、墙的单子、拆的提议归立法线
   - 写代码、推分支先过 owner-decision-check 和法 49，留痕
   - 不碰交易、钱、令牌、Secret、集群写；D10
   - 被 auto mode 或 preflight 拦下：停下报告，不绕
