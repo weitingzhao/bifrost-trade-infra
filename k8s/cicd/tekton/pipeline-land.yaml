@@ -57,6 +57,9 @@ spec:
     - name: refusal
       description: Why the run did not land (the land task's refusal); absent when it landed.
       value: $(finally.refusal.results.refusal)
+    - name: refused-change-ids
+      description: The pushed commit's Change-Id when the run did not land (copied like refusal); absent when it landed.
+      value: $(finally.refusal.results.change-ids)
   tasks:
     - name: freeze-check
       taskRef:
@@ -631,6 +634,19 @@ spec:
                       return 'refused: the branch moved after this run started; its new push has its own run'
                   return ''
 
+              def pushed_change_ids(token, repo, commit, gitea=GITEA):
+                  """The Change-Id of the pushed commit, for a refused run: what lets a reader put the
+                  refusal on its change's lane (2026-11-24, the delivery lanes: 18 of 21 refusals could
+                  only stand as sha:<revision>). Read by id, whatever step refused; '' when it has none
+                  or cannot be read. A landed run's change-ids are those of every commit it landed."""
+                  if not re.fullmatch(r'[0-9a-f]{40}', commit or ''):
+                      return ''
+                  try:
+                      code, got = call(token, 'GET', gitea + '/api/v1/repos/bifrost/%s/git/commits/%s' % (repo, commit))
+                      return (change_id(got.get('commit', {}).get('message', '')) or '') if code == 200 else ''
+                  except Exception:
+                      return ''
+
               def land(token, table, policy, repo, ref, commit, wait=ci_wait, gitea=GITEA, tries=24, pause=5,
                        budget=50 * 60, push=None, turn=lambda: True, tidy=lambda api: None, queue=3 * 60 * 60):
                   """(what landed, refusal): ({'outcome': 'landed', 'commit': ..., 'change-ids': ...}, '') or
@@ -758,7 +774,8 @@ spec:
                                              turn=lambda: first_in_line(os.environ['RUN'], os.environ['REPO']),
                                    tidy=lambda api: close_abandoned(secret, api, os.environ['REPO']))
                   if problem:
-                      for name, value in (('outcome', 'refused'), ('refusal', problem[:2000])):
+                      ids = pushed_change_ids(secret, os.environ['REPO'], os.environ['COMMIT'])
+                      for name, value in (('outcome', 'refused'), ('refusal', problem[:2000]), ('change-ids', ids)):
                           with open(RESULTS + name, 'w') as handle:
                               handle.write(value)
                       sys.exit(problem)
@@ -776,17 +793,24 @@ spec:
       params:
         - name: refusal
           value: $(tasks.land.results.refusal)
+        - name: change-ids
+          value: $(tasks.land.results.change-ids)
       taskSpec:
         params:
           - name: refusal
+          - name: change-ids
         results:
           - name: refusal
+          - name: change-ids
         steps:
           - name: copy
             image: alpine:3.20
             env:
               - name: REFUSAL
                 value: $(params.refusal)
+              - name: CHANGE_IDS
+                value: $(params.change-ids)
             script: |
               #!/bin/sh
               printf '%s' "${REFUSAL}" | head -c 2000 > "$(results.refusal.path)"
+              printf '%s' "${CHANGE_IDS}" | head -c 2000 > "$(results.change-ids.path)"

@@ -208,7 +208,8 @@ def test_freeze_check_then_land():
     fin = pipeline()["finally"]
     assert [t["name"] for t in fin] == ["refusal"]
     assert fin[0]["when"] == [{"input": "$(tasks.land.status)", "operator": "in", "values": ["Failed"]}]
-    assert fin[0]["params"] == [{"name": "refusal", "value": "$(tasks.land.results.refusal)"}]
+    assert fin[0]["params"] == [{"name": "refusal", "value": "$(tasks.land.results.refusal)"},
+                                {"name": "change-ids", "value": "$(tasks.land.results.change-ids)"}]
     assert "gitea" not in json.dumps(fin).lower() and "volumes" not in fin[0]["taskSpec"]
     assert all("when" not in t and "onError" not in t and "retries" not in t for t in tasks)
 
@@ -227,12 +228,14 @@ def test_land_is_inline_takes_the_pushed_commit_and_talks_to_gitea_only():
     assert {r["name"]: r["value"] for r in pipeline()["results"]} == {
         **{name: "$(tasks.land.results.%s)" % name for name in ("outcome", "commit", "change-ids")},
         # 2026-11-21: a refused run's refusal reaches the run's results through the finally task.
-        "refusal": "$(finally.refusal.results.refusal)"}
+        "refusal": "$(finally.refusal.results.refusal)",
+        # 2026-11-24: and the pushed commit's Change-Id, so the delivery lanes can place it.
+        "refused-change-ids": "$(finally.refusal.results.change-ids)"}
     # refusal (2026-11-17): the sentence a refused run ends with is a result of the task, so that
     # what wakes the pusher can say why; it is not a result of the pipeline, which a failed run does not give.
     # tripwire: 2026-11-17, see test_a_change_to_the_head_release_loop_lands_and_is_reported.
     assert [r["name"] for r in land_task()["taskSpec"]["results"]] == ["outcome", "commit", "change-ids", "refusal", "tripwire"]
-    assert "('outcome', 'refused'), ('refusal', problem[:2000])" in script()
+    assert "('outcome', 'refused'), ('refusal', problem[:2000]), ('change-ids', ids)" in script()
 
 
 # --- which CI runs count -------------------------------------------------------------
@@ -1080,3 +1083,24 @@ def test_a_request_that_never_left_is_tried_again():
             assert len(calls) == 1
     finally:
         m["urllib"].request.urlopen, m["time"].sleep = saved, saved_sleep
+
+
+def test_a_refused_run_names_the_change_it_refused():
+    """2026-11-24, the delivery lanes (箭10): a refused run carried no Change-Id, so 18 of 21
+    refusals stood as sha:<revision> on a lane of their own. The pushed commit's Change-Id is read
+    by id whatever step refused, and the finally task copies it into the run's results.
+    Control: a commit with no Change-Id, or one Gitea cannot give, names none."""
+    gitea = Gitea()
+    scope = module()
+    scope["call"] = gitea.call
+    assert scope["pushed_change_ids"]("tok", PLATFORM, SHA, gitea=gitea.HOST) == IDS
+    assert scope["pushed_change_ids"]("tok", PLATFORM, "f" * 40, gitea=gitea.HOST) == ""  # 404
+    assert scope["pushed_change_ids"]("tok", PLATFORM, "main", gitea=gitea.HOST) == ""
+    bare = Gitea(message="fix: no trailers")
+    scope["call"] = bare.call
+    assert scope["pushed_change_ids"]("tok", PLATFORM, SHA, gitea=bare.HOST) == ""
+    doc = yaml.safe_load(PIPELINE.read_text())
+    results = {r["name"]: r["value"] for r in doc["spec"]["results"]}
+    assert results["refused-change-ids"] == "$(finally.refusal.results.change-ids)"
+    copy = next(t for t in doc["spec"]["finally"] if t["name"] == "refusal")
+    assert {"name": "change-ids", "value": "$(tasks.land.results.change-ids)"} in copy["params"]

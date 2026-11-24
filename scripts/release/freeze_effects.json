@@ -25,7 +25,7 @@
     {
       "pipeline": "bifrost-land",
       "task": "refusal",
-      "taskspec_sha256": "410f8d0eb610e17bc32058e63ff8a49e1c69d2a73d224befb07c5b942cdf18e4"
+      "taskspec_sha256": "8696abe558b5d90f3d6124a9f28eaa8d1fb92d3ab113d08465c4374b6ea293fd"
     },
     {
       "pipeline": "bifrost-build-frontend-stg",
