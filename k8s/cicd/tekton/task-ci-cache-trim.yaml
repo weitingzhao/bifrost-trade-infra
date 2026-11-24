@@ -87,7 +87,7 @@ spec:
 
         month="$(date -u +%Y-%m)"
         year="${month%-*}" mon="${month#*-}"
-        if [ "${mon}" = 01 ]; then last="$((year - 1))-12"; else last="$(printf '%s-%02d' "${year}" "$((10#${mon} - 1))")"; fi
+        if [ "${mon}" = 01 ]; then last="$((year - 1))-12"; else last="$(printf '%s-%02d' "${year}" "$((${mon#0} - 1))")"; fi
         for old in go/mod/* npm/*; do
           case "${old##*/}" in "${month}"|"${last}") continue ;; esac
           [ -d "${old}" ] || continue
