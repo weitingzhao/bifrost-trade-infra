@@ -338,8 +338,22 @@
 | [TD-586](#td-586) | P2 | owner-exec | 要 Owner 手的管理员级操作能走手机卡，但每件都要现写一次性脚本 | 待主统筹分派 |
 | [TD-588](#td-588) | P2 | cicd | 每日单元运行用 bifrost.units.yaml 手动钉的 ui，钉子落后时报假回归；改成跟着 STG 用的 ui 走 | 不用批 |
 | [TD-589](#td-589) | P3 | cicd | 动作记录有 regret 字段，却没记撤法到底用没用过、实际撤回用了多久，后悔药有没有效看不出来 | 不用批 |
+| [TD-590](#td-590) | P3 | market-data | Owner 的 Market data 格写「Missing」时判不了是否已到期：数据里没有「该有的时间」，只能先算 warn | 待主统筹分派 |
 
 ## 条目
+
+### TD-590
+
+**P3 · market-data 插件 `/market/status` 的 `freshness_summary`（console `pages/shell/owner/dataTiles.ts` marketTile、`components/market-data/dataVitalsModel.ts:102` freshnessToday）· Missing 分不出「已过该有的时间」和「还没到」**
+
+- **状态**：未开始（2026-11-23，UI / Console 发现；归数据源即 market-data 插件那条线，名单上还没有这条线的席位，待主统筹分派）。
+- **出处**：箭10 2026-11-23 定 Missing 的归属：「该在却没有」是 fail；还没到该有的时间（收盘前、T+1 未到）是 boundary，句子写 due 时间；判定分不出两种时先算 warn 并记一条。
+- **证据**：Owner Console 的 Market data 格用 `freshnessToday(items, now, session)`，只数每个 feed 的 `last_run_at` 是否落在插件给的 session 上。`MarketStatusFreshnessItem`（console `api/marketDataPlugin.ts:374`）只有 `dimension`、`last_run_at`、`status`、`rows_written`，没有 `next_run_at` 或「该有的时间」。没数的 feed 只能写 Missing，tone warn（`dataTiles.ts` marketTile）。
+- **现在会不会发生**：会。收盘前和 T+1 未到时，没跑的 feed 和真的漏跑的 feed 在格子上是同一个 warn。
+- **后果**：Owner 看到 Missing 分不清要不要管：该报 fail 的漏跑被压成 warn，按计划还没到的又被抬成 warn。
+- **修法**：插件在 freshness_summary 每项（或 status 顶层）给出该 session 的「该有的时间」（due_at，按交易日历算，与 doctor 用的同一来源）。Console 照它分：过了 due_at 还没有 → fail；没到 → boundary，句子写「due HH:MM」。没给 due_at 的照旧 warn。
+- **防线**：console 加测试：给 due_at 时两种情形分别出 fail / boundary；不给时 warn。插件一侧在 status 合约测试里钉住 due_at 字段。
+- **验收**：收盘前打开 Owner Console，没跑的 feed 显示 boundary 和 due 时间；过了 due_at 仍没有的显示 fail（系统读数）。
 
 ### TD-589
 
