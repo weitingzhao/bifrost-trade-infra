@@ -108,6 +108,10 @@ else:
         doc["status"]["summary"] = {"images": images + ["redis:7-alpine"]}
         if mode == "no-images":
             doc["status"]["summary"] = {"images": ["192.168.10.73:30500/bifrost-platform-api:prod"]}
+        if mode == "summary-lags":  # the sync's own result has the pins; the summary is not refreshed yet
+            doc["status"]["summary"] = {"images": ["192.168.10.73:30500/bifrost-platform-api@sha256:" + "0" * 64]}
+            doc["status"]["operationState"]["syncResult"] = {
+                "source": {"kustomize": {"images": st["patched"]["spec"]["source"]["kustomize"]["images"]}}}
     if mode == "other" and st["after"] > 1:
         doc.pop("operation", None)
         doc["status"]["operationState"] = {"phase": "Succeeded", "operation": {"initiatedBy": {"automated": True}}}
@@ -347,3 +351,12 @@ def test_the_admission_policy_lets_a_delivery_pin_its_application_by_digest(tmp_
     assert re.search(patterns[0], api + "@" + API)
     assert re.search(patterns[1], api.replace("-api", "-console") + "@" + CONSOLE)
     assert not re.search(patterns[1], api + "@" + API)
+
+
+def test_a_sync_whose_own_result_names_the_pins_is_done_before_the_summary_refreshes(tmp_path):
+    """2026-11-24, bifrost-deliver-platform-prod-1795500917: Argo finished the sync in one second,
+    status.summary.images was not refreshed within 180 s, and the release that had happened was
+    refused (PROD's record stayed unsettled for eight hours). The operation's syncResult names what
+    this sync applied. Control: no-images (neither the summary nor a result) is still refused."""
+    out, _, _ = execute(tmp_path, "summary-lags", app="bifrost-platform-prod")
+    assert out.returncode == 0 and "synced bifrost-platform-prod with the pinned images" in out.stdout, out.stdout

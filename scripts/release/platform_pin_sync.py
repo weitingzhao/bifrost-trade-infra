@@ -131,6 +131,16 @@ def read_app(app, deadline):
     return doc
 
 
+def applied(doc, wanted):
+    """Whether this run's sync applied the pinned overrides: the operation's own result names
+    them. Argo writes it when the sync ends; status.summary.images waits for the next refresh
+    (2026-11-24, bifrost-deliver-platform-prod-1795500917: the sync took one second, the
+    summary was not refreshed within 180 s, and a release that had happened was refused)."""
+    result = (doc.get("status", {}).get("operationState") or {}).get("syncResult") or {}
+    images = ((result.get("source") or {}).get("kustomize") or {}).get("images") or []
+    return isinstance(images, list) and all(w in images for w in wanted)
+
+
 def pinned(doc, digests):
     """Whether the application reports both pinned images among its images."""
     images = doc.get("status", {}).get("summary", {}).get("images") or []
@@ -197,7 +207,9 @@ def main():
             phase = state.get("phase")
             if mine and phase in ("Failed", "Error"):
                 raise Refused("this run's sync ended " + phase)
-            if mine and phase == "Succeeded" and "operation" not in doc and pinned(doc, digests):
+            if mine and phase == "Succeeded" and "operation" not in doc and (
+                pinned(doc, digests) or applied(doc, patch["spec"]["source"]["kustomize"]["images"])
+            ):
                 break
             if time.monotonic() + POLL_S >= deadline:
                 raise Refused(late)
