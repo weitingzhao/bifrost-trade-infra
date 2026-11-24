@@ -36,6 +36,10 @@ spec:
             limits: {cpu: 250m, memory: 192Mi}
           securityContext:
             runAsNonRoot: true
+            # The image's USER is the name node, which the kubelet cannot check against runAsNonRoot;
+            # node's uid in the official node images is 1000 (2026-11-24, CreateContainerConfigError).
+            runAsUser: 1000
+            runAsGroup: 1000
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             capabilities: {drop: [ALL]}
