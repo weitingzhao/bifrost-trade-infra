@@ -14,7 +14,7 @@
 | `company-coordinator.md` | 公司层 · 主统筹 |
 | `0-foundation-decouple.md` | Foundation（0 底座领域 owner，地图线除外；当前重点解耦） |
 | `0-2-catalog.md` | 0.2 地图（catalog） |
-| `1-plan.md` | 1 需求与计划（占位） |
+| `1-plan.md` | 0 立法（原 1 需求与计划；法的名录、修法票内容规则、闭环、计划树） |
 | `2-lineage.md` | 2 干活登记与血缘（占位） |
 | `3-4-verify-release-ci.md` | 3·4 合入与验证、发布（CI 线） |
 | `5-owner.md` | 5 找你 |
