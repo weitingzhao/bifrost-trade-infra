@@ -88,6 +88,12 @@ ssh -t "${SSH_OPTS[@]}" "${TARGET}" "t=\$(cat ~/.bifrost-join-token); rm -f ~/.b
 step "5/6 registry"
 ssh -t "${SSH_OPTS[@]}" "${TARGET}" 'sudo REGISTRY_HOSTS="192.168.10.73:30500 registry.cicd.svc.cluster.local:5000" bash ~/configure-insecure-registry.sh'
 
+# 5b. NFS client: CI and data volumes mount NFS from the NAS. ubt-k3s-06 rejoined
+#     without it on 2026-11-24 and CI pods there failed FailedMount x20 ("might need a
+#     /sbin/mount.nfs helper") until nfs-common was installed (card #746).
+step "5b/6 nfs-common"
+ssh -t "${SSH_OPTS[@]}" "${TARGET}" 'sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nfs-common && test -x /sbin/mount.nfs'
+
 # 6. Ready.
 step "6/6 wait for Ready"
 ready=""
