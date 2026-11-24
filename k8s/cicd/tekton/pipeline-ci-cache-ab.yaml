@@ -1,0 +1,123 @@
+# One-off measure (Owner 2026-11-24): is a CI build cache on the node's own SSD
+# faster than the shared one on the NAS SSD (ci-build-cache, nfs-fast)? If it is
+# clearly faster, each domain's CI moves to its own node with a local cache and
+# the NAS keeps only a way back; if not, the NAS cache stays (capped at 100 GB).
+#
+# One pod, so one node and one checkout: the same Go work four times, each timed.
+#   nfs-1       GOCACHE on the NAS cache, as test-api uses it (warm)
+#   local-cold  GOCACHE on an emptyDir on the node's disk, empty
+#   local-warm  the same emptyDir again
+#   nfs-2       the NAS cache again (run-to-run noise)
+# The work is go vet ./... and go test -count=1 -run '^$' ./... in api/: it
+# compiles and links every test binary and runs no test, which is the part of
+# test-api a build cache changes; no database or Redis is needed.
+# The module cache is the NAS one for every pass (0.3 GB, read only here).
+#
+# Started by start_pipeline_run (revision: the bifrost-platform commit). It
+# writes only the NAS cache's go/build (as every CI run does) and its emptyDir.
+# Delete this file and the Pipeline after the measure (LANE-ci-w1).
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: bifrost-ci-cache-ab
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: ci-cache
+    bifrost.io/workload: ci
+spec:
+  params:
+    - name: revision
+      type: string
+      description: The bifrost-platform commit (40 hex).
+    - name: giteaBase
+      type: string
+      default: http://gitea.cicd.svc.cluster.local:3000/bifrost
+  workspaces:
+    - name: source
+  results:
+    - name: timings
+      value: $(tasks.measure.results.timings)
+  tasks:
+    - name: freeze-check
+      taskRef:
+        name: bifrost-release-freeze-check
+    - name: clone
+      runAfter: [freeze-check]
+      taskRef:
+        kind: Task
+        name: bifrost-git-clone-gitea
+      params:
+        - name: url
+          value: $(params.giteaBase)/bifrost-platform.git
+        - name: revision
+          value: $(params.revision)
+        - name: subdir
+          value: bifrost-platform
+      workspaces:
+        - name: output
+          workspace: source
+    - name: measure
+      runAfter: [clone]
+      timeout: 1h
+      workspaces:
+        - name: source
+          workspace: source
+      taskSpec:
+        workspaces:
+          - name: source
+        results:
+          - name: timings
+        volumes:
+          - name: build-cache
+            persistentVolumeClaim:
+              claimName: ci-build-cache
+          - name: local-cache
+            emptyDir:
+              sizeLimit: 20Gi
+        steps:
+          - name: measure
+            image: golang:1.25-bookworm
+            env:
+              - name: GOTOOLCHAIN
+                value: auto
+              - name: NODE_NAME
+                valueFrom:
+                  fieldRef:
+                    fieldPath: spec.nodeName
+            volumeMounts:
+              - name: build-cache
+                mountPath: /ci-cache
+              - name: local-cache
+                mountPath: /local-cache
+            computeResources:
+              requests:
+                cpu: "4"
+                memory: 4Gi
+              limits:
+                cpu: "4"
+                memory: 4Gi
+            script: |
+              #!/usr/bin/env bash
+              set -euo pipefail
+              cd "$(workspaces.source.path)/bifrost-platform/api"
+              export GOMODCACHE="/ci-cache/go/mod/$(date -u +%Y-%m)"
+              go mod download
+              out=""
+              pass() {
+                local name="$1" cache="$2" t0 t1
+                export GOCACHE="${cache}"
+                mkdir -p "${GOCACHE}"
+                t0=$(date +%s)
+                go vet ./... >/dev/null
+                go test -count=1 -run '^$' ./... >/dev/null
+                t1=$(date +%s)
+                echo "${name} $((t1 - t0))s"
+                out="${out}${name}=$((t1 - t0))s "
+              }
+              echo "node ${NODE_NAME:-?} $(nproc) cpus"
+              pass nfs-1 /ci-cache/go/build
+              pass local-cold /local-cache/build
+              pass local-warm /local-cache/build
+              pass nfs-2 /ci-cache/go/build
+              du -sm /local-cache/build
+              printf '%s' "${out}" > "$(results.timings.path)"
