@@ -476,6 +476,22 @@ spec:
         - ref: bifrost-gitea-push-ui
       template:
         ref: bifrost-ci-frontend-template
+    # L2: bifrost-engine (pipeline-ci-engine.yaml): tests on every branch push, the image on main.
+    - name: engine-ci
+      interceptors:
+        - ref:
+            name: "cel"
+          params:
+            - name: filter
+              value: >-
+                body.ref.startsWith('refs/heads/') &&
+                body.after.matches('^[0-9a-f]{40}$') &&
+                body.after != '0000000000000000000000000000000000000000' &&
+                body.repository.name == 'bifrost-engine'
+      bindings:
+        - ref: bifrost-gitea-push
+      template:
+        ref: bifrost-ci-engine-template
     # Landing CI already checked the commit promoted to main by agentrt-lander.
     - name: infra-ci
       interceptors:

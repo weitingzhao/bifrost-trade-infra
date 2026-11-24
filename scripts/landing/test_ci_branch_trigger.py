@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 TRIGGER = ROOT / "k8s/cicd/tekton/trigger-trade-ci.yaml"
 ZERO = "0" * 40
 SHA = "a" * 40
-CI = ["python-ci", "frontend-ci", "frontend-ci-ui", "platform-ci", "platform-ci-ui", "platform-ci-ready", "land"]
+CI = ["python-ci", "frontend-ci", "frontend-ci-ui", "engine-ci", "platform-ci", "platform-ci-ui", "platform-ci-ready", "land"]
 
 
 class Obj(dict):
@@ -62,6 +62,8 @@ def push(repo, ref, after=SHA, mirror=False):
         ("bifrost-research", ["python-ci"]),
         ("bifrost-ui", ["frontend-ci-ui", "platform-ci-ui"]),
         ("bifrost-trade-infra", []),
+        # 2026-11-24: bifrost-engine's CI (pipeline-ci-engine.yaml), R0C.
+        ("bifrost-engine", ["engine-ci"]),
     ],
 )
 def test_a_branch_push_runs_the_repos_ci(repo, ci):

@@ -1,0 +1,179 @@
+# CI of bifrost-engine (the UI engine backend; shared tier, R0C, Owner lifted the repo pause for it
+# 2026-11-24, OWNER_LAW 84). Every branch push: npm ci, the tests and the type check, as the
+# repository's package.json declares them. A push to main also builds the image with Kaniko and
+# pushes it tagged with the commit (never a moving tag); the STG Deployment names that tag
+# (k8s/overlays/platform-stg/ui-engine.yaml).
+#
+# The run is ci-engine-<id>: a ci-* run of the exact commit, as push-main.sh and the landing
+# pipeline read CI. The EventListener's engine-ci trigger (trigger-trade-ci.yaml) starts it.
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: bifrost-ci-engine
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: ci
+    bifrost.io/repo: bifrost-engine
+spec:
+  description: >-
+    Clone bifrost-engine at the pushed commit, run npm test and npm run typecheck; on main, build
+    and push registry.cicd.svc.cluster.local:5000/bifrost-engine:<commit>.
+  params:
+    - name: revision
+      type: string
+      description: The pushed commit (40 hex).
+    - name: ref
+      type: string
+      default: ""
+      description: The pushed ref; refs/heads/main also builds the image.
+    - name: giteaBase
+      type: string
+      default: http://gitea.cicd.svc.cluster.local:3000/bifrost
+  workspaces:
+    - name: source
+  results:
+    - name: image
+      description: The image pushed for the commit, or "" when the ref is not main.
+      value: $(tasks.image.results.image)
+  tasks:
+    # Every task after the freeze check, as in every pipeline (scripts/release/freeze_chain.py).
+    - name: freeze-check
+      taskRef:
+        name: bifrost-release-freeze-check
+    - name: clone
+      runAfter: [freeze-check]
+      taskRef:
+        kind: Task
+        name: bifrost-git-clone-gitea
+      params:
+        - name: url
+          value: $(params.giteaBase)/bifrost-engine.git
+        - name: revision
+          value: $(params.revision)
+        - name: subdir
+          value: engine
+      workspaces:
+        - name: output
+          workspace: source
+    - name: test
+      runAfter: [clone]
+      workspaces:
+        - name: source
+          workspace: source
+      taskSpec:
+        workspaces:
+          - name: source
+        steps:
+          - name: test
+            # node:22-alpine on 2026-11-24 (the engine wants Node >= 22.18 for its type stripping).
+            image: docker.io/library/node:22-alpine@sha256:1314fb30ec37592d5845e5a160d522c0e680972aa534549940b8d73bde88481a
+            workingDir: $(workspaces.source.path)/engine
+            env:
+              - name: HOME
+                value: /tmp
+              - name: npm_config_cache
+                value: /tmp/npm
+            script: |
+              #!/bin/sh
+              set -eu
+              node --version
+              npm ci --no-audit --no-fund
+              npm test
+              npm run typecheck
+    - name: image
+      runAfter: [test]
+      when:
+        - input: $(params.ref)
+          operator: in
+          values: ["refs/heads/main"]
+      params:
+        - name: revision
+          value: $(tasks.clone.results.commit)
+      workspaces:
+        - name: source
+          workspace: source
+      taskSpec:
+        params:
+          - name: revision
+            type: string
+        workspaces:
+          - name: source
+        results:
+          - name: image
+        steps:
+          - name: build-and-push
+            image: gcr.io/kaniko-project/executor:v1.23.2
+            args:
+              - --dockerfile=Dockerfile
+              - --context=$(workspaces.source.path)/engine
+              - --destination=registry.cicd.svc.cluster.local:5000/bifrost-engine:$(params.revision)
+              - --build-arg=ENGINE_COMMIT=$(params.revision)
+              - --custom-platform=linux/amd64
+              - --insecure
+              - --skip-tls-verify
+              - --insecure-registry=registry.cicd.svc.cluster.local:5000
+              - --image-name-tag-with-digest-file=$(results.image.path)
+---
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerTemplate
+metadata:
+  name: bifrost-ci-engine-template
+  namespace: cicd
+  labels:
+    bifrost.io/purpose: ci-trigger
+spec:
+  params:
+    - name: revision
+    - name: ref
+      default: ""
+  resourcetemplates:
+    - apiVersion: tekton.dev/v1
+      kind: PipelineRun
+      metadata:
+        generateName: ci-engine-
+        namespace: cicd
+        labels:
+          tekton.dev/pipeline: bifrost-ci-engine
+          bifrost.io/trigger: gitea-webhook
+          bifrost.io/repo: bifrost-engine
+      spec:
+        pipelineRef:
+          name: bifrost-ci-engine
+        params:
+          - name: revision
+            value: $(tt.params.revision)
+          - name: ref
+            value: $(tt.params.ref)
+        taskRunTemplate:
+          podTemplate:
+            # As the other CI templates: never the etcd node, amd64, outside batch=deny when possible.
+            affinity:
+              nodeAffinity:
+                requiredDuringSchedulingIgnoredDuringExecution:
+                  nodeSelectorTerms:
+                    - matchExpressions:
+                        - key: node-role.kubernetes.io/etcd
+                          operator: NotIn
+                          values: ["true"]
+                preferredDuringSchedulingIgnoredDuringExecution:
+                  - weight: 100
+                    preference:
+                      matchExpressions:
+                        - key: bifrost.io/batch
+                          operator: NotIn
+                          values: [deny]
+            nodeSelector:
+              kubernetes.io/arch: amd64
+            tolerations:
+              - key: node-role.kubernetes.io/control-plane
+                operator: Exists
+                effect: NoSchedule
+        workspaces:
+          - name: source
+            volumeClaimTemplate:
+              spec:
+                accessModes: [ReadWriteOnce]
+                storageClassName: local-path
+                resources:
+                  requests:
+                    storage: 1Gi
