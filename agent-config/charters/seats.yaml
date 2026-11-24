@@ -7,7 +7,7 @@
 # 对账脚本：agent-config/scripts/check-seats.py（只读、不进 CI；进 CI 是新增裁判检查，要先交 Owner）。
 version: 1
 # 跟 platform config/domain-ownership.json 的 domains[].id 一致（读于 platform origin/main，2026-11-21）
-domain_ids: [foundation, plan, lineage, verification, delivery, approvals, compute, payload, coordination, crew, station, audit, triage]
+domain_ids: [foundation, plan, lineage, verification, delivery, approvals, compute, payload, coordination, crew, station, audit]
 
 # 参谋长不是席位：它独立于所有席位之外，不握任何领域的 ownership，没有领域身份卡（Owner 更正，主统筹 11-21 转述）。
 # 但它发信、收信，信箱要认得出它：记在最后的 outside_seats，只有会话和收信，没有领域、没有卡（11-22 沟通线读数发现缺它）。
@@ -30,7 +30,6 @@ seats:
   - {id: 8-2-comm-desk,   charter: 8-2-comm-desk.md,   domain: "8.2", domain_id: coordination,          kind: owner, harness: claude, session: local_ab850773-fe26-40fa-ac01-b3b590b73164, mailbox: registered}
   - {id: 8-3-metrics,     charter: 8-3-metrics.md,     domain: "8.3", domain_id: coordination,          kind: owner, harness: claude, session: local_3361afbd-43fb-4539-a934-406b9a00b09f, mailbox: registered}
   - {id: 12-audit, name: audit,         charter: 12-audit.md,        domain: "12", domain_id: audit,                    kind: owner, harness: claude, session: local_dd4f492f-ffe9-4c22-a166-ab4d0fd855c0, note: 11-24 起由原 13 Triage 席位坐（审计与诊断合并，Owner 11-23）；原 Audit 会话只坐 2-lineage, mailbox: registered}
-  - {id: 13-triage, name: triage,       charter: 13-triage.md,       domain: "13", domain_id: triage,                    kind: owner, harness: claude, session: local_dd4f492f-ffe9-4c22-a166-ab4d0fd855c0, note: 已并入 12-audit（同一席位同一会话），指针页，地图线合并领域后删此行, mailbox: registered}
   - {id: 10-cockpit,      charter: 10-cockpit.md,      domain: "10", domain_id: null,                    kind: owner, harness: claude, session: local_d303ae46-113a-4d47-90e4-c8942f5fbbe5, mailbox: registered}
   - {id: 11-station, name: station,      charter: 11-station.md,      domain: "11", domain_id: station,                    kind: owner, harness: claude, session: local_f6f0f02b-092c-4c76-b68d-57f5b4c1a7f0, mailbox: registered}
 
