@@ -50,8 +50,8 @@ Ops Platform 收成四层，全部只在 PROD 一份：
 | Linux k8s 节点 | 生产底座，确定性修复的唯一所在 | Trade dev/stg/prod；Postgres、Redis；Dagster（数据养护唯一调度者）；插件；PROD platform-workers；备份；监控告警；交付（Argo、Tekton、registry） | LLM Agent 执行面；任何依赖笔记本的东西 |
 | NAS | 存储与备份第二份 | MinIO（物理备份）、nfs-hot / nfs-cold、归档、逻辑 dump、各机器的备份 | 计算、调度 |
 | 4090（.60） | 可唤醒算力池 | 本地 LLM 推理、重型回测与构建；PROD 按需唤醒、用完关机 | 常驻服务；维护关键路径 |
-| Mac mini .50 / .52 | 带外层 + Agent 层（A 方案） | 宿主（独立系统账户）：operator-plane、告警中转、互看 watchdog、集群外拨测、应急手册；.50 的独立账户里可以放执行器的专用凭证（专用 kube 身份 `bifrost-owner-exec` 由准入策略限定、节点上只放 forced-command 钥匙；S0-0 执行卡 2，Owner 2026-10-10）。参谋长常驻（形态另定）。**Agent 的执行面不放这里**（Owner 2026-10-17 改定：原为「虚拟机：Claude Code 线程、Agent SDK harness、沙箱」，挪到下一行的 Agent 主机） | 集群管理员凭证与节点 root；子系统管理员密码（Gitea、UniFi、数据库属主）；定时 LLM「修复」；带外与 Agent 共用账户和配置 |
-| Agent 主机（ubt-k3s-06，192.168.10.79；Owner 2026-10-17 定） | Agent 的执行面。先出 k8s 集群，再装 | PROD 与 STG 各一个 agentd，各用一个系统用户（无 sudo、无 MCP、按用户的出站规则）；各家命令行 | k8s 节点身份；集群管理员凭证与节点 root；子系统管理员密码；任何只存在这台机器上的状态 |
+| Mac mini .50 / .52 | 带外层 + Agent 层（A 方案） | 宿主（独立系统账户）：operator-plane、告警中转、互看 watchdog、集群外拨测、应急手册；.50 的独立账户里可以放执行器的专用凭证（专用 kube 身份 `bifrost-owner-exec` 由准入策略限定、节点上只放 forced-command 钥匙；S0-0 执行卡 2，Owner 2026-10-10）。参谋长常驻（形态另定）。**2026-11-23 起 Agent 的岗位住这两台**（Owner 定，用他自己的用户和账号；06 已回集群）。以下是旧文：**Agent 的执行面不放这里**（Owner 2026-10-17 改定：原为「虚拟机：Claude Code 线程、Agent SDK harness、沙箱」，挪到下一行的 Agent 主机） | 集群管理员凭证与节点 root；子系统管理员密码（Gitea、UniFi、数据库属主）；定时 LLM「修复」；带外与 Agent 共用账户和配置 |
+| ~~Agent 主机（ubt-k3s-06，192.168.10.79；Owner 2026-10-17 定）~~ | **2026-11-24 退役**：06 格式化重装、重新入群当 K3s 节点；Agent 的岗位改住两台 Mac mini（.50 / .52，Owner 2026-11-23 定，用 Owner 自己的用户和账号，不另建隔离用户），由工坊 11 管（`charters/11-station.md`）。下面原文留作历史：Agent 的执行面。先出 k8s 集群，再装 | 原文：PROD 与 STG 各一个 agentd，各用一个系统用户（无 sudo、无 MCP、按用户的出站规则）；各家命令行 | 原文：k8s 节点身份；集群管理员凭证与节点 root；子系统管理员密码；任何只存在这台机器上的状态 |
 | Mac Pro | 开发 + Owner 驾驶舱 | IDE、Vite、bdev 本地服务、kubectl / MCP 客户端、Claude 线程 | 任何维护；任何被 PROD 依赖的服务（过渡期的 agentd `mbp-dev` 在 Agent 主机接手后停掉，Owner 2026-10-17） |
 | Win11 ×2 | 交易设备 | 只有 TWS（Owner 手工登录 + 2FA），从外面观测 | 其他软件（以后可加维保进程，单独决定） |
 

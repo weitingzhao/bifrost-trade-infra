@@ -21,7 +21,17 @@ for x in t.get('temporary') or []:
     if x.get('invited_by') not in ids: bad.append(f"temporary {who}: invited_by not a seat or human")
     if x.get('domain_id') is not None and x['domain_id'] not in t['domain_ids']: bad.append(f"temporary {who}: unknown domain_id {x['domain_id']}")
     if x.get('kind') != 'temporary': bad.append(f"temporary {who}: kind must be temporary")
+# accounts (Station 2026-11-24): every owner seat names an account label; every label used is in the accounts table.
+accts = {a['id'] for a in t.get('accounts') or []}
+for r in rows:
+    if r.get('account') not in accts: bad.append(f"{r['id']}: account {r.get('account')} not in accounts")
+for x in t.get('temporary') or []:
+    a = x.get('account')
+    if a is not None and a not in accts: bad.append(f"temporary {x.get('id') or x.get('run_key')}: account {a} not in accounts")
+for a in t.get('accounts') or []:
+    f = a.get('fallback')
+    if f is not None and f not in accts: bad.append(f"account {a['id']}: fallback {f} not in accounts")
 for x in t.get('outside_seats') or []:
     if x.get('domain_id') is not None: bad.append(f"outside {x['id']}: holds no domain")
-print('\n'.join(bad) or f'seats ok: {len(rows)} seats, {len(t.get("temporary") or [])} temporary, {len(t.get("outside_seats") or [])} outside, {len(t.get("humans") or [])} human')
+print('\n'.join(bad) or f'seats ok: {len(rows)} seats, {len(t.get("temporary") or [])} temporary, {len(t.get("outside_seats") or [])} outside, {len(t.get("humans") or [])} human, {len(accts)} accounts')
 sys.exit(1 if bad else 0)

@@ -10,7 +10,7 @@
 - **名册**【量】：队里有谁。每个席位管哪块、是主人还是临时、现在坐的是哪家 Agent、临时的是谁请来的；人（Owner）也在名册里。唯一出处 `charters/seats.yaml`，对账 `scripts/check-seats.py`（用带 PyYAML 的 python 跑）。
 - **身份卡**【量】：每个席位一张，一屏以内，六栏（我是谁、我握的合约、我自己定、别人来问必须答、不是我的、墙）。第 1 栏取自名册，第 2–6 栏在 `charters/cards/<席位>.yaml`，各线照自己的章程填，工坊定格式、收齐；渲染 `scripts/render-card.py`。
 - **进和出、配人**【量】：新来的或临时的 Agent 进门；临时的走了，活记在请它的主人名下（名册 `temporary` 栏）；换 Agent 时状态跟着席位走；哪家 Agent 坐哪个席位（Triage 判了不胜任，由工坊换）。
-- **账号额度**【推，待做】：每个岗位用哪个账号、额度用完换哪个，有一处登记（`seats.yaml` 每行 `account` 只写账号的标签，另一张 `accounts` 表写标签、哪家外壳、用完换哪个）。不写口令和令牌；买不买账号、用哪个账号由 Owner 定。
+- **账号额度**【量，11-24 登记】：每个岗位用哪个账号、额度用完换哪个，登记在 `seats.yaml`：每行 `account` 只写标签（外壳@机器，如 `claude@macpro`），`accounts` 表写哪家外壳、在哪台机器、用完换哪个（`fallback`）；`check-seats.py` 对得上才算过。不写口令和令牌；买不买账号、用哪个账号由 Owner 定。
 
 **台面（原 Station）**
 - **规矩文字**【量】：Agent 开工读的那几份（`agent-config/CLAUDE.md`、`AGENTS.md`、`OWNER_EXEC.md`、`claude/skills/` 下的 phase-execution、batch-execution），以及 `OWNER_LAW.md` 落成的文字，保证和登记表对得上。法的原文和改法由 Triage 起草，工坊落成文字。检查：`agent-config/scripts/check-governance-consistency.sh` 第 8 节、`scripts/landing/test_owner_law.py`。
@@ -32,8 +32,9 @@
 | 平台信箱 | `thread:local_f6f0f02b-092c-4c76-b68d-57f5b4c1a7f0`，门铃常挂：要进名册、换人、交卡、问「找谁办」都发这里 |
 | 接口、事件、页面 | 名册读口在请地图线做（City、UI/World、UI/Agents 要读）；机器那一半（自动递卡、按席位放权）放权要做先列选项 |
 
-## 3. 和算力线的合约（不并，用合约说话）【推，待和算力线写定】
-- 算力提供：一台开着、能登上的机器（现在是两台 mini）；一个推理地址（4090），写明能并发几个、上下文多大、怎么叫醒和关机。
+## 3. 和算力线的合约（不并，用合约说话）【量，11-24 写定】
+- 算力提供：一台开着、能登上的机器（现在是两台 mini）；一个推理地址（4090）。条款以算力章程 `6-compute.md` §2 那一行为准，这里不抄：Strata `192.168.10.60:8082/v1`，只放 .50、.52，上下文 32768、并发 1（排队不报错），用前先唤醒。
+- 工坊拿它跑的：mini-01 上的 OpenCode（唯一本地外壳，11-24 外壳对照后定，DeepSeek 已卸），Ops 的 `opencode-preview` 入口经 mini-01 网关 `:14202` 进来。32K 装不下大活，派给本地外壳的活要小。
 - 工坊拿来用：在机器上摆岗位、装外壳、配账号；不改机器和集群本身。
 - 06 的教训（11-24）：节点入群、哪把钥匙能进哪台机器要写成现成的路，算力线已推 `scripts/k3s/node-join.sh`。
 
@@ -50,7 +51,7 @@
 - 读数（临时读数，见台账）：名册行数、身份卡收齐数、临时来访数和插手次数、合入被拒次数和其中缺手续的占比。
 
 ## 6. 现状和已知缺口
-- 原 Crew 交过来还没做完的（11-24）：名册读口（地图线）；标准 5 等 Audit 回；Owner 步数要 Approvals 记 decided_by；`codex-owner-td287`（Owner 在 Codex Desktop 直接开、做 4090）的来访登记；两条旧分支 11-29 后清。
+- 原 Crew 交过来还没做完的（11-24）：名册读口（地图线）；Owner 步数要 Approvals 记 decided_by；两条旧分支 11-29 后清。名册和实际 11-24 对过一遍（list_sessions）：14 个主人席位的会话都在，2-lineage 的会话已归档、席位空着。
 - 读名册的 7 处（改格式先告诉它们）：infra `scripts/release/release.sh`（默认 who，测试 `test_release_who.py`）；platform `mcp/platform/src/roster.ts`、`registerMessages.ts`；`config/catalog-index.json` 和 `catalog_test.go`；`console/scripts/import-communication-roster.rb` 生成的 `roster.generated.json`；`console/src/domains/owner/city/gen2/content/lines.ts`；`console/domain-ownership.json`。
 - 名册切换：本页进 main 后，同一个提交里 9-crew 那行指向工坊席位、`cards/9-crew.yaml` 改成指针、`check-seats` 跑过。地图上 crew 并进 station 由地图线登记。
 

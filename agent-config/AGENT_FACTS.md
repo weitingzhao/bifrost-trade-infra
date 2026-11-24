@@ -405,7 +405,7 @@ kubeconfig：`~/.kube/bifrost-k3s.yaml` 是只读身份 `system:serviceaccount:b
 
 <!-- node-table:outside:begin -->
 集群外：Win11 TWS ×2（topology `win11-host` / `win11-secondary`；`bifrost-platform-plugin/config/gateway.yaml` 模板写的是 `.30` / `.32`；永不调度进 K3s）、
-Mac mini `.50` / `.52`（agent host）、ubt-k3s-06 `.79`（2026-10-17 出集群，Agent 主机：PROD、STG 两个 agentd，各一个系统用户、按用户的出站规则；`scripts/agent-host/`）、NAS `.20`（归档与备份目标）、本机 MacBook（kubectl / MCP / Vite）。
+Mac mini `.50` / `.52`（Agent 主机：Owner 2026-11-23 定 Agent 的岗位住这两台，用 Owner 自己的用户和账号，照 Mac Pro 上 Claude 外壳的干活方式布置；工坊 11 管，章程 `charters/11-station.md`）、ubt-k3s-06 `.79`（2026-11-24 格式化重装、重新入群当 K3s 节点，不再是 Agent 主机；原 agentd 和 `scripts/agent-host/` 随之退役）、NAS `.20`（归档与备份目标）、本机 MacBook（kubectl / MCP / Vite）。
 <!-- node-table:outside:end -->
 
 ### 入口与 NodePort
