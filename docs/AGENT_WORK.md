@@ -21,6 +21,7 @@
 ## 2. 做的时候
 
 - 你是谁、边界在哪：Claude 会话开头会收到一张身份卡（钩子 `seat-card.py`，Crew 出的卡）。不在席位表里的会话，收到的是进门路。
+- 在 Mac mini 上起一个全新的 Codex（不经 dispatch.sh）用 `scripts/station/codex-fresh.sh <工作目录>`：直接 `codex exec` 的话平台 MCP 拿不到会话号，信箱交单会被拒（B6、A9 11-24 撞上）。
 - 自己的克隆（A8 进门测试 11-24 缺的两条）：共享检出 `~/Desktop/stocks` 别动，在 `~/agent-work/<活的名字>/` 下自己克隆。从 Gitea 克隆：`git clone http://192.168.10.73:30300/bifrost/<仓库名>.git`（GitHub 只是只读镜像）。克隆完立刻接血缘钩子，否则提交缺 `Change-Id` 等尾注，推到 `ready/` 会被合入流水线拒，而且收不到拒信：`git -C <克隆> config core.hooksPath ~/Desktop/stocks/scripts/git-hooks && git -C <克隆> config bifrost.hooksDir ~/Desktop/stocks/scripts/git-hooks`（frontend、platform 这类自带 husky 的仓库只设 `bifrost.hooksDir`）。提交报 `Author identity unknown` 时，照共享检出里的 `git config user.name / user.email` 配上。
 - 平台工具：先调 `whoami` 看自己能做什么。集群写操作、发布、进 main 照根 `CLAUDE.md` §3、§5。
 - 卡住要问、要求助：发平台信箱给 `reply_to`。用 `send_message`，kind 填 `ask` 或 `help`。不要写共享笔记里的文件代替发信（8.2 的通道，出处 `agent-config/charters/8-2-comm-desk.md` §2）。
