@@ -24,6 +24,7 @@
 | Compute readings（`GET /api/v1/telemetry/overview?group=compute`：老家、疼痛线、库节点客人、盘和写延迟等；查询在算力的 `api/internal/computereadings/`，组由组装层绑定） | 请求应答 | 【量】经 foundation 已登记的 `GET /api/v1/telemetry/overview` 提供 | Console Infrastructure 页、City 的硬件环 |
 | 老家登记 `bifrost_node:home_info` 和 ComputePain 告警（Prometheus 规则 `bifrost-compute-module-readout`，规则文件由指标线维护，口径归算力） | 别人可读的存储 | 【量】已登记在 compute 的 `shared_storage`，老家与告警各一条 | 选点、指标线、收回手册 |
 | 申请算力的格式 `compute/resource-request-standard.md`，不挑机器 | 文稿 | 不是机器合约 | CI、平台 |
+| 4090 推理（Strata，OpenAI 兼容：`http://192.168.10.60:8082/v1/models`、`/v1/chat/completions`，模型 `qwen3.8-flash-next-iq3_s`）。只放两台 Mac mini（.50、.52），由 4090 上的 `bifrost-strata-lan` 转发和 IP 过滤把关（卡 #721，2026-11-24）。上下文 32768，**并发 1**：请求排队，第 k 个大约等 k 秒，不报错；`max_tokens` 要给思考留够额度，给少了正文是空的。4090 平时可能关机，用前先唤醒（Console 的 Command 页） | 请求应答（主机服务） | 不是平台合约；【量】2026-11-24 由 Station 从两台 mini 实测：/props、/slots，1、2、4 路并发 | 工坊（Station）在 mini 上的 OpenCode、DeepSeek 外壳 |
 
 - 【量】原列「没登记」的四样已逐项核对：指令、共享存储已登记，读数经 foundation 已登记路由提供，选点端口不需跨域引用条目。【推】仍待解耦线对齐章程来源：登记表里算力的 source 写的是 `domains/6-compute/charter.md`，实际是本页。
 - 【量】唯一 [台账](../../compute/ledger/index.html)。
