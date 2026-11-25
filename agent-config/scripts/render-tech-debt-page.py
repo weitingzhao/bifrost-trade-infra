@@ -2,7 +2,7 @@
 """Render agent-config/TECH_DEBT.md and RATCHETS.md into the debt ledger page.
 
 The two Markdown files are the only source. This script parses them and lays the
-page out the way the round-1 ledger was laid out (Owner 2026-10-06: one layout for
+page out the way the round-1 ledger was laid out (ISSUE-10: one layout for
 every round), so a reader learns it once:
 
     工作项（WORK.md）· 待你签收 · 自上次以来 · stats · 先看这几条 · 主题 · 还债顺序 · 数据边界 · 需要你拍板 · 台账 (filters) · 防线 · 没覆盖到的 · 怎么做的

@@ -252,7 +252,7 @@ py_dup_metric bifrost-trade-infra rocket \
 fi
 
 # ---------------------------------------------------------------- metric 2
-# Files over N lines: deleted (Owner 2026-11-06, R5:5.7). It caught no defect
+# Files over N lines: deleted (ISSUE-24, R5:5.7). It caught no defect
 # and every change that grew a file past it had to be split by hand.
 
 # ---------------------------------------------------------------- metric 2b
@@ -320,7 +320,7 @@ add_metric code.image-version-spread.research "distinct research image tags" res
 fi
 
 # ---------------------------------------------------------------- metric 5
-# Facts written by hand into Ops source (LAW-8, Owner 2026-11-17: everything
+# Facts written by hand into Ops source (LAW-8: everything
 # Ops shows is computed from its source). Each string literal or JSX text with
 # a date, a state word (CLOSED, Signed, Live...) or a ratio/count ("6/6",
 # "4 moved") counts once; comments and test code do not. There is no in-file
@@ -405,7 +405,7 @@ if [[ "$DO_REPORT" -eq 1 ]]; then
 fi
 
 if [[ -z "$metrics_json" ]]; then
-  # Repos no metric covers since the 800-line ratchet went (Owner 2026-11-06):
+  # Repos no metric covers since the 800-line ratchet went (ISSUE-24):
   # a scan restricted to them has nothing to check, which is a pass that says
   # so. An empty result for any other scan is still a failure.
   NO_METRIC_REPOS=" bifrost-ui "

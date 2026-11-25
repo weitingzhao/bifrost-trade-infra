@@ -193,7 +193,7 @@ else:
         except Exception as e:
             fails.append(f"Codex 闸门检查没跑完：{e}")
 
-# ─────────── 7. 家目录路径棘轮（W-36 防线，Owner 2026-10-10 卡 7）───────────
+# ─────────── 7. 家目录路径棘轮（W-36 防线，决定 2026-10-10 卡 7）───────────
 # 只拦新增：比基线多的文件或计数才算漂移，基线可以调低时只提示。读 origin/main 而不是 HEAD：
 # 共享 checkout 可能因为别的会话的在制品快进不了，旧 HEAD 不是新增。不联网，用上次 fetch 的结果。
 hp = ROOT / 'bifrost-trade-infra/agent-config/scripts/check_hardcoded_paths.py'
