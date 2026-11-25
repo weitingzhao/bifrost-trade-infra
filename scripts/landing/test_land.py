@@ -226,7 +226,7 @@ def test_land_is_inline_takes_the_pushed_commit_and_talks_to_gitea_only():
     assert "GITEA = 'http://gitea.cicd.svc.cluster.local:3000'" in script()
     assert "$(params" not in script() and "$(tasks" not in script()
     assert {r["name"]: r["value"] for r in pipeline()["results"]} == {
-        **{name: "$(tasks.land.results.%s)" % name for name in ("outcome", "commit", "change-ids")},
+        **{name: "$(tasks.land.results.%s)" % name for name in ("outcome", "commit", "change-ids", "rerun")},
         # 2026-11-21: a refused run's refusal reaches the run's results through the finally task.
         "refusal": "$(finally.refusal.results.refusal)",
         # 2026-11-24: and the pushed commit's Change-Id, so the delivery lanes can place it.
@@ -234,7 +234,9 @@ def test_land_is_inline_takes_the_pushed_commit_and_talks_to_gitea_only():
     # refusal (2026-11-17): the sentence a refused run ends with is a result of the task, so that
     # what wakes the pusher can say why; it is not a result of the pipeline, which a failed run does not give.
     # tripwire: 2026-11-17, see test_a_change_to_the_head_release_loop_lands_and_is_reported.
-    assert [r["name"] for r in land_task()["taskSpec"]["results"]] == ["outcome", "commit", "change-ids", "refusal", "tripwire"]
+    # rerun: 2026-11-24, see test_a_rebase_onto_main_that_touched_other_directories_lands_on_the_pushed_commits_ci.
+    assert [r["name"] for r in land_task()["taskSpec"]["results"]] == ["outcome", "commit", "change-ids", "refusal", "tripwire",
+                                                                       "rerun"]
     assert "('outcome', 'refused'), ('refusal', problem[:2000]), ('change-ids', ids)" in script()
 
 
@@ -507,7 +509,7 @@ def test_a_green_branch_on_top_of_main_is_merged_as_the_same_commit():
     assert gitea.calls[0][2]["head"] == "ready/x" and gitea.calls[0][2]["base"] == "main"
     assert {c[1].split("/pulls")[0].split("/branches")[0].split("/git/")[0] for c in gitea.calls} == {"/api/v1/repos/bifrost/bifrost-platform"}
     assert gitea.waits == [("bifrost-ci-platform", MAIN, SHA)]
-    assert gitea.landed == {"outcome": "landed", "commit": SHA, "change-ids": IDS}
+    assert gitea.landed == {"outcome": "landed", "commit": SHA, "change-ids": IDS, "rerun": "none"}
 
 
 def test_the_same_code_lands_another_listed_repository_with_its_own_ci():
@@ -543,7 +545,8 @@ def test_a_branch_behind_main_is_rebased_and_the_same_run_lands_the_new_commit()
     assert gitea.waits == [("bifrost-ci-platform", MAIN, NEXT)]  # no CI was waited for on the stale commit
     (merge,) = gitea.merges()
     assert merge[2]["head_commit_id"] == NEXT
-    assert gitea.landed == {"outcome": "landed", "commit": NEXT, "change-ids": IDS} and gitea.main == NEXT
+    # main's head cannot be walked back here, so CI judged the rebased commit (rerun=overlap falls back)
+    assert gitea.landed == {"outcome": "landed", "commit": NEXT, "change-ids": IDS, "rerun": "ran"} and gitea.main == NEXT
 
 
 def test_a_pull_request_that_still_shows_its_old_merge_base_after_the_rebase_is_not_rebased_again():
@@ -784,8 +787,9 @@ def test_a_rebased_branch_is_checked_again_and_must_be_the_same_change():
     merged without the path and trailer checks. No such push is known to have happened."""
     gitea = Gitea(behind=True)
     assert run_land(gitea) == ("landed", "")
-    # the pushed commit, then the rebased one: once to follow it down to main, once to check it
-    assert [c[1].rsplit("/", 1)[1] for c in gitea.paths("/git/commits/")] == [SHA, NEXT, NEXT]
+    # the pushed commit, then the rebased one: once to follow it down to main, once to check it;
+    # then main's head, to see what main's new commits touched, and the change's own thread (rerun=overlap)
+    assert [c[1].rsplit("/", 1)[1] for c in gitea.paths("/git/commits/")] == [SHA, NEXT, NEXT, MAIN, NEXT]
     gitea = Gitea(behind=True)
     real = gitea.call
 
@@ -1130,3 +1134,102 @@ def test_a_refused_run_names_the_change_it_refused():
     assert results["refused-change-ids"] == "$(finally.refusal.results.change-ids)"
     copy = next(t for t in doc["spec"]["finally"] if t["name"] == "refusal")
     assert {"name": "change-ids", "value": "$(tasks.land.results.change-ids)"} in copy["params"]
+
+
+# Origin: CI line 2026-11-24. In a day 38 of 97 platform landings were rebased by Gitea; each rebase
+# ran CI again on the rebased commit (about 3 minutes, the landing 5.4 minutes median against 2.5),
+# and none of those reruns found a conflict. With LANDING_REPOS rerun=overlap the rerun happens only
+# when main's new commits touch a directory this change touches.
+def _rebased(files_main, files_mine=("docs/RELEASE.md",), **kw):
+    gitea = Gitea(behind=True, files=list(files_mine), **kw)
+    gitea.commits[MAIN] = {"message": "fix: someone else\n\nChange-Id: Isomeone", "files": list(files_main),
+                           "parent": "d" * 40}
+    return gitea
+
+
+def test_a_rebase_onto_main_that_touched_other_directories_lands_on_the_pushed_commits_ci():
+    gitea = _rebased(["api/internal/other/x.go"])
+    outcome, problem = run_land(gitea, repo=INFRA)
+    assert (outcome, problem) == ("landed", "")
+    assert gitea.landed["rerun"] == "skipped" and gitea.landed["commit"] != SHA
+    # the one CI answer asked for is the pushed commit's, on the commit it sat on
+    assert [(w[1], w[2]) for w in gitea.waits] == [("d" * 40, SHA)]
+
+
+def test_a_rebase_onto_main_that_touched_the_same_directory_runs_ci_on_the_rebased_commit():
+    """The positive control of the case above: same branch, main touched docs/ as it does."""
+    gitea = _rebased(["docs/other.md"])
+    outcome, problem = run_land(gitea, repo=INFRA)
+    assert (outcome, problem) == ("landed", "")
+    assert gitea.landed["rerun"] == "ran"
+    assert [w[2] for w in gitea.waits] == [gitea.landed["commit"]]
+
+
+def test_a_shared_dependency_file_counts_as_overlap_wherever_it_is():
+    gitea = _rebased(["web/package-lock.json"], files_mine=("console/package-lock.json",))
+    assert run_land(gitea, repo=INFRA) == ("landed", "")
+    assert gitea.landed["rerun"] == "ran"
+
+
+def test_when_the_pushed_commit_has_no_green_ci_the_rebased_commit_is_tested():
+    gitea = _rebased(["api/internal/other/x.go"])
+    asked = []
+
+    def wait(commit, ci, base):
+        asked.append(commit)
+        return "stale" if commit == SHA else "green"
+    outcome, problem = run_land(gitea, repo=INFRA, wait=wait)
+    assert (outcome, problem) == ("landed", "")
+    assert gitea.landed["rerun"] == "ran" and asked == [SHA, gitea.landed["commit"]]
+
+
+def test_main_that_cannot_be_walked_back_to_the_branch_runs_ci_as_before():
+    gitea = Gitea(behind=True)  # main's head is not a commit this Gitea can read
+    assert run_land(gitea, repo=INFRA) == ("landed", "")
+    assert gitea.landed["rerun"] == "ran"
+
+
+def test_without_rerun_overlap_every_rebase_runs_ci_again():
+    gitea = _rebased(["api/internal/other/x.go"])
+    rows = table()
+    rows[INFRA].pop("rerun")
+    scope = module()
+    scope["call"] = gitea.call
+    landed, problem = scope["land"]("tok", rows, policy(), INFRA, REF, SHA, wait=lambda c, ci, b: "green",
+                                    failed=lambda c, ci: "", gitea=gitea.HOST, tries=3, pause=0, budget=3000,
+                                    push=None, turn=lambda: True, tidy=lambda api: None)
+    assert problem == "" and landed["rerun"] == "ran"
+
+
+# Origin: Owner 2026-11-24, "a thread that keeps causing rebases is misusing the service": 8 of the 38
+# rebases of 11-24 were one thread's later branch pushed behind its own earlier one. When only the
+# change's own thread moved main, the rebased commit lands on the pushed commit's CI (rerun=own), and
+# the result says so, so the thread can be told; the landing is not refused.
+def _own(session_main, session_mine="local_a", main_files=("docs/other.md",)):
+    mine = "fix: a thing\n\nChange-Id: I" + "1" * 40 + "\nClaude-Session: " + session_mine
+    gitea = Gitea(behind=True, message=mine)
+    gitea.commits[MAIN] = {"message": "fix: my earlier part\n\nChange-Id: Iearlier\nClaude-Session: " + session_main,
+                           "files": list(main_files), "parent": "d" * 40}
+    return gitea
+
+
+def test_a_rebase_caused_only_by_the_same_thread_lands_on_the_pushed_commits_ci_and_says_own():
+    gitea = _own("local_a")  # main touched docs/, as this change does: overlap alone would rerun
+    assert run_land(gitea, repo=INFRA) == ("landed", "")
+    assert gitea.landed["rerun"] == "own"
+    assert [(w[1], w[2]) for w in gitea.waits] == [("d" * 40, SHA)]
+
+
+def test_a_rebase_caused_by_another_thread_in_the_same_directory_runs_ci_again():
+    """The positive control of the case above: another thread, the same directory."""
+    gitea = _own("local_b")
+    assert run_land(gitea, repo=INFRA) == ("landed", "")
+    assert gitea.landed["rerun"] == "ran"
+
+
+def test_a_commit_without_a_session_is_never_counted_as_the_same_thread():
+    gitea = _own("", session_mine="")
+    gitea.commits[MAIN]["message"] = "fix: no trailers"
+    gitea.commits[SHA]["message"] = "fix: a thing\n\nChange-Id: I" + "1" * 40
+    assert run_land(gitea, repo=INFRA) == ("landed", "")
+    assert gitea.landed["rerun"] == "ran"

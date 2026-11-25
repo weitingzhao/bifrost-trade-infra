@@ -48,6 +48,9 @@ spec:
     - name: change-ids
       description: The Change-Id trailers of the landed commits, comma separated; they do not change in a rebase.
       value: $(tasks.land.results.change-ids)
+    - name: rerun
+      description: none (the pushed commit landed), ran (CI judged the rebased commit again), skipped (main's new commits touched none of the change's directories) or own (only the change's own thread moved main); for skipped and own main's own CI run tests what landed.
+      value: $(tasks.land.results.rerun)
     # Why a run did not land. Tekton gives a PipelineRun no result of a task that
     # failed, so the refused run's own sentence (the land task's refusal) is
     # copied by the finally task below, which succeeds, and reaches the run's
@@ -98,6 +101,8 @@ spec:
           # to them lands as any other (this is no gate); the result says so, and the
           # bus wakes the CI line and the coordinator on it.
           - name: tripwire
+          # none, ran or skipped: whether CI judged a rebased commit again (LANDING_REPOS rerun).
+          - name: rerun
         volumes:
           - name: gitea-merger
             secret:
@@ -137,6 +142,16 @@ spec:
               # whole Go suite; the landing gate takes main as its base like the infra gate. So an
               # incremental run of bifrost-ci-platform counts, when the base it names is main's head.
               #   merger          the Secret in cicd that holds the merging account's token
+              #   rerun           "overlap": after Gitea rebases the branch, CI runs again on the rebased
+              #                   commit only when main's new commits touch a directory (or a go.mod,
+              #                   go.sum, package.json, package-lock.json) this change touches; otherwise
+              #                   the pushed commit's green run on the commit it sat on is the check and
+              #                   main's own CI run after the landing tests the rebased tree (CI line
+              #                   2026-11-24: 38 of 97 platform landings in a day were rebased, each
+              #                   rerun added about 3 minutes, and none caught a conflict). Also when only
+              #                   this change's own thread (Claude-Session) moved main: it split one change
+              #                   into several ready/ branches (8 of the 38). Absent: every rebase runs CI
+              #                   again, as before.
               - name: LANDING_REPOS
                 value: |
                   {
@@ -152,6 +167,7 @@ spec:
                         "no_base": {"api-scope": ["full", "console"]}
                       },
                       "merger": "gitea-merger",
+                      "rerun": "overlap",
                       "watched": ["api/internal/headrelease/**", "api/internal/delivery/head_release_start.go"]
                     },
                     "bifrost-trade-infra": {
@@ -160,7 +176,8 @@ spec:
                         "params": {"purpose": "push"},
                         "base_result": "base-commit"
                       },
-                      "merger": "gitea-merger"
+                      "merger": "gitea-merger",
+                      "rerun": "overlap"
                     }
                   }
               - name: REPO
@@ -406,6 +423,52 @@ spec:
                       commits.append(sha)
                       sha = parents[0]['sha']
                   return commits[::-1], sha, ''
+
+              SHARED_FILES = ('go.mod', 'go.sum', 'package.json', 'package-lock.json')
+
+              def session_of(message):
+                  """The commit's Claude-Session trailer (the thread that made it), or ''."""
+                  found = re.findall(r'^Claude-Session:\s*(\S+)\s*$', message or '', re.M)
+                  return found[-1] if found else ''
+
+              def messages(token, api, shas):
+                  """The commit messages of `shas` ('' for one that cannot be read)."""
+                  out = []
+                  for sha in shas:
+                      code, row = call(token, 'GET', api + '/git/commits/' + sha)
+                      out.append(((row or {}).get('commit') or {}).get('message', '') if code == 200 and isinstance(row, dict) else '')
+                  return out
+
+              def main_paths(token, api, old, new, limit=40, sessions=None):
+                  """(the paths main's commits after `old` up to `new` touched, '') following first
+                  parents; (None, why) when `old` is not reached within `limit` commits or a commit
+                  cannot be read: then the rebased commit is tested as before. `sessions`, a set,
+                  gets each of those commits' Claude-Session ('' for a commit without one)."""
+                  names, sha = set(), new
+                  for _ in range(limit):
+                      if sha == old:
+                          return names, ''
+                      code, row = call(token, 'GET', api + '/git/commits/' + sha)
+                      if code != 200 or not isinstance(row, dict) or not isinstance(row.get('files'), list):
+                          return None, 'could not read %s' % sha[:12]
+                      if sessions is not None:
+                          sessions.add(session_of((row.get('commit') or {}).get('message')))
+                      names.update(str(item.get(key)) for item in row['files'] if isinstance(item, dict)
+                                   for key in ('filename', 'previous_filename') if item.get(key))
+                      parents = row.get('parents')
+                      if not isinstance(parents, list) or not parents or not re.fullmatch(
+                              r'[0-9a-f]{40}', str(parents[0].get('sha'))):
+                          return None, 'could not follow main down from %s' % sha[:12]
+                      sha = parents[0]['sha']
+                  return None, 'more than %d commits on main since the branch was pushed' % limit
+
+              def overlap(mine, theirs):
+                  """The directories (and the SHARED_FILES by name) both sets of paths touch, sorted."""
+                  dirs = lambda names: {os.path.dirname(n) for n in names}
+                  shared = dirs(mine) & dirs(theirs)
+                  shared |= {n for n in SHARED_FILES if n in {os.path.basename(m) for m in mine}
+                             and n in {os.path.basename(t) for t in theirs}}
+                  return sorted(shared)
 
               def tripwired(entry, names):
                   """The changed paths of the row's `watched` globs (the release policy's glob syntax),
@@ -700,6 +763,11 @@ spec:
                       ids, problem = checked(token, api, commits, policy, repo, seen)
 
                   def done(result):
+                      # rerun: none (the pushed commit landed), ran (CI judged the rebased commit) or
+                      # skipped (rerun=overlap: main's new commits touched none of this change's
+                      # directories; main's own CI run tests the rebased tree).
+                      result['rerun'] = 'none' if commit == pushed else (
+                          ('own' if own else 'skipped') if skip == commit else 'ran')
                       hit = tripwired(entry, seen)
                       if hit:
                           print('TRIPWIRE: this change touches %s (watched, not stopped)' % ', '.join(hit), flush=True)
@@ -712,6 +780,7 @@ spec:
                   # and the list of open pull requests all lag (2026-11-13: land-79dsl, land-wbnxq), so
                   # from then on the run reads only by commit id and by the pull request's number.
                   pushed, stale, on = commit, 0, pull.get('merge_base')
+                  sat_on, skip, own = on, None, False  # the commit the pushed one sits on; a rebased commit to land on that run
                   while time.time() < deadline:
                       base, problem = up_to_date(token, api, pull['number'], on, turn)
                       if problem == 'waiting':
@@ -736,10 +805,41 @@ spec:
                                          'pushed to it meanwhile, and that push has its own run')
                           if problem:
                               return {}, problem
+                          skip, own = None, False
+                          if entry.get('rerun') == 'overlap' and sat_on:
+                              by = set()
+                              theirs, why = main_paths(token, api, sat_on, on, sessions=by)
+                              shared = overlap(seen, theirs) if theirs is not None else []
+                              mine = {session_of(m) for m in messages(token, api, commits)}
+                              # Only this change's own thread moved main (its earlier ready/ branch landed
+                              # first): it wrote both and knows their order; main's CI run after the landing
+                              # is the check. Said in the result (rerun=own), so the thread can see it pays
+                              # a rebase for every branch it splits a change into (Owner 2026-11-24).
+                              own = theirs is not None and bool(by) and '' not in by and '' not in mine and by <= mine
+                              if own:
+                                  skip = commit
+                                  print('only this change\'s own thread (%s) moved main; the pushed commit\'s CI on %s '
+                                        'is the check. Several commits of one change land faster on one ready/ branch'
+                                        % (', '.join(sorted(by)), sat_on[:12]), flush=True)
+                              elif theirs is None:
+                                  print('CI runs on the rebased commit: %s' % why, flush=True)
+                              elif shared:
+                                  print('CI runs on the rebased commit: main touched %s, as this change does'
+                                        % ', '.join(shared[:10]), flush=True)
+                              else:
+                                  skip = commit
+                                  print('main touched none of this change\'s directories; the pushed commit\'s CI on %s '
+                                        'is the check, and main\'s CI run tests %s after it lands'
+                                        % (sat_on[:12], commit[:12]), flush=True)
                           continue
                       if problem:
                           return {}, problem
-                      got = wait(commit, entry['ci'], base)
+                      got = wait(pushed, entry['ci'], sat_on) if skip == commit else wait(commit, entry['ci'], base)
+                      if skip == commit and got != 'green':
+                          print('the pushed commit has no green CI on %s (%s); CI runs on %s'
+                                % (sat_on[:12], got[:80], commit[:12]), flush=True)
+                          skip, own = None, False
+                          got = wait(commit, entry['ci'], base)
                       if got not in ('green', 'stale'):
                           return {}, got
                       problem = still_open(token, api, pull, commit)
