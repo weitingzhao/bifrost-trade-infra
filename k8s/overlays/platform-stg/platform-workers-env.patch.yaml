@@ -14,7 +14,7 @@ spec:
           env:
             - name: OPS_VIEWER_ENV
               value: "stg"
-            # Owner 2026-10-07: STG observes, PROD maintains. Exactly one IB
+            # STG observes, PROD maintains (ISSUE-81). Exactly one IB
             # auto-repair loop (PROD) acts on the one live data/ib-gateway (TD-223).
             # Each platform keeps release records in its own table (2026-11-18);
             # "rows" records without announcing: release events are PROD's.

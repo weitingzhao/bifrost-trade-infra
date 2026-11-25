@@ -1,4 +1,4 @@
-# PROD is the one place maintenance runs (Owner 2026-10-07; TECH_DEBT wave 12).
+# PROD is the one place maintenance runs (TECH_DEBT wave 12; ISSUE-81).
 # This gives platform-workers the patrol skills and the checklist prober, and
 # holds the autopilot to report-only while it earns trust (TD-253):
 #

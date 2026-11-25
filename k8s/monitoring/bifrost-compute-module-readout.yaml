@@ -47,7 +47,7 @@ spec:
           expr: sum by (node)(kube_pod_container_resource_requests{resource="cpu"} * on(namespace,pod) group_left() (kube_pod_status_phase{phase="Running"} == 1)) / on(node) kube_node_status_allocatable{resource="cpu"}
         - record: bifrost_node:cpu_requests_share_1h
           expr: avg_over_time(bifrost_node:cpu_requests_share[1h])
-    # SSD efficiency and wear (formal compute indicators, Owner 2026-11-19), per node (instance label; 01=.73 02=.70 04=.75 05=.77 07=.80).
+    # SSD efficiency and wear (formal compute indicators, ISSUE-70), per node (instance label; 01=.73 02=.70 04=.75 05=.77 07=.80).
     # node_exporter has no per-IO histogram: the "p95" below is the 95th percentile of 5-minute AVERAGE latencies over 1h.
     # Remaining life needs SMART percentage_used and rated TBW; neither is exported for the k3s nodes, so it is NOT recorded here
     # (kept as unknown in the ledger; formula: life_days = (100-used)/used * written_to_date_TB / written_TB_per_day).
@@ -66,7 +66,7 @@ spec:
           expr: quantile_over_time(0.95, bifrost_node:disk_read_latency_seconds_5m[1h])
         - record: bifrost_node:disk_written_tb_per_day
           expr: increase(node_disk_written_bytes_total{job="node-exporter",device="nvme0n1"}[1d]) / 1e12
-        # Write budget input for the CI node picker (Owner 2026-11-19: SSD wear is a formal indicator).
+        # Write budget input for the CI node picker (SSD wear is a formal indicator, ISSUE-70).
         # Budget: 150GB per rolling 6 hours per node, from one case (07 slowed after ~220GB sustained, then recovered when idle).
         # One sample only: the ratio is a reading for the picker to weigh, not a hard limit.
         - record: bifrost_node:disk_written_gb_6h
