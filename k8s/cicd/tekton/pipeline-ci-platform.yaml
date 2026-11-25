@@ -168,6 +168,10 @@ spec:
         name: bifrost-ci-platform-changes
     - name: test-api
       runAfter: [clone, clone-legacy]
+      # A ceiling for a hung pod, not a speed check (LANE-ci-w1, 2026-11-24): the
+      # step's longest green run was 3.1 min; on 11-24 a node that could not mount
+      # the cache (ubt-k3s-06) held 11 runs until the 60-minute pipeline default.
+      timeout: 15m0s
       # R5:5.7-1: the scope task changes chose (Tekton runs this task after it, as it
       # reads its result). full runs go vet and every Go test, as before.
       # A full run (daily full, a run with no base) splits
@@ -204,6 +208,10 @@ spec:
         name: bifrost-ci-platform-test-api
     - name: test-api-store
       runAfter: [clone, clone-legacy]
+      # A ceiling for a hung pod, not a speed check (LANE-ci-w1, 2026-11-24): the
+      # step's longest green run was 3.1 min; on 11-24 a node that could not mount
+      # the cache (ubt-k3s-06) held 11 runs until the 60-minute pipeline default.
+      timeout: 15m0s
       # ./internal/agentrt/store alone on a full run, beside test-api; on an
       # incremental run test-api's selector picks the store tests and this
       # one runs none. Console scope still performs its existing safety check.

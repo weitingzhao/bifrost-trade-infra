@@ -74,6 +74,9 @@ spec:
     - name: source
       workspace: source
   - name: check
+    # A ceiling for a hung pod (LANE-ci-w1, 2026-11-24): longest green 7.1 min
+    # over a day of 170 runs; the pipeline default is 60 minutes.
+    timeout: 15m0s
     taskRef:
       name: bifrost-ci-infra-check
     params:
