@@ -1,0 +1,33 @@
+# R0E (CI line 2026-11-25): CI's resolve-ui step (pipeline-ci-platform, pipeline-ci-frontend)
+# reads bifrost-ui's stable pin, the state ConfigMap platform-state-ui-stable that PROD
+# platform's agentrt-ui-check loop writes in its own namespace (the admission policy
+# bifrost-cicd-configmap-writers keeps CI inputs in cicd away from the platform). One
+# ConfigMap, get only, for the ServiceAccount the CI tasks run as. Nothing else.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tekton-ui-pin-read
+  namespace: bifrost-platform-prod
+  labels:
+    bifrost.io/purpose: ui-pin
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["platform-state-ui-stable"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tekton-ui-pin-read-default
+  namespace: bifrost-platform-prod
+  labels:
+    bifrost.io/purpose: ui-pin
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: cicd
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: tekton-ui-pin-read
