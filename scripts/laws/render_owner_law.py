@@ -27,19 +27,19 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 FILE = ROOT / "agent-config" / "OWNER_LAW.md"
-ROW = re.compile(r"^\|\s*(\d+|(?:DAO|CONSTITUTION|LAW|BYLAW)-\d+)\s*\|")
+ROW = re.compile(r"^\|\s*(\d+|(?:DAO|CORE|LAW|ZONE)-\d+)\s*\|")
 CODE_BASE = 85  # LAW-k is number 85+k (Owner 2026-11-25; platform planstore lawcode.go)
 
 
 def code(law):
     """A law's code: the one its record carries (from round 2 on), else LAW-k
-    = number 85+k, and CONSTITUTION-1 for 89; the number for material."""
+    = number 85+k, and CORE-1 for 89; the number for material."""
     if law.get("code"):
         return law["code"]
     n = str(law["law"])
     if not (n.isdigit() and int(n) > CODE_BASE):
         return n
-    return "CONSTITUTION-1" if int(n) == CODE_BASE + 4 else f"LAW-{int(n) - CODE_BASE}"
+    return "CORE-1" if int(n) == CODE_BASE + 4 else f"LAW-{int(n) - CODE_BASE}"
 
 
 def number_of(ref, laws=()):

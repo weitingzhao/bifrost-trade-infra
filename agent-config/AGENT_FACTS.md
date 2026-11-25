@@ -453,7 +453,7 @@ Tekton 流水线：`bifrost-ci-{frontend,platform,python}` · `bifrost-deliver-{
   Research `analytics_writer`（不再继承 `bifrost`）。登录名以各 Secret 的 `PGUSER` / `postgres-user` 为准，ConfigMap 里的 `user:` 只是回落。
 - `redis-ib` @ `data`：共享 IB 事件总线；`redis-live` / `redis-queue` 每环境一套。
 
-### IB 接入模型（账户号不是秘密 — Owner 2026-09-06 明确，CONSTITUTION-1）
+### IB 接入模型（账户号不是秘密 — Owner 2026-09-06 明确，CORE-1）
 
 - IB **登录只发生在两台 Win11 的 TWS 软件里**（Owner 手工登录 + 2FA）；工作区与集群里没有 IB 密码。
 - 其余系统只经 **IB API socket**（TWS `tws_live` 端口；client_ids 70/71 Host、72/73 Secondary）由 Platform IB Gateway Plugin 连接 → `redis-ib`；

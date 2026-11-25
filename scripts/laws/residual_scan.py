@@ -40,11 +40,11 @@ QUERY = """SELECT json_agg(b ORDER BY (b->>'law')::int) FROM (
 CITE = r"(?:(?<![合方算办做写用语手说想看读解打玩立执修宪司违守依无设])法 ?|[Ll]aw |OWNER_LAW ?#)([0-9]{1,3})(?![0-9])"
 # A law is written by its level's word and its number in that level (Owner
 # 2026-11-25: 「以后法条统一叫LAW 开始，不用简写」, then 「每一层都用特定的单词
-# 表示，同时采用特定的编号体系」): DAO-k, CONSTITUTION-k, LAW-k, BYLAW-k (the
+# 表示，同时采用特定的编号体系」；每个单词最多四个字母): DAO-k, CORE-k, LAW-k, ZONE-k (the
 # platform's planstore lawcode.go). A law added from round 2 on carries its
 # code in its record; the laws before had LAW-k = number 85+k, and 89 is
-# CONSTITUTION-1. Rows 1 to 85 were material and have no code.
-CODE = r"((?:DAO|CONSTITUTION|LAW|BYLAW)-[1-9][0-9]*)(?![0-9])"
+# CORE-1. Rows 1 to 85 were material and have no code.
+CODE = r"((?:DAO|CORE|LAW|ZONE)-[1-9][0-9]*)(?![0-9])"
 CODE_BASE = 85
 
 
@@ -52,7 +52,7 @@ def code(n):
     """Law n's code as the laws before round 2 had it, or "" for material."""
     if not (str(n).isdigit() and int(n) > CODE_BASE):
         return ""
-    return "CONSTITUTION-1" if int(n) == CODE_BASE + 4 else f"LAW-{int(n) - CODE_BASE}"
+    return "CORE-1" if int(n) == CODE_BASE + 4 else f"LAW-{int(n) - CODE_BASE}"
 
 
 def law_code(law):

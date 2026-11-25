@@ -57,11 +57,11 @@ def test_exceptions_may_name_a_class(tmp_path):
 
 def test_law_codes():
     # Origin: 2026-11-25, the laws are written LAW-k (k from number 86).
-    assert scan.code("86") == "LAW-1" and scan.code("89") == "CONSTITUTION-1" and scan.code("98") == "LAW-13" and scan.code("85") == ""
+    assert scan.code("86") == "LAW-1" and scan.code("89") == "CORE-1" and scan.code("98") == "LAW-13" and scan.code("85") == ""
     # From round 2 a law's code is in its record and says its level.
-    laws = [{"law": "86"}, {"law": "99", "code": "DAO-1"}, {"law": "100", "code": "BYLAW-1"}]
-    assert scan.code_map(laws) == {"LAW-1": "86", "DAO-1": "99", "BYLAW-1": "100"}
-    assert re.findall(scan.CODE, "see LAW-10, DAO-1, CONSTITUTION-1 and BYLAW-2, not LAW-0 or law-1") == ["LAW-10", "DAO-1", "CONSTITUTION-1", "BYLAW-2"]
+    laws = [{"law": "86"}, {"law": "99", "code": "DAO-1"}, {"law": "100", "code": "ZONE-1"}]
+    assert scan.code_map(laws) == {"LAW-1": "86", "DAO-1": "99", "ZONE-1": "100"}
+    assert re.findall(scan.CODE, "see LAW-10, DAO-1, CORE-1 and ZONE-2, not LAW-0 or law-1") == ["LAW-10", "DAO-1", "CORE-1", "ZONE-2"]
 
 
 def test_a_dated_rule_anchored_to_a_law_is_not_a_shadow(monkeypatch):

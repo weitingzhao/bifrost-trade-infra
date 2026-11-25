@@ -1,7 +1,7 @@
 # 身份卡 8-1-duty（值班统筹）。v0 由 Crew 据 charters/8-1-duty.md 提炼起草（2026-11-21），不是新定的；本线核对后改 as_of、删这句。
 # 第 1 栏从 seats.yaml 取。
 as_of: 2026-11-21
-laws: [评价在交付之后、不在过程中拦（Owner 11-15，LAW-7、LAW-2、CONSTITUTION-1）, 加环节先写三问, D10]
+laws: [评价在交付之后、不在过程中拦（Owner 11-15，LAW-7、LAW-2、CORE-1）, 加环节先写三问, D10]
 owns:
   - 统筹台账（duty/ledger/ 生成的 Artifact 页）与席位现状
   - duty/ 目录：decisions.md、daily-readings.md、owner-two-things-watch.md、各线收发文件

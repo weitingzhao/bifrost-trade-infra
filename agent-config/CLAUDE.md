@@ -79,7 +79,7 @@ Ops Platform（火箭）与 Trade（载荷）必须先稳定；研究与分析�
 
 ### 禁止（所有模式）
 
-交易和钱相关的围栏没立好之前，这一块不排进任何波次，往更严改也不排（Owner 2026-11-13，CONSTITUTION-1）。
+交易和钱相关的围栏没立好之前，这一块不排进任何波次，往更严改也不排（Owner 2026-11-13，CORE-1）。
 
 - 为实盘自动交易扩容 `daemon` Deployment（STG 必须保持 `replicas: 0`）
 - 移除或绕过 `k8s/overlays/{stg/daemon-scale-zero,prod/daemon-observe-safe}.patch.yaml`
@@ -252,7 +252,7 @@ deliver-stg / prod / platform / platform-prod 没有这一步，窗口靠起 run
 **要 Owner 动手的事，手机上要办得完（Owner 2026-11-13，LAW-6）**：怎么建执行卡、哪几件现阶段还只能在他电脑上办，只写在 `OWNER_EXEC.md`。
 别处的文档和那一页对不上时，以那一页为准；不要默默给他派一条终端命令。
 
-### 放行规则只省「复制到终端」（Owner 2026-10-05，CONSTITUTION-1、LAW-6）
+### 放行规则只省「复制到终端」（Owner 2026-10-05，CORE-1、LAW-6）
 
 **不管下面怎么放行，这六类始终是 Owner 的**：交易和钱（§3）、口令和 Secret、有数据的删改、Trade 的 PROD 发布、改签名规则和信任根本身、auto mode 规则。
 
