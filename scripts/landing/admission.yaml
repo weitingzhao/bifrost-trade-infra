@@ -5,9 +5,9 @@
 # 对账（scripts/landing/test_admission.py 在 CI 里跑；scripts/station/test_requires.py 本地跑）：合入脚本里每一句 'refused: …' 都要在 refusals 里有一条（按 match 前缀），refusals、bring 里引用的原文都要在脚本里找得到。
 format: station.requires/v1
 tool: land
-about: 合入与验证、发布：把改动合进 infra、platform 的 main，判它能不能进、能不能发。
+about: 合入与验证、发布：把改动合进 infra、platform、engine 的 main，判它能不能进、能不能发。
 owner: verification
-task: 把改动合进 infra 或 platform 的 main
+task: 把改动合进 infra、platform 或 engine 的 main
 how: 从最新的 origin/main 牵分支，提交，推到 refs/heads/ready/<名字>。同一件事的几个提交放在一个分支里一次推，一次合入；一个个分开推，后一个会被前一个挤得变基（11-24 一天 38 次变基里 8 次是这样自己挤自己）。推上去 CI 自动跑，绿了自动进 main，不用起 CI、不用开 PR。看进没进、为什么没进：wait_for_pipeline_run（pipeline 填 bifrost-land，revision 填推的全长提交号），结果里 outcome 是 landed 就进了，否则 refusal 写着原因（没有尾注的提交也查得到）；或在 origin/main 上按自己的 Change-Id 找。被拒时平台按提交尾注里的 Claude-Session 发信给那个线程（订阅 land-refused-to-pusher）；没有尾注的提交没人收得到信，get_commit_evidence 也看不到落地结果，所以推完要自己等这一次运行（2026-11-23，plan 的两个分支在 worktree 里钩子没跑、缺全部尾注，挂了一个多小时才发现）。
 precheck: python3 scripts/station/precheck.py <检出目录> [<提交>]
 checked_by: k8s/cicd/tekton/pipeline-land.yaml
@@ -24,7 +24,7 @@ bring:
     refused_with: {says: "refused: not a ready/ branch with a full commit id"}
     precheck: printed
   - id: landing-repo
-    what: 只有 LANDING_REPOS 里的仓库走这条路（现在是 bifrost-platform、bifrost-trade-infra）。别的仓库用 scripts/release/push-main.sh。
+    what: 只有 LANDING_REPOS 里的仓库走这条路（现在是 bifrost-platform、bifrost-trade-infra、bifrost-engine）。别的仓库用 scripts/release/push-main.sh。
     refused_with: {says: "refused: this repository is not in LANDING_REPOS"}
     precheck: checked
   - id: trailers
@@ -66,7 +66,7 @@ bring:
 
 refusals:   # 合入会说的每一句；kind：you=推的人改，system=系统的毛病（找 CI 线），wall=墙
   - {match: "refused: not a ready/ branch with a full commit id", kind: you, do: "推到 refs/heads/ready/<名字>，用完整的 40 位提交号"}
-  - {match: "refused: this repository is not in LANDING_REPOS", kind: you, do: "只有 infra、platform 走 ready/；别的仓库用 push-main.sh"}
+  - {match: "refused: this repository is not in LANDING_REPOS", kind: you, do: "只有 infra、platform、engine 走 ready/；别的仓库用 push-main.sh"}
   - {match: "refused: commit %s has no Change-Id trailer", kind: you, do: "补尾注后推一个新的 ready/ 分支（见 bring.trailers）"}
   - {match: "refused: commit %s has its Change-Id outside the last paragraph", kind: you, do: "尾注（含 Co-Authored-By）挪到最后一段、中间不留空行，amend 后推一个新的 ready/ 分支"}
   - {match: "refused: no CI run of", kind: you, do: "看 CI 为什么红；修好再推"}

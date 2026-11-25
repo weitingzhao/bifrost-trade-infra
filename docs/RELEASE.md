@@ -246,7 +246,7 @@ STG 的 `rollout` 引用 `bifrost-rollout-verify-platform`，先重启并等待�
   加一行；要公开的再在 GitHub 建一个空库，同步会把 main 推过去。
 - **Gitea 挂了**：告警 `BifrostGiteaUnavailable`；恢复见 `docs/runbooks/gitea-restore.md`（每晚加密备份），不要从 GitHub 重建仓库（GitHub 只有 main 和标签）。
 
-## 怎么进 main：推 `ready/<名字>`（2026-11-13 起，infra 和 platform）
+## 怎么进 main：推 `ready/<名字>`（2026-11-13 起，infra 和 platform；2026-11-25 起加 engine）
 
 **推之前**：先读 [`scripts/landing/admission.yaml`](../scripts/landing/admission.yaml)（要带什么、每一种被拒怎么办），再跑 `python3 scripts/station/precheck.py <检出目录>`，它跑合入时同样的检查，最后打印这次该用的那一条推送命令。推送写成单独一条 `git -C <检出目录的绝对路径> push origin <提交号>:refs/heads/ready/<名字>`，不先 cd。
 

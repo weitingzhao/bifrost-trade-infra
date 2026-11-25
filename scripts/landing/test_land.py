@@ -112,7 +112,8 @@ def test_one_trigger_and_one_template_start_it_and_the_trigger_names_no_reposito
 def test_the_pipeline_names_no_repository_and_every_row_is_complete():
     """Why: the same remark of 2026-11-13. What differs between repositories is written in one place."""
     assert not [repo for repo in table() if repo in script()]
-    assert set(table()) == {PLATFORM, INFRA}
+    # bifrost-engine since 2026-11-25: its main took push-main.sh pushes that do not wait for ci-engine.
+    assert set(table()) == {PLATFORM, INFRA, "bifrost-engine"}
     mounted = {v["secret"]["secretName"] for v in land_task()["taskSpec"]["volumes"] if "secret" in v}
     for repo, entry in table().items():
         assert module()["row"](table(), repo) == entry, repo

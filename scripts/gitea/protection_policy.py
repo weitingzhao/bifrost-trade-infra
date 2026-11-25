@@ -190,7 +190,9 @@ def clash(rule):
     return False
 
 
-LANDING_REPOS = {"bifrost-platform", "bifrost-trade-infra"}
+# bifrost-engine since 2026-11-25 (CI line): its main took only push-main.sh pushes, which do not wait
+# for ci-engine; it lands through ready/ like the other two (pipeline-land.yaml LANDING_REPOS).
+LANDING_REPOS = {"bifrost-platform", "bifrost-trade-infra", "bifrost-engine"}
 
 
 def baseline(repo, owner):

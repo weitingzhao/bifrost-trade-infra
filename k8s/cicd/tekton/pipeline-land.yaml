@@ -178,6 +178,14 @@ spec:
                       },
                       "merger": "gitea-merger",
                       "rerun": "overlap"
+                    },
+                    "bifrost-engine": {
+                      "ci": {
+                        "pipeline": "bifrost-ci-engine",
+                        "params": {}
+                      },
+                      "merger": "gitea-merger",
+                      "rerun": "overlap"
                     }
                   }
               - name: REPO
