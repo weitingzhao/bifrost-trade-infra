@@ -11,7 +11,7 @@
 
 ## 2. 对外的口子
 - 进主干：把提交推到 `ready/<名字>`，集群里跑 CI，绿了自动合入（infra、platform）。
-- 平台工具【量】：`check_release_policy`（试判）、`start_pipeline_run`、`plan_manifest` / `apply_manifest`、`record_release_review`（非作者复核）、`get_unit_plan`、`get_unit_scope`、`get_unit_runs`、`request_unit_evidence`、`get_commit_evidence`、`get_full_ci`、`wait_for_pipeline_run`。
+- 平台工具【量】：`check_release_policy`（试判）、`start_pipeline_run`、`plan_manifest` / `apply_manifest`、`get_unit_plan`、`get_unit_scope`、`get_unit_runs`、`request_unit_evidence`、`get_commit_evidence`、`get_full_ci`、`wait_for_pipeline_run`。
 - 界面：Ops 的 Work > CI 页（怎么配的、每次跑了什么、每日全量）。
 - 读数：共享笔记 `benchmark/`（脚本和每次重算的结果）。
 

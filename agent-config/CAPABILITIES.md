@@ -90,8 +90,8 @@
 
 | 要办的事 | 归哪条线 | 怎么办 | 要带什么 / 前提 | 出处 |
 |---|---|---|---|---|
-| 把改动合进 infra 或 platform 的 main | 3-4-verify-release-ci | 从最新 origin/main 牵分支，单独一条 `git -C <绝对路径> push origin <40 位提交号>:refs/heads/ready/<名字>`；CI 绿了自动进 main。看结果：`wait_for_pipeline_run`（pipeline `bifrost-land`，revision 填全长提交号） | 四个尾注（缺 Change-Id 会被拒且推的人收不到信）；对齐最新 main；新包要有归属行；先跑 `python3 infra:scripts/station/precheck.py <检出目录>`；查要带什么 `python3 infra:scripts/station/howto.py land` | `infra:scripts/landing/admission.yaml:11-65`、`MCP:301` |
-| 把改动合进别的仓库的 main | 3-4-verify-release-ci | `infra:scripts/release/push-main.sh <checkout> [<commit>]` | 窗口开着一律不推；只接受快进 | `CM:226` |
+| 把改动合进 infra 或 platform 的 main | 3-4-verify-release-ci | 从最新 origin/main 牵分支，单独一条 `git -C <绝对路径> push origin <40 位提交号>:refs/heads/ready/<名字>`；CI 绿了自动进 main。看结果：`wait_for_pipeline_run`（pipeline `bifrost-land`，revision 填全长提交号） | 四个尾注（缺 Change-Id 时合入流水线自己补上再合入，提交号会变，结果字段 trailers 写着；补不成才拒）；对齐最新 main；新包要有归属行；先跑 `python3 infra:scripts/station/precheck.py <检出目录>`；查要带什么 `python3 infra:scripts/station/howto.py land` | `infra:scripts/landing/admission.yaml:11-65`、`MCP:301` |
+| 把改动合进别的仓库的 main | 3-4-verify-release-ci | `infra:scripts/release/push-main.sh <checkout> [<commit>]` | 窗口占的是本仓库才不推；该提交 CI 绿就不再重跑 code-health 和快测；缺尾注时给一条补齐命令；只接受快进 | `CM:226` |
 | 我的提交为什么红、哪个测试挂了 | 3-4-verify-release-ci | `get_unit_runs`、`get_commit_evidence` | — | `DOM` verification tasks（`DOM:229` 起）、`MCP:558,509` |
 | CI 会给我的改动跑什么 | 3-4-verify-release-ci | `get_unit_scope`、`get_unit_plan`、`get_unit_config` | — | `MCP:542,520,550` |
 | 每日全量过没过、覆盖哪些落地 | 3-4-verify-release-ci | `get_full_ci`、`check_full_ci_landings` | — | `MCP:732,739` |
@@ -221,10 +221,10 @@
 - **六类始终是 Owner 的**：交易和钱、口令和 Secret、有数据的删改、Trade 的 PROD 发布、改签名规则和信任根、auto mode 规则（`CM` §5「放行规则只省复制到终端」）。
 - **Owner 睡着时不建卡、不问问题**（`CM:233`）；人批的单只在 PROD 平台建（`CM:231`）。
 - **preflight 只看命令原文**：推 ready/ 不能先 `cd`、不能写 `HEAD` 或变量；kubeconfig 路径别在脚本里拼；`git add -A` 被拦（`infra:scripts/station/README.md:13-17`）。
-- **没有尾注的提交没人收得到拒信**，要自己 `wait_for_pipeline_run` 等（`infra:scripts/landing/admission.yaml:11`）。
+- **没有 Claude-Session 尾注的提交被拒时没人收得到信**（缺 Change-Id 已由合入流水线自己补），要自己 `wait_for_pipeline_run` 等（`infra:scripts/landing/admission.yaml:11`）。
 - **信箱未登记的席位发不进**：1-plan、7-payload（`CH/seats.yaml:23,28`）。
 - **cordon_node 级别对不上**：手续写 B，动作目录是 C（第 1a 节）。
-- **章程里提到、MCP 里已没有的工具名**：`record_release_review`（`CH/3-4-verify-release-ci.md:14`）、`request_owner`（`CH/5-approvals.md:17`）在 platform main 的 MCP 注册里查不到。`record_guard_block`、`save_home_layout`、`record_acceptance_reading` 在动作目录里有，但没注册成 MCP 工具，要直接调接口。
+- **章程里提到、MCP 里已没有的工具名**：`request_owner`（`CH/5-approvals.md:17`）在 platform main 的 MCP 注册里查不到。`record_guard_block`、`save_home_layout`、`record_acceptance_reading` 在动作目录里有，但没注册成 MCP 工具，要直接调接口。
 
 ## 4. 空白（没有出处说怎么办，等各线补）
 
