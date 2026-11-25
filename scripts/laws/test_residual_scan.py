@@ -74,3 +74,12 @@ def test_a_dated_rule_anchored_to_a_law_is_not_a_shadow(monkeypatch):
     monkeypatch.setattr(scan.subprocess, "run", lambda *a, **k: P())
     got = scan.shadow()
     assert [x["line"] for x in got] == [11]
+
+
+def test_owner_asks_pattern():
+    """Origin: 2026-11-25, audit's round-2 pain check found CLAUDE.md §5's undated
+    「架构级决策等 Owner 确认」 by eye; the owner-ask list must catch that kind of line."""
+    for hit in ("→ 列 2–3 个选项 + 推荐，等 Owner 确认", "改名属架构级变更、先问 Owner", "交 Owner 定", "由 Owner 批"):
+        assert scan.OWNER_ASK.search(hit), hit
+    for miss in ("Owner 是法官，盘道、立法", "Owner 的特权必须有"):
+        assert not scan.OWNER_ASK.search(miss), miss

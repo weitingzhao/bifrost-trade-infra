@@ -70,6 +70,12 @@ SHADOW_FILES = ("agent-config/CLAUDE.md", "agent-config/OWNER_EXEC.md", "agent-c
                 # Round 2 (2026-11-25): the design contracts, the facts and the release doc carry Owner-dated rules too.
                 "agent-config/DESIGN_CONTRACTS.md", "agent-config/AGENT_FACTS.md", "docs/RELEASE.md")
 OWNER_DATE = re.compile(r"Owner[ ,，（(]*20[0-9]{2}-[0-9]{2}-[0-9]{2}|（Owner [0-9]{2}-[0-9]{2}")
+# A line that asks the Owner for something (wait for him, put it to him, he
+# approves or decides) with no date: round 2 found CLAUDE.md §5's 「架构级决策
+# 等 Owner 确认」 by eye (audit, 2026-11-25), the dated scan missed it. Listed
+# for the legislation line to look through; not counted as a shadow, since
+# LAW-1 s1 defines a shadow as a rule carrying an Owner date.
+OWNER_ASK = re.compile(r"等 ?Owner|找 ?Owner|问 ?Owner|交 ?Owner|请 ?Owner|Owner ?(确认|批准|批|定|签收|点头)")
 
 
 def read_laws(path):
@@ -154,6 +160,19 @@ def shadow():
     return out
 
 
+def owner_asks():
+    infra = ROOT / "bifrost-trade-infra"
+    out = []
+    p = subprocess.run(["git", "-C", str(infra), "grep", "-nE", OWNER_ASK.pattern, "origin/main", "--", *SHADOW_FILES],
+                       capture_output=True, text=True)
+    for line in p.stdout.splitlines():
+        _, path, num, text = line.split(":", 3)
+        if OWNER_DATE.search(text) or re.search(CODE, text) or "不是规矩" in text:
+            continue
+        out.append({"repo": infra.name, "path": path, "line": int(num), "text": text.strip()[:200]})
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--laws")
@@ -186,19 +205,23 @@ def main():
                 print(f'{c["repo"]}:{c["path"]}:{c["line"]}: {c["text"]}')
         return 0
     sh = shadow()
+    asks = owner_asks()
     by_state, by_law = {}, {}
     for c in cited:
         by_state[c["state"]] = by_state.get(c["state"], 0) + 1
         by_law.setdefault(c["law"], [c["state"], 0])[1] += 1
     report = {"refs": {"total": len(cited), "by_state": by_state,
                        "by_law": {n: {"state": s, "count": k} for n, (s, k) in sorted(by_law.items(), key=lambda x: -x[1][1])}},
-              "shadow": {"total": len(sh)}}
+              "shadow": {"total": len(sh)},
+              # Not part of LAW-1 s1: undated lines that ask the Owner, for review.
+              "owner_asks": {"total": len(asks)}}
     if a.json:
-        pathlib.Path(a.json).write_text(json.dumps({**report, "ref_list": cited, "shadow_list": sh}, ensure_ascii=False, indent=1))
+        pathlib.Path(a.json).write_text(json.dumps({**report, "ref_list": cited, "shadow_list": sh, "owner_ask_list": asks}, ensure_ascii=False, indent=1))
     print(f'refs: {len(cited)} citations of a law by number; by state: {by_state}')
     for n, v in list(report["refs"]["by_law"].items())[:15]:
         print(f'  law {n} ({v["state"]}): {v["count"]}')
     print(f'shadow: {len(sh)} dated Owner rules in governance files outside the framework')
+    print(f'owner asks: {len(asks)} undated lines asking the Owner, not tied to a law (for review; not part of LAW-1 s1)')
     return 0
 
 

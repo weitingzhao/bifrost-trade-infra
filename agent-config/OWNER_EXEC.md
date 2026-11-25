@@ -152,7 +152,7 @@ Owner 2026-11-15（LAW-6）：重签不该非回到放钥匙的电脑不可。�
 
 ## 重签运行时规则：一张执行卡（2026-11-25 起）
 
-Owner 2026-11-25：「任何需要重签的话，可以通过我这个就是 Ops 里面的验证码的那种 ticket 的形式来去签，不要我非要回到电脑上才能签。这种回到电脑上的签的这种东西，都是属于这个系统的 failure。」
+Owner 2026-11-25：「任何需要重签的话，可以通过我这个就是 Ops 里面的验证码的那种 ticket 的形式来去签，不要我非要回到电脑上才能签。这种回到电脑上的签的这种东西，都是属于这个系统的 failure。」（RULE，执行 LAW-6 四）
 
 运行时规则（`agent-config/agentrt-rules/README.md`，例如 `plan-standing`）和发布策略认同样两把钥匙（`bifrost-platform` `api/internal/releasepolicy/anchor.go` 的 `RuleAnchors`）。在这之前运行时规则只认 Mac 那把，重签要回电脑；这一处缺口没登记在上面的清单里。
 
