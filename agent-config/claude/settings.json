@@ -90,6 +90,15 @@
             "command": "node \"$CLAUDE_PROJECT_DIR/scripts/thread-heartbeat.js\" hook claude"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/doorbell-guard.py\"",
+            "timeout": 10
+          }
+        ]
       }
     ],
     "StopFailure": [
