@@ -33,7 +33,7 @@
 | 在工坊值守那里问「找谁、怎么办」，或请它在 mini 上照任务书干一件活 | 11-station（mini-01 值守） | `send_message` 到 `thread:01a20bde-35a2-7600-8947-e24375a43229`，任务书放正文或 artifact | 它每封信醒一次，回信 reply_to 你的信 | `CH/seats.yaml` 的 station-desk-mini01 行 |
 | 叫醒 4090（gpu-server） | 6-compute | `wake_compute_node`，B 级，直接调（MCP bifrost-platform 或 bifrost-kubernetes） | 节点名 `gpu-server`；它平时关着，NotReady 加封锁是常态 | `CAT:360`、`DOM:483`、`MCP:413`、`AF` 节点表 gpu-server 行 |
 | 关 4090 | 6-compute | `poweroff_compute_node`，D 级：先排空再关机，建卡等批 | Owner 醒着；卡写清楚上面跑着什么 | `CAT:354`、`DOM:484`、`MCP:421` |
-| 封锁 / 解封节点（cordon / uncordon） | 6-compute | `cordon_node`、`uncordon_node`，**C 级**，建卡 | 【冲突】06 回集群手续的回退一节写「cordon_node（B 级）」，动作目录是 C；以 `CAT` 为准 | `CAT:331,337`、`MCP:336,344`；`NOTES/compute/06-rejoin-runbook.md:58` |
+| 封锁 / 解封节点（cordon / uncordon） | 6-compute | `cordon_node`、`uncordon_node`，B 级，直接调 | 11-24 起是 B（LAW-6 七③，platform ba4ca753） | `CAT:331,337`、`MCP:336,344`；`NOTES/compute/06-rejoin-runbook.md:58` |
 | 排空节点（drain） | 6-compute | `drain_node`，D 级 | 同上 | `CAT:343`、`MCP:352` |
 | 加一台节点进集群（重装后入群） | 6-compute 写手续和登记；装系统、取令牌、入群要 Owner 本人 | 按算力线的手续：Owner 在机器前装 Ubuntu；在 MacBook 上跑 `infra:scripts/k3s/fetch-join-token.sh`（要 SSH 到 .73 并输 sudo 密码）；再 `scp` 三个脚本、`ssh` 跑 `join-bifrost-agent.sh`；之后算力线只读核 Ready、建卡打标签、推 ready/ 改 topology 和 home_info | 入群令牌属 Secret，只在 Owner 的 Mac 和新机之间；手机办不了 | `NOTES/compute/06-rejoin-runbook.md:17-55`、`infra:scripts/k3s/fetch-join-token.sh:8-15`、`CARD/6-hw-upgrade.yaml:22` |
 | 给节点打标签 | 6-compute | 建 `owner_run_command` 卡，命令写 `kubectl label node …`，执行口能写 Node | 命令原文一字不改；结果读 `get_request` | `NOTES/compute/06-rejoin-runbook.md:44-45`、`OE:28-29` |
@@ -82,7 +82,7 @@
 
 | 要办的事 | 归哪条线 | 怎么办 | 要带什么 / 前提 | 出处 |
 |---|---|---|---|---|
-| 建审批卡让 Owner 批 | 5-approvals | `request_action`；看进度 `get_request`、`wait_for_request`、`list_requests`；撤 `withdraw_request` | 先过 skill `owner-decision-check`；只在 PROD 平台建；Owner 说「去睡了」之后不建；卡怎么写见 skill `owner-exec-cards` | `MCP:874,900,907,918,890`、`CM:231,233`、`CARD/5-approvals.yaml:13` |
+| 建审批卡让 Owner 批 | 5-approvals | `request_action`；看进度 `get_request`、`wait_for_request`、`list_requests`；撤 `withdraw_request` | 先过 skill `owner-decision-check`；只在 PROD 平台建；Owner 说「去睡了」之后不建；卡怎么写见 skill `owner-exec-cards`。Owner 批完，结论进建卡线程的平台信箱，卡上也有：用 `get_request` / `wait_for_request` 读，不去问 Owner。回执里 `to_owner` 不为空 = 这张卡既不是修法票也不是六类，不该到他手机上，回执写了该怎么办 | `MCP:874,900,907,918,890`、`CM:231,233`、`CARD/5-approvals.yaml:13` |
 | 问 Owner 一个问题 | 5-approvals | `ask_owner`；`wait_for_answer`；`ack_answer`；`withdraw_question` | 回答不是批准，不能转述成「他点头了」 | `QST:20,60,70,77`、`CM` §5「问题的回答不是批准」 |
 | 查某个动作是几级 | 5-approvals | `GET /api/v1/actions`（以它为准） | — | `DOM` approvals request_response、`CM:116` 一带 |
 | 记一次 Owner 特权使用 | 谁遇上谁记 | `record_privilege_use`，B 级 | 写推了什么、为什么卡住 | `CAT:251`、`MCP:688` |
@@ -113,8 +113,8 @@
 
 | 要办的事 | 归哪条线 | 怎么办 | 要带什么 / 前提 | 出处 |
 |---|---|---|---|---|
-| 看计划 | 1-plan（占位，信箱未登记） | `get_plan`、`get_plan_view` | 计划树不是领活入口 | `MCP:936,943`、`CH/1-plan.md:13`、`infra:docs/AGENT_WORK.md` §1 |
-| 改计划、给计划记笔记、导入 | 1-plan | `propose_plan_change`、`post_plan_note`、`propose_plan_import`；签收只有 Owner | 计划变更会给 Owner 发决策卡 | `MCP:1000`、`PLI:13,24`、`CH/1-plan.md:12,19` |
+| 看计划 | 1-plan（立法线） | `get_plan`、`get_plan_view` | 计划树不是领活入口 | `MCP:936,943`、`CH/1-plan.md:13`、`infra:docs/AGENT_WORK.md` §1 |
+| 改计划、给计划记笔记、导入 | 1-plan | `propose_plan_change`、`post_plan_note`、`propose_plan_import`；签收只有 Owner | 常设授权之内的直接生效；之外的转成问题给 Owner（LAW-6 二） | `MCP:1000`、`PLI:13,24`、`CH/1-plan.md:12,19` |
 | 登记一件外部工作（让人看得见谁在干什么） | 2-lineage | 先 `put_artifact` 传描述（9 个字段的 JSON），再 `register_external_work`；过程用 `record_external_work_event`（started / heartbeat / submitted…）。派 Codex 时 `dispatch.sh` 自动登记 | 登记不授权、submitted 不等于做完 | `MCP:948,957,1029`、`CH/2-lineage.md:12-13`、`infra:scripts/agent-host/dispatch.sh:2-4` |
 | 查一个提交是谁改的、落地没有 | 2-lineage | `get_commit_lineage`；`git log --all --grep='Claude-Session: local_…'`；按 `Change-Id` 判落地，不按标题 | — | `MCP:480`、`CM` §5「提交血缘」、`CARD/2-lineage.yaml:17` |
 | 「X 归谁」、新包要加归属行 | 0-2-catalog | `get_owner`（repo、path，可带 domain）或 `GET /api/v1/catalog/owner?repo=&path=`；没主的路径给出可粘贴的那一行 | 和改动放同一个提交 | `infra:scripts/landing/admission.yaml:41-45`、`CH/0-2-catalog.md:21-22` |
@@ -129,7 +129,7 @@
 | 要办的事 | 归哪条线 | 怎么办 | 要带什么 / 前提 | 出处 |
 |---|---|---|---|---|
 | 行情插件诊断、按处方修 | 7-payload（占位） | `market_data_doctor`；`market_data_heal`（B） | — | `MCP:151,161`、`CAT:391` |
-| 把 bifrost_prod 克隆到非 prod 库 | 7-payload | `trigger_data_clone`（C）；`get_data_clone_status`；改计划表 `update_data_clone_schedule`（C） | — | `CAT:378,484`、`MCP:195,219` |
+| 把 bifrost_prod 克隆到非 prod 库 | 7-payload | `trigger_data_clone`（C）；`get_data_clone_status`；改计划表 `update_data_clone_schedule`（B，LAW-6 七③） | — | `CAT:378,484`、`MCP:195,219` |
 | 看数据新鲜度 | 7-payload | `get_data_freshness` | — | `MCP:144`、`DOM` payload 合约 |
 | IB 网关软重连 | 7-payload | `ib_reconnect`（B，只发 `reconnect_all`）；`ib_mode`、`ib_maintenance` 是 C | D10：Agent 不写 `ib:operator:cmd` 的其他 op | `CAT:400-413`、`CM` §3 |
 | 数据库备份、修 WAL 存储 | 【推】0-foundation-decouple（「Postgres 实例和库的写入」归底座） | `trigger_cnpg_backup`（C）、`repair_cnpg_wal_store`（D）、`get_postgres_backup_status` | 删改即毁 PITR | `CAT:366,372`、`MCP:181,188,174`、`CARD/6-compute.yaml:28` |
@@ -162,7 +162,8 @@
 ### plan（1-plan，11-23 起是「立法」：法的名录、修法票、闭环、计划树）
 - 管：计划树（`agentrt.plan_node` 等）、进展投影。`CH/1-plan.md:5-8`
 - 口子：`GET /plan`、`/plan-view`、`/plan-pace`、`/progress`；`POST /plan/proposals`、`notes`、`imports`、`signoff`（签收只 Owner）；MCP `get_plan`、`get_plan_view`、`post_plan_note`、`propose_plan_change`、`propose_plan_import`。`CH/1-plan.md:12-13`
-- 能为别人做的事：读计划、收计划变更提议、记笔记。没人值守：信箱未登记，「自己定」「必须答」两栏空着（`CARD/1-plan.yaml:12-15`）。
+- 也管：法的名录（`GET /agentrt/laws`、MCP `get_laws`）；Owner 的原话和议题簿（`/agentrt/owner-said`、`/owner-issues`，MCP `get_owner_said`、`get_owner_issues`，Console「Owner's issues」「Law effect」）；法的扫描（`infra:scripts/laws/residual_scan.py`）。
+- 能为别人做的事：读计划、收计划变更提议、记笔记；查法和 Owner 的议题。自己定、必须答见身份卡（`CARD/1-plan.yaml`，infra 3208d50b）。
 
 ### lineage（2-lineage，占位，席位空着）
 - 管：external-work 登记、线程心跳与在线、提交血缘。`CH/2-lineage.md:6-8`
@@ -183,6 +184,7 @@
 - 管：审批单、`ask_owner` 问题、执行口（`owner_run_command`）、审批通知、规则批准。`CH/5-approvals.md:6-11`
 - 口子：`/approvals/*`、`/questions/*`、`/release-policy`；MCP `request_action`、`get_request`、`list_requests`、`wait_for_request`、`withdraw_request`、`ask_owner`、`wait_for_answer`、`ack_answer`、`withdraw_question`、`get_question`、`list_questions`、`get_trust_matrix`；actuation 动作 `plan_manifest`、`apply_manifest`、`create_job_from_cronjob`、`delete_finished_jobs`、`run_probe_pod`。`DOM:370` 起、`DOM:436-440`
 - 能为别人做的事：把要 Owner 批的事送到他手机上，批完由执行口在集群里跑；问他问题；替你在集群里 apply 清单、起 Job、起探针。执行卡退出码 75 =「现在不行、什么都没写」，会自动重排最多 30 分钟（`CH/5-approvals.md:52`）。
+- 读数和卡字段：审批读数 `GET /api/v1/readings/approvals`（MCP `get_approval_readings`），每天按修法 / 六类 / 日常分开计到 Owner 手机上的卡（to_owner），以及没结的、等空档超时的。卡上有 `track`（law / daily，列表可 `?track=` 筛）、`owner_class`（H1–H6，建卡时声明属于六类哪一类）、`decided_by`（owner、撤回的建卡线程、platform；11-24 16:30Z 以前的卡没有）。`law_amend` 修法票的闸门在审批，内容规则归立法线。
 
 ### compute（6-compute）
 - 管：CPU、内存、GPU、集群外容量与调度；节点老家、借用、收回；Tekton 资源；dev-session；节点硬件读数；topology.yaml。`CARD/6-compute.yaml:5-11`
@@ -225,8 +227,7 @@
 - **Owner 睡着时不建卡、不问问题**（`CM:233`）；人批的单只在 PROD 平台建（`CM:231`）。
 - **preflight 只看命令原文**：推 ready/ 不能先 `cd`、不能写 `HEAD` 或变量；kubeconfig 路径别在脚本里拼；`git add -A` 被拦（`infra:scripts/station/README.md:13-17`）。
 - **没有 Claude-Session 尾注的提交被拒时没人收得到信**（缺 Change-Id 已由合入流水线自己补），要自己 `wait_for_pipeline_run` 等（`infra:scripts/landing/admission.yaml:11`）。
-- **信箱未登记的席位发不进**：1-plan、7-payload（`CH/seats.yaml:23,28`）。
-- **cordon_node 级别对不上**：手续写 B，动作目录是 C（第 1a 节）。
+- **信箱未登记的席位发不进**：7-payload（`CH/seats.yaml`）。
 - **章程里提到、MCP 里已没有的工具名**：`request_owner`（`CH/5-approvals.md:17`）在 platform main 的 MCP 注册里查不到。`record_guard_block`、`save_home_layout`、`record_acceptance_reading` 在动作目录里有，但没注册成 MCP 工具，要直接调接口。
 
 ## 4. 空白（没有出处说怎么办，等各线补）
@@ -235,11 +236,11 @@
 2. **SSH 钥匙和登录面的清单**：哪台机器、哪把钥匙、能进哪台主机、用什么用户，没有一处写全。→ 6-compute（节点）、Station（Agent 主机）
 3. **节点入群的免人手路径**：取令牌、装系统、join 全靠 Owner；有没有可能用主机档在 .73 上读令牌、能不能这样做（令牌是 Secret，属六类），没人判过。→ 6-compute 提，Owner 定
 4. **领域合约为空**：crew、triage 已并进 station、audit（b0336adc），剩 station、audit 两份合约是空的，由各线自己补。原记：crew、station、audit、triage 在 `DOM:584-610` 都是 `{}`；只有 Station 写了一份自我说明（领活），合入那份 verification 和 delivery 共用。发布窗口、建卡、发信三份自我说明还没写（`infra:scripts/station/README.md:40`）。→ 各线
-5. **占位领域没人值守**：7-payload 信箱没登记（1-plan 11-23 起是立法线，有人值守）、「自己定」「必须答」空着；2-lineage 席位空着。要用计划、插件、租户接入时找不到人答。→ 主统筹定先后
+5. **占位领域没人值守**：7-payload 信箱没登记、「自己定」「必须答」空着；2-lineage 席位空着。要用计划、插件、租户接入时找不到人答。→ 主统筹定先后
 6. **Trade 和 Research 的业务改动找谁**：名册里没有 Trade 五仓、Research 的席位；章程只覆盖 Ops 一侧。→ 主统筹
 7. **数据库备份、CNPG、UniFi 网络动作归谁**：`trigger_cnpg_backup`、`repair_cnpg_wal_store`、`sweep_failed_backups`、`unifi_*`、`ensure_metrics_server`、`sync_kubeconfig` 等在动作目录里，但归属表的合约没把它们登在任何领域下（只有 `unifi_firewall_apply` 在 foundation）。→ 地图线、Foundation **认领**：0-foundation-decouple（章程第 2 节，infra 4e356a7a）；登进归属表合约由地图线做；缺口怎么看：`get_domain_status` 的 checks 里 class=mcp-tool 那一项的 not_registered。
 8. **preflight.js 归谁**：Crew 和 Foundation 的卡都说不是自己的、待裁（`CH/11-station.md`（原 9-crew 章程已并入）、`CARD/0-foundation-decouple.yaml:24`）。被它误拦时该找谁没有定。→ 主统筹 **认领**：11-station（主统筹 11-25 分给工坊；墙清理 11-25 也由工坊做）。被它误拦找工坊。
 9. **4090 的 harness、agent-06 当执行机**：算力线说缺；装到 06 属阶段 B 现在不做（`CH/6-compute.md:61,74`）；06 已决定格式化回集群，Agent 主机这块谁收尾只在手续第 7 步一句话。→ 6-compute、Station
 10. **叫醒没挂门铃的会话**（8-2 已补，2026-11-25）：平台信箱只留底，叫醒要对方挂着门铃。没挂门铃的 Claude 会话，用 harness 的会话消息直接发给它的 `local_…` 会话号（Claude Desktop 里的 SendMessage），会开启它的一个回合；回执写 delivered 和「turn has started」。Codex 坐席发给它在 Claude 一侧的联络会话。会话消息不留在平台的事件账里，要留底的话，同一件事再发一封平台信。席位空着（`session: null`）的，两种都叫不醒，找主统筹。→ 8-2-comm-desk
-11. **谁把 submitted 变成做完、计划步怎么认领**：1 号计划没定（`infra:docs/AGENT_WORK.md` §4）。→ 1-plan
+11. **谁把 submitted 变成做完、计划步怎么认领**：1 号计划没定（`infra:docs/AGENT_WORK.md` §4）。→ 1-plan **认领**：1-plan，第四轮修法之后定，目前未定。
 12. **算力线的口子里没写「能开 node-run 主机档的卡」**：这次卡住的那件能力，章程和身份卡都没列，只在 `OE` 里当通用工具写。→ 6-compute 核对后补进 §2
