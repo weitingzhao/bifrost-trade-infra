@@ -292,6 +292,26 @@ spec:
                       raise SystemExit('refused: the run list is paged; this check reads one page only')
                   return listing.get('items') or []
 
+              def failed_run(commit, ci, runs=cluster_runs):
+                  """The newest finished run of the row's CI for this commit that failed, or ''. A failed
+                  run writes no pipeline results, so verdict() reads it as stale (no base); this names it
+                  in the refusal (2026-11-24: land-z2dj5 told the pusher main had moved while
+                  ci-platform-24h5m had failed test-api)."""
+                  try:
+                      found = []
+                      for run in runs(ci['pipeline']):
+                          spec, status = run.get('spec', {}), run.get('status', {})
+                          params = values(spec.get('params'))
+                          if spec.get('pipelineRef', {}).get('name') != ci.get('pipeline') or params.get('revision') != commit:
+                              continue
+                          if any(params.get(k, '') != v for k, v in (ci.get('params') or {}).items()):
+                              continue
+                          if [c.get('status') for c in status.get('conditions') or [] if c.get('type') == 'Succeeded'] == ['False']:
+                              found.append((status.get('completionTime') or '', run.get('metadata', {}).get('name', '')))
+                      return max(found)[1] if found else ''
+                  except Exception:  # the refusal stands without the name
+                      return ''
+
               def ci_wait(commit, ci, base, runs=cluster_runs, limit=45 * 60, grace=3 * 60, pause=15):
                   """'green', 'stale', or a refusal."""
                   deadline, patience = time.time() + limit, time.time() + grace
@@ -647,7 +667,7 @@ spec:
                   except Exception:
                       return ''
 
-              def land(token, table, policy, repo, ref, commit, wait=ci_wait, gitea=GITEA, tries=24, pause=5,
+              def land(token, table, policy, repo, ref, commit, wait=ci_wait, failed=None, gitea=GITEA, tries=24, pause=5,
                        budget=50 * 60, push=None, turn=lambda: True, tidy=lambda api: None, queue=3 * 60 * 60):
                   """(what landed, refusal): ({'outcome': 'landed', 'commit': ..., 'change-ids': ...}, '') or
                   ({}, why not). One push is one run: a branch behind main is rebased by Gitea and this
@@ -759,6 +779,9 @@ spec:
                           return done({'outcome': 'landed', 'commit': commit, 'change-ids': ','.join(ids[:40])})
                       stale += still
                       if stale > 1:
+                          red = (failed or failed_run)(commit, entry['ci'])
+                          if red:
+                              return {}, 'refused: CI of %s failed (%s); fix it and push ready/ again' % (commit, red)
                           return {}, 'refused: CI did not judge %s against main as it is now; push ready/ again' % commit
                   return {}, 'refused: main kept moving for %d minutes while this change was checked; push ready/ again' % (budget // 60)
 

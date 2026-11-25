@@ -477,7 +477,8 @@ NEXT = "%040x" % (int(SHA, 16) + 1)  # the stub's head after one rebase
 IDS = "I" + "1" * 40
 
 
-def run_land(gitea, ref=REF, commit=SHA, repo=PLATFORM, wait=None, budget=3000, push=None, turn=None, tidy=None):
+def run_land(gitea, ref=REF, commit=SHA, repo=PLATFORM, wait=None, budget=3000, push=None, turn=None, tidy=None,
+             failed=lambda commit, ci: ""):
     """(outcome, refusal); the whole answer is left in gitea.landed."""
     waits = []
 
@@ -491,7 +492,7 @@ def run_land(gitea, ref=REF, commit=SHA, repo=PLATFORM, wait=None, budget=3000, 
     scope = module()
     scope["call"] = gitea.call
     gitea.landed, problem = scope["land"]("tok", table(), policy(), repo, ref, commit, wait=wait or waited,
-                                          gitea=gitea.HOST, tries=3, pause=0, budget=budget, push=push, turn=turn or (lambda: True),
+                                          failed=failed, gitea=gitea.HOST, tries=3, pause=0, budget=budget, push=push, turn=turn or (lambda: True),
                                           tidy=tidy or (lambda api: None))
     gitea.waits = waits
     return gitea.landed.get("outcome", ""), problem
@@ -569,6 +570,31 @@ def test_a_stale_ci_answer_on_an_unmoved_main_is_asked_again_and_then_refused():
     gitea = Gitea()
     outcome, problem = run_land(gitea, repo=INFRA, wait=lambda commit, ci, base: "stale")
     assert outcome == "" and "did not judge" in problem and gitea.merges() == []
+
+
+def test_a_stale_answer_from_a_failed_run_is_refused_as_red_with_the_runs_name():
+    """2026-11-24: ci-platform-24h5m failed test-api, a failed run writes no pipeline results, so
+    the gate read it as stale and land-z2dj5 said main had moved. The refusal now names the run.
+    Positive control: test_a_stale_ci_answer_on_an_unmoved_main_is_asked_again_and_then_refused."""
+    gitea = Gitea()
+    outcome, problem = run_land(gitea, repo=INFRA, wait=lambda commit, ci, base: "stale",
+                                failed=lambda commit, ci: "ci-infra-red")
+    assert outcome == "" and "failed (ci-infra-red)" in problem and "did not judge" not in problem
+    assert gitea.merges() == []
+
+
+def test_failed_run_names_the_newest_failed_run_of_the_commit_only():
+    named = module()["failed_run"]
+    ci = table()[INFRA]["ci"]
+    old, new, green = infra_run(state="False"), infra_run(state="False"), infra_run()
+    old["status"]["completionTime"], new["status"]["completionTime"] = "2026-11-24T01:00:00Z", "2026-11-24T02:00:00Z"
+    old["metadata"], new["metadata"] = {"name": "old"}, {"name": "new"}
+    assert named(SHA, ci, runs=lambda pipeline: [old, new, green]) == "new"
+    assert named(SHA, ci, runs=lambda pipeline: [green]) == ""
+    assert named("f" * 40, ci, runs=lambda pipeline: [old, new]) == ""
+    def broken(pipeline):
+        raise OSError("no token")
+    assert named(SHA, ci, runs=broken) == ""
 
 
 def test_a_rebase_gitea_cannot_do_is_a_refusal_that_says_what_to_do():
