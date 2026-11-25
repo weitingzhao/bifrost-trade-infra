@@ -4,8 +4,9 @@
 #   push-main.sh [--no-lineage <reason>] [--skip-tests <reason>] [--allow-red <reason>]
 #                <checkout> [<commit>]     <commit> defaults to the checkout's HEAD
 #
-# 1. The release window must be closed (release.sh window), checked again
-#    right before the push.
+# 1. No release window may be held for this repository (release.sh window),
+#    checked again right before the push; one held for other repositories
+#    only does not stop it (walls review [78], 2026-11-25).
 # 2. The commit must fast-forward origin/main (fetched first).
 # 3. Every commit of origin/main..<commit> carries its lineage, a Change-Id
 #    and a Claude-Session trailer (TD-400), or the push is refused naming
@@ -211,12 +212,21 @@ if [[ -f "$PRIMARY_LIST" ]]; then
   fi
 fi
 
+# The window stops a push only when it is held for this repository (walls
+# review [78], 2026-11-25): another repository's release is not something
+# this push waits on. A window whose repositories cannot be read stops it.
 window() {
-  local rc=0
-  "$WINDOW" window || rc=$?
+  local rc=0 out what
+  out="$("$WINDOW" window)" || rc=$?
   case "$rc" in
     0) ;;
-    1) die "the release window is open; nothing pushed. This script pushes only while the window is closed, whoever holds it: push first and hold the window after, for the sync or the release that follows. A lane's commit goes in through ready/<name> (docs/RELEASE.md), which does not read the window" ;;
+    1)
+      what="$(sed -n 's/.* what=\([a-z0-9,-]*\) .*/\1/p' <<<"$out" | head -1)"
+      if [[ -n "$what" ]] && ! tr ',' '\n' <<<"$what" | grep -qxF -- "$repo"; then
+        echo "push-main: the release window is held for $what, not $repo; pushing"
+        return 0
+      fi
+      die "the release window is open${what:+ for $what}; nothing pushed. This script pushes only while no window is held for $repo: push first and hold the window after, for the sync or the release that follows. A lane's commit goes in through ready/<name> (docs/RELEASE.md), which does not read the window" ;;
     *) die "cannot read the release window (exit $rc); nothing pushed" ;;
   esac
 }
@@ -336,7 +346,9 @@ if [[ ${#missing[@]} -gt 0 ]]; then
     {
       echo "push-main: ${#missing[@]} commit(s) of origin/main..$commit carry no lineage (Change-Id and Claude-Session trailers); nothing pushed:"
       printf '  %s\n' "${missing[@]}"
-      echo "  add them (git commit --amend --trailer, or rebase), or push with --no-lineage <reason> for commits made outside a Claude session"
+      echo "  add them with one command (Change-Id from each commit id; Claude-Session from this session, when it is set):"
+      echo "    git -C $top rebase -q origin/main --exec 'sh $HERE/add-lineage.sh'"
+      echo "  then push the new HEAD (it needs its own green CI), or push with --no-lineage <reason> for commits made outside a Claude session"
     } >&2
     exit 1
   fi

@@ -252,6 +252,27 @@ class PushMain(_Fixture):
         self.assertEqual(r.returncode, 1)
         self.assertIn("cannot read the release window", r.stderr)
 
+    def test_a_window_held_for_another_repository_does_not_stop_the_push(self) -> None:
+        """Walls review [78], 2026-11-25 (Owner's batch of loosenings, owner_said e6a1558c): any open
+        window refused every push, though another repository's release is not something this push
+        waits on. Positive control: a window that names this repository, or names none, still refuses."""
+        repo = _git(self.work, "remote", "get-url", "origin").rstrip("/").rsplit("/", 1)[-1].removesuffix(".git")
+        self._big_files(0, 1)
+        self.window_rc.write_text("1")
+        said = self.window_rc.parent / "window.out"
+        self.window.write_text(f'#!/bin/sh\ncat {said}\nexit "$(cat {self.window_rc})"\n')
+        for what, pushed in ((f"bifrost-ui,{repo}", False), ("", False), ("bifrost-ui,bifrost-engine", True)):
+            before = self._remote_main()
+            said.write_text(f"release window OPEN:\n  who=x what={what} env=hold started_at=t expires_at=t\n"
+                            if what else "release window OPEN:\n")
+            r = self._push()
+            self.assertEqual(r.returncode == 0, pushed, (what, r.stdout, r.stderr))
+            if pushed:
+                self.assertIn(f"held for {what}, not {repo}; pushing", r.stdout)
+            else:
+                self.assertEqual(self._remote_main(), before)
+                self.assertIn("release window is open", r.stderr)
+
     def test_not_a_fast_forward_is_refused(self) -> None:
         base = _git(self.work, "rev-parse", "HEAD")
         self._big_files(0, 1)
@@ -423,6 +444,29 @@ class PushMain(_Fixture):
         r = self._push()
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertIn("(no Change-Id Claude-Session) bare", r.stderr)
+
+    def test_the_refusal_hands_one_command_that_adds_the_lineage(self) -> None:
+        """Walls review [79], 2026-11-25 (Owner's batch of loosenings, owner_said e6a1558c): a refusal
+        said only "add them", and the pusher rewrote commits by hand (11-24, ui 0.60.0's 8fc175e).
+        It now prints one command; run as printed, every commit carries both trailers."""
+        lined, no_change, no_session = self._unlined()
+        r = self._push()
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        (line,) = [l.strip() for l in r.stderr.splitlines() if "add-lineage.sh" in l]
+        self.assertTrue(line.startswith(f"git -C {self.work.resolve()} rebase -q origin/main --exec "), line)
+        env = dict(self._env(), CLAUDE_CODE_HOST_SESSION_ID="local_test", GIT_AUTHOR_NAME="t",
+                   GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
+        done = subprocess.run(["bash", "-c", line], env=env, capture_output=True, text=True)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        rows = _git(self.work, "log", "--format=%(trailers:key=Change-Id,valueonly,separator=%x2C)|%(trailers:key=Claude-Session,valueonly,separator=%x2C)|%s",
+                    "origin/main..HEAD").splitlines()
+        self.assertEqual(len([r for r in rows if r.strip()]), 3)
+        for row in filter(str.strip, rows):
+            change, session, subject = row.split("|")
+            self.assertTrue(change.strip() and session.strip(), row)
+        # Positive control: the commit that had both keeps its own Change-Id.
+        self.assertIn(_git(self.work, "log", "-1", "--format=%(trailers:key=Change-Id,valueonly,separator=%x2C)", lined).strip(),
+                      _git(self.work, "log", "--format=%(trailers:key=Change-Id,valueonly,separator=%x2C)", "origin/main..HEAD"))
 
     def test_no_lineage_pushes_and_says_why(self) -> None:
         _, no_change, no_session = self._unlined()
