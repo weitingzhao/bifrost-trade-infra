@@ -20,9 +20,12 @@ spec:
     # The peer repos are cloned at their own default branch. They were cloned at
     # `revision` too, which is the frontend's SHA and exists in neither, so every
     # webhook run failed at clone before any check could run.
+    # R0E (2026-11-25): "stable" clones bifrost-ui's stable pin, the newest ui commit the
+    # console passed with (resolve-ui; no pin readable, ui main as before). A ui push still
+    # names its own commit (binding bifrost-gitea-push-ui).
     - name: uiRevision
       type: string
-      default: main
+      default: stable
     - name: infraRevision
       type: string
       default: main

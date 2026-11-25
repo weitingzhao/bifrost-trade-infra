@@ -244,7 +244,7 @@ spec:
     - name: revision
       default: main
     - name: uiRevision
-      default: main
+      default: stable
   resourcetemplates:
     - apiVersion: tekton.dev/v1
       kind: PipelineRun
@@ -314,7 +314,7 @@ spec:
     - name: revision
       default: main
     - name: uiRevision
-      default: main
+      default: stable
     # The commit a push moved from; empty for a ui push (the whole suite).
     - name: base
       default: ""

@@ -63,9 +63,12 @@ spec:
       default: main
     # Same for bifrost-ui. Without it the Console type-check could not resolve
     # @bifrost/ui, and all 10 runs that reached test-console failed there.
+    # R0E (2026-11-25): "stable" clones bifrost-ui's stable pin, the newest ui commit the
+    # console passed with (resolve-ui; no pin readable, ui main as before). A ui push still
+    # names its own commit (binding bifrost-gitea-push-ui).
     - name: uiRevision
       type: string
-      default: main
+      default: stable
     - name: giteaBase
       type: string
       default: http://gitea.cicd.svc.cluster.local:3000/bifrost
