@@ -1,4 +1,4 @@
-# The node new CI runs go to (the Owner, 2026-11-18: CI on ubt-k3s-05 moves to
+# The node new CI runs go to (决定 2026-11-18: CI on ubt-k3s-05 moves to
 # ubt-k3s-07, the slow disk only as the fallback). A CI run is created by the
 # Gitea webhook's trigger; PROD's platform keeps the current choice in this one
 # TriggerBinding (delivery/ci_node.go), which the trigger reads when it creates a

@@ -1,4 +1,4 @@
-# One-off measure (Owner 2026-11-24): is a CI build cache on the node's own SSD
+# One-off measure (决定 2026-11-24): is a CI build cache on the node's own SSD
 # faster than the shared one on the NAS SSD (ci-build-cache, nfs-fast)? If it is
 # clearly faster, each domain's CI moves to its own node with a local cache and
 # the NAS keeps only a way back; if not, the NAS cache stays (capped at 100 GB).

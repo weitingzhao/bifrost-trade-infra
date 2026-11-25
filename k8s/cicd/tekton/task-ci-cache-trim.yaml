@@ -6,7 +6,7 @@
 # whole /volume2 holds 429 GB on 2026-11-24 (kubelet, which reports the export
 # for every NFS claim), most of it backups. The first du of the cache itself
 # (2026-11-24 22:53Z) read 33.5 GB: go/build 33.1 GB, go/mod 0.3 GB, npm 0.1 GB.
-# Owner 2026-11-24: the CI cache stays under 100 GB of the NAS SSD. So the
+# 决定 2026-11-24: the CI cache stays under 100 GB of the NAS SSD. So the
 # default is mode=trim with cap-gb=100 (start_pipeline_run passes only the
 # revision), and a run that cannot get under the cap fails.
 
