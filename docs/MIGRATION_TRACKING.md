@@ -203,7 +203,7 @@ GitOps live overlay: `bifrost-platform-plugin/k8s/ib-gateway/overlays/live/` · 
 | 栏目 | 治理要点 | 状态 |
 |------|----------|------|
 | Research | Discovery hooks + `discovery/*`；Watchlist / Screener / Greeks / Stock Data / Risk | **Batch 3 Owner signed**（2026-06-03） |
-| Portfolio | `useTradeLedgerModel`、`useTradeLedgerHandlers`；Performance `pages/portfolio/performance/*`；Trade Ledger `TradeLedgerPage.tsx` + `ledger/*` | **VERIFIED（Batch 2 Owner 2026-06-03）** |
+| Portfolio | `useTradeLedgerModel`、`useTradeLedgerHandlers`；Performance `pages/portfolio/performance/*`；Trade Ledger `TradeLedgerPage.tsx` + `ledger/*` | **VERIFIED（Batch 2，决定 2026-06-03）** |
 | System | ApiHealth → `ApiHealthPage.tsx` + `settings/apiHealth/*`（Phase 4.16 Dense UI + **4.17 parity**）；Daemon → `settings/daemon/*`；Socket → `settings/socket/*`（Phase 4.18） | **Batch 5 Owner signed**（2026-06-03） |
 | Strategy | `useOptionCategory*`；`optionCategory/*` Dense UI 拆分（Phase 4.15） | **Batch 4 Owner signed**（2026-06-03） |
 | Settings | Subscribe 三 Tab；Coverage Overview/Option/Stock IB；Feed 子路由；`/settings/ib` | **Batch 6 Owner signed**（2026-06-03–04；IB parity 见 `IB_CONNECTION_ACCEPTANCE.md`） |
@@ -229,8 +229,8 @@ GitOps live overlay: `bifrost-platform-plugin/k8s/ib-gateway/overlays/live/` · 
 
 | 页面 | engine 源 | 状态 |
 |------|----------|------|
-| LivePage | `pages/market/live/*` | **VERIFIED（Batch 1 Owner 2026-06-03）** |
-| AccountsPage | `portfolio/AccountsPage.tsx` + `accounts/*` | **VERIFIED（Batch 1 Owner 2026-06-03）** |
+| LivePage | `pages/market/live/*` | **VERIFIED（Batch 1，决定 2026-06-03）** |
+| AccountsPage | `portfolio/AccountsPage.tsx` + `accounts/*` | **VERIFIED（Batch 1，决定 2026-06-03）** |
 | OptionScreenerPage | `research/ScreenerPage.tsx` + `optionScreener/*` | **Batch 3 Owner signed**（2026-06-03） |
 | StockScreenerPage | `research/StockScreenerPage.tsx` + `stockScreener/*` | **Batch 3 Owner signed**（2026-06-03） |
 | StockWatchlistPage | `research/StockWatchlistPage.tsx` + `watchlist/*` | **Batch 3 Owner signed**（2026-06-03） |
@@ -238,40 +238,40 @@ GitOps live overlay: `bifrost-platform-plugin/k8s/ib-gateway/overlays/live/` · 
 | OptionDiscoveryPage | `research/DiscoveryPage.tsx` + `discovery/*` | **Batch 3 Owner signed**（2026-06-03；`PHASE2_DISCOVERY_ACCEPTANCE.md`） |
 | OptionGreeksPage | `research/GreeksPage.tsx` + `greeks/*` | **Batch 3 Owner signed**（2026-06-03） |
 | ResearchRiskAnalysisPage | `research/RiskModelPage.tsx` | **Batch 3 Owner signed**（2026-06-03） |
-| PositionsPage | `portfolio/PositionsPage.tsx` + `charts/*` + `buildInstanceGroups` / `buildInstanceAllGroups`（position-attribution API） | **VERIFIED（Batch 1 Owner 2026-06-03）** |
-| TradeHistoryPage | `portfolio/TradeLedgerPage.tsx` + `ledger/*` | **VERIFIED（Batch 2 Owner 2026-06-03）** |
-| PerformancePage | `portfolio/PerformancePage.tsx` + `performance/*` | **VERIFIED（Batch 2 Owner 2026-06-03）** |
+| PositionsPage | `portfolio/PositionsPage.tsx` + `charts/*` + `buildInstanceGroups` / `buildInstanceAllGroups`（position-attribution API） | **VERIFIED（Batch 1，决定 2026-06-03）** |
+| TradeHistoryPage | `portfolio/TradeLedgerPage.tsx` + `ledger/*` | **VERIFIED（Batch 2，决定 2026-06-03）** |
+| PerformancePage | `portfolio/PerformancePage.tsx` + `performance/*` | **VERIFIED（Batch 2，决定 2026-06-03）** |
 | SettingsPage | `frontend/src/pages/` | **N/A** — 拆为 `SettingsLayout` + 子路由（Batch 6 已验） |
-| TransferPayPage | `portfolio/TransferPayPage.tsx` | **VERIFIED（Batch 2 Owner 2026-06-03）** |
-| ModelAnalysisPage | `portfolio/ModelAnalysisPage.tsx` + `modelAnalysis/*` | **VERIFIED（Batch 2 Owner 2026-06-03）** |
+| TransferPayPage | `portfolio/TransferPayPage.tsx` | **VERIFIED（Batch 2，决定 2026-06-03）** |
+| ModelAnalysisPage | `portfolio/ModelAnalysisPage.tsx` + `modelAnalysis/*` | **VERIFIED（Batch 2，决定 2026-06-03）** |
 | BacktestPage | `research/BacktestPage.tsx` | N/A — both Legacy/New placeholder |
-| StrategyStructurePage | `frontend/src/pages/` → `strategy/StructuresPage.tsx` + `StructuresTable` + `structures/*`（Dense 双表 + SegmentControl；Phase 4.11） | **VERIFIED（Batch 4 Owner 2026-06-03）** |
-| StrategyOpportunityPage | `frontend/src/pages/` → `strategy/OpportunitiesPage.tsx` + `OpportunitiesTable` + `opportunities/*`（Dense 列表 + SegmentControl；Phase 4.12） | **VERIFIED（Batch 4 Owner 2026-06-03）** |
-| StrategyInstancesPage | `strategy/InstancesPage.tsx` + `instances/*` + `InstanceDetailSidebar`（Phase 4.9 Dense 2026-06-03） | **VERIFIED（Batch 1 Owner 2026-06-03）** |
-| StrategyWinRatePage | `frontend/src/pages/` → `strategy/WinRatePage.tsx` + `components/strategy/winRate/*`（winRateUi + Card elevated；Phase 4.10 KPI 卡片网格） | **VERIFIED（Batch 4 Owner 2026-06-03）** |
-| StrategyAllocationPage | `frontend/src/pages/` → `strategy/AllocationsPage.tsx` + `AllocationsTable` + `allocations/*`（Dense 双 Switch + monitor Current active；Phase 4.14） | **VERIFIED（Batch 4 Owner 2026-06-03）** |
-| GatesConfigPage | `frontend/src/pages/` → `strategy/GatesPage.tsx` + `gates/*`（Dense 双 Card + GatesTable + GateSafetyFormSheet；Phase 4.13） | **VERIFIED（Batch 4 Owner 2026-06-03）** |
-| StructureTypeConfigPage | `strategy/OptionCategoryPage.tsx` + `optionCategory/*` | **VERIFIED（Batch 4 Owner 2026-06-03）** |
-| DaemonStatusPage (`/operations/daemon`) | `frontend/src/pages/status/` + `DaemonEngineOpsSection.tsx` → `settings/DaemonStatusPage.tsx` + `settings/daemon/*` | **VERIFIED（Batch 5 Owner 2026-06-03）** |
-| IbEventSubscribePage (Settings) | `frontend/src/pages/` → `settings/SubscribePage.tsx` + `settings/subscribe/*`（三 Tab Dense UI、`postReleaseTickerSubscriptions`、`useSubscribeExecutions` limit 20） | **VERIFIED（Batch 6 Owner 2026-06-03）** |
-| CeleryControlPage (Settings) | `frontend/src/pages/celery/` → `operations/CeleryPage.tsx` + `operations/celery/*` | **VERIFIED（Batch 5 Owner 2026-06-03）** |
-| MarketIngestOpsPage (Settings → Socket) | `settings/SocketPage.tsx` + `settings/socket/*` | **VERIFIED（Batch 5 Owner 2026-06-03）** |
-| ApiHealthOverviewPage (Settings) | `frontend/src/pages/apiOverview/` → `settings/ApiHealthPage.tsx` + `apiHealth/*`（Phase 4.16 Dense UI + 4.17 parity：Services Overview、Shutdown、Log Console） | **VERIFIED（Batch 5 Owner 2026-06-03）** |
+| StrategyStructurePage | `frontend/src/pages/` → `strategy/StructuresPage.tsx` + `StructuresTable` + `structures/*`（Dense 双表 + SegmentControl；Phase 4.11） | **VERIFIED（Batch 4，决定 2026-06-03）** |
+| StrategyOpportunityPage | `frontend/src/pages/` → `strategy/OpportunitiesPage.tsx` + `OpportunitiesTable` + `opportunities/*`（Dense 列表 + SegmentControl；Phase 4.12） | **VERIFIED（Batch 4，决定 2026-06-03）** |
+| StrategyInstancesPage | `strategy/InstancesPage.tsx` + `instances/*` + `InstanceDetailSidebar`（Phase 4.9 Dense 2026-06-03） | **VERIFIED（Batch 1，决定 2026-06-03）** |
+| StrategyWinRatePage | `frontend/src/pages/` → `strategy/WinRatePage.tsx` + `components/strategy/winRate/*`（winRateUi + Card elevated；Phase 4.10 KPI 卡片网格） | **VERIFIED（Batch 4，决定 2026-06-03）** |
+| StrategyAllocationPage | `frontend/src/pages/` → `strategy/AllocationsPage.tsx` + `AllocationsTable` + `allocations/*`（Dense 双 Switch + monitor Current active；Phase 4.14） | **VERIFIED（Batch 4，决定 2026-06-03）** |
+| GatesConfigPage | `frontend/src/pages/` → `strategy/GatesPage.tsx` + `gates/*`（Dense 双 Card + GatesTable + GateSafetyFormSheet；Phase 4.13） | **VERIFIED（Batch 4，决定 2026-06-03）** |
+| StructureTypeConfigPage | `strategy/OptionCategoryPage.tsx` + `optionCategory/*` | **VERIFIED（Batch 4，决定 2026-06-03）** |
+| DaemonStatusPage (`/operations/daemon`) | `frontend/src/pages/status/` + `DaemonEngineOpsSection.tsx` → `settings/DaemonStatusPage.tsx` + `settings/daemon/*` | **VERIFIED（Batch 5，决定 2026-06-03）** |
+| IbEventSubscribePage (Settings) | `frontend/src/pages/` → `settings/SubscribePage.tsx` + `settings/subscribe/*`（三 Tab Dense UI、`postReleaseTickerSubscriptions`、`useSubscribeExecutions` limit 20） | **VERIFIED（Batch 6，决定 2026-06-03）** |
+| CeleryControlPage (Settings) | `frontend/src/pages/celery/` → `operations/CeleryPage.tsx` + `operations/celery/*` | **VERIFIED（Batch 5，决定 2026-06-03）** |
+| MarketIngestOpsPage (Settings → Socket) | `settings/SocketPage.tsx` + `settings/socket/*` | **VERIFIED（Batch 5，决定 2026-06-03）** |
+| ApiHealthOverviewPage (Settings) | `frontend/src/pages/apiOverview/` → `settings/ApiHealthPage.tsx` + `apiHealth/*`（Phase 4.16 Dense UI + 4.17 parity：Services Overview、Shutdown、Log Console） | **VERIFIED（Batch 5，决定 2026-06-03）** |
 | IbConnectionPage (Settings) | `settings/IbConnectionPage.tsx` — connection / Flex | **VERIFIED**（2026-06-04；`IB_CONNECTION_ACCEPTANCE.md`） |
 | ArchitectureApisPage (Settings) | `frontend/src/pages/architecture/` → merged into `ApiHealthPage` Architecture tab | **DONE**（2026-06-02） |
 | AccountApisPage (Settings) | `frontend/src/pages/account/` → merged into `ApiHealthPage` Account tab | **DONE**（2026-06-02） |
 | ResearchApisPage (Settings) | `frontend/src/pages/` → merged into `ApiHealthPage` Research tab | **DONE**（2026-06-02） |
 | MassiveApiStatusPage (Settings) | `frontend/src/pages/massive/` → merged into `ApiHealthPage` Massive tab | **DONE**（2026-06-02） |
 | DataPage (Settings) | `frontend/src/pages/data/` | **N/A** — 合并入 `coverage/*`（Batch 6 已验） |
-| DataOverviewSummaryPage (Settings) | `CoverageOverviewPage.tsx` + `coverage/overview/CoverageOverviewSummaryBody.tsx` | **VERIFIED（Batch 6 Owner 2026-06-03）** |
-| DataOverviewDetailPage (Settings) | `CoverageOverviewDetailPage` + `coverage/overview/*` | **VERIFIED（Batch 6 Owner 2026-06-03）** |
-| OptionCoveragePage (Settings) | `CoverageOptionPage.tsx` + `coverage/option/OptionCoverageBody.tsx` | **VERIFIED（Batch 6 Owner 2026-06-03）** |
-| StockCoveragePage (Settings) | `CoverageStockIbPage.tsx` + `coverage/stock/StockIbCoverageBody.tsx` | **VERIFIED（Batch 6 Owner 2026-06-03）** |
-| MassiveStockCoveragePage (Settings) | `CoverageStockMassivePage` + `coverage/stock/*` + `components/massive/MassiveStockOhlcDbEnqueueBlock` | **VERIFIED（Batch 6 Owner 2026-06-03）** |
-| FeedMassiveOverviewPage (Settings) | `FeedMassiveOverviewPage` + nested `MassiveSidebarNav` (Overview at `/settings/feed/massive`, Stock/Option/Comm sub-routes) | **VERIFIED（Batch 6 Owner 2026-06-03）** |
-| FeedMassiveCommonPage (Settings) | `FeedMassiveCommPage` + `feed/massive/comm/*` | **VERIFIED（Batch 6 Owner 2026-06-03）** |
-| FeedMassiveOptionPage (Settings) | `FeedMassiveOptionPage` + `feed/massive/option/*` | **VERIFIED（Batch 6 Owner 2026-06-03）** |
-| FeedMassiveStockPage (Settings) | `FeedMassiveStockPage` + `feed/massive/stock/*` | **VERIFIED（Batch 6 Owner 2026-06-03）** |
+| DataOverviewSummaryPage (Settings) | `CoverageOverviewPage.tsx` + `coverage/overview/CoverageOverviewSummaryBody.tsx` | **VERIFIED（Batch 6，决定 2026-06-03）** |
+| DataOverviewDetailPage (Settings) | `CoverageOverviewDetailPage` + `coverage/overview/*` | **VERIFIED（Batch 6，决定 2026-06-03）** |
+| OptionCoveragePage (Settings) | `CoverageOptionPage.tsx` + `coverage/option/OptionCoverageBody.tsx` | **VERIFIED（Batch 6，决定 2026-06-03）** |
+| StockCoveragePage (Settings) | `CoverageStockIbPage.tsx` + `coverage/stock/StockIbCoverageBody.tsx` | **VERIFIED（Batch 6，决定 2026-06-03）** |
+| MassiveStockCoveragePage (Settings) | `CoverageStockMassivePage` + `coverage/stock/*` + `components/massive/MassiveStockOhlcDbEnqueueBlock` | **VERIFIED（Batch 6，决定 2026-06-03）** |
+| FeedMassiveOverviewPage (Settings) | `FeedMassiveOverviewPage` + nested `MassiveSidebarNav` (Overview at `/settings/feed/massive`, Stock/Option/Comm sub-routes) | **VERIFIED（Batch 6，决定 2026-06-03）** |
+| FeedMassiveCommonPage (Settings) | `FeedMassiveCommPage` + `feed/massive/comm/*` | **VERIFIED（Batch 6，决定 2026-06-03）** |
+| FeedMassiveOptionPage (Settings) | `FeedMassiveOptionPage` + `feed/massive/option/*` | **VERIFIED（Batch 6，决定 2026-06-03）** |
+| FeedMassiveStockPage (Settings) | `FeedMassiveStockPage` + `feed/massive/stock/*` | **VERIFIED（Batch 6，决定 2026-06-03）** |
 | StrategyInstanceDetailPage | `frontend/src/pages/strategy/` | **N/A** — 内嵌 `InstanceDetailSidebar`（Batch 1 已验） |
 
 ### §6.4 共享组件与工具
@@ -362,15 +362,15 @@ GitOps live overlay: `bifrost-platform-plugin/k8s/ib-gateway/overlays/live/` · 
 
 | 子阶段 | 内容 | Agent | Owner | 状态 |
 |--------|------|-------|-------|------|
-| 2C-A | compose + config.prod + 前端 prod build + `prod-health` | Session 0–9 已签 | Owner 2026-06-08 | **CLOSED** |
+| 2C-A | compose + config.prod + 前端 prod build + `prod-health` | Session 0–9 已签 | 决定 2026-06-08 | **CLOSED** |
 | 2C-A.1 | Docker 控制面（Ops executor + Daemon/Socket UI） | `verify-2c-a1` 通过 | Session 8 已签 | **Owner 已验** |
-| **Local Prod Final** | local 闸门；Session 0–3/8 + L2.8 | Owner 2026-06-04 | L4 CLOSED | **CLOSED** |
+| **Local Prod Final** | local 闸门；Session 0–3/8 + L2.8 | 决定 2026-06-04 | L4 CLOSED | **CLOSED** |
 | 2C-B | Compose Prod 稳定测试 | D5 已签 | 生产切换待迁移决策 | **稳定测试已签** |
-| **K3s 阶段 1** | 集群搭建与试验 | §9 清单 | Owner 2026-06-04 解锁 | **CLOSED**（CNPG + dev/stg/prod 栈 @ K3s） |
+| **K3s 阶段 1** | 集群搭建与试验 | §9 清单 | 解锁（决定 2026-06-04） | **CLOSED**（CNPG + dev/stg/prod 栈 @ K3s） |
 | K3s 搬迁 → Legacy | PLATFORM / K3S 文档 | overlay 同步、矩阵 CNPG/redis | 2026-06-29 | **DONE** |
 | Phase 3 | Legacy 退役 | `.70` compose 已停；engine NAS 归档；spine 决策 D8 签字 | 2026-06-29 | **CLOSED**（SIGNED — engine retired） |
 
-**主线**（Owner 2026-06-04）：Local Prod Final **CLOSED** → **K3s 阶段 1** → 迁移定稿 → Legacy 退役。见 Ops Console → Program → Deploy Mainline（`deployMainlineCatalog.ts`）。
+**主线**（决定 2026-06-04）：Local Prod Final **CLOSED** → **K3s 阶段 1** → 迁移定稿 → Legacy 退役。见 Ops Console → Program → Deploy Mainline（`deployMainlineCatalog.ts`）。
 
 ---
 
