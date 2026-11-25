@@ -103,6 +103,9 @@ spec:
           - name: tripwire
           # none, ran or skipped: whether CI judged a rebased commit again (LANDING_REPOS rerun).
           - name: rerun
+          # The commits the landing gave a Change-Id it could not find in their last paragraph
+          # (walls review [74], 2026-11-25); empty when none.
+          - name: trailers
         volumes:
           - name: gitea-merger
             secret:
@@ -200,6 +203,7 @@ spec:
               #!/usr/bin/env python3
               """Land a green ready/ branch: pull request, up to date with main, CI green, merge."""
               import base64
+              import hashlib
               import json
               import os
               import re
@@ -395,6 +399,63 @@ spec:
                           if rest and all(TRAILER.match(line) for line in rest):
                               return True
                   return False
+
+              def fixed_message(message, sha):
+                  """`message` with a Change-Id in its last paragraph: trailers split by a blank line are joined
+                  into one block; a message with none gets one made from `sha`, the same however often this
+                  runs (walls review [74], 2026-11-25: a missing trailer was refused, and a branch whose pusher
+                  never heard of it sat for an hour or more; now the landing adds it and goes on)."""
+                  if change_id(message):
+                      return message
+                  body = message.strip()
+                  parts = re.split(r'\n[ \t]*\n', body)
+                  if misplaced_change_id(message):
+                      for i in range(1, len(parts) - 1):
+                          if change_id('x\n\n' + parts[i]):
+                              return '\n\n'.join(parts[:i] + ['\n'.join(parts[i:])]) + '\n'
+                  made = 'I' + hashlib.sha1(('land:' + sha).encode()).hexdigest()
+                  last = parts[-1].splitlines() if len(parts) > 1 else []
+                  if last and all(TRAILER.match(line) or line[:1] in (' ', '\t') or line.startswith('(cherry picked from commit ')
+                                  for line in last) and not any(line.startswith('Change-Id:') for line in last):
+                      return body + '\nChange-Id: ' + made + '\n'
+                  return body + '\n\nChange-Id: ' + made + '\n'
+
+              def amend_trailers(user, token, remote, branch, head, commits, fixes, host=GITEA):
+                  """(the branch's new head, '') after the commits of `fixes` ({sha: message}) were given those
+                  messages and the branch pushed back as `branch`; (None, why) otherwise. The trees stay as they
+                  were, so the CI of `head` still judges the change. The push names the head it replaces: a push
+                  that came meanwhile is not overwritten."""
+                  auth = base64.b64encode(('%s:%s' % (user, token)).encode()).decode()
+                  env = dict(os.environ, GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL='/dev/null', GIT_TERMINAL_PROMPT='0',
+                             GIT_CONFIG_COUNT='2', GIT_CONFIG_KEY_0='http.' + host + '/.extraHeader',
+                             GIT_CONFIG_VALUE_0='Authorization: Basic ' + auth,
+                             GIT_CONFIG_KEY_1='credential.helper', GIT_CONFIG_VALUE_1='',
+                             GIT_COMMITTER_NAME=user, GIT_COMMITTER_EMAIL=user + '@bifrost.lan')
+                  with tempfile.TemporaryDirectory() as tmp:
+                      def git(*args):
+                          done = subprocess.run(['git', '-C', tmp] + list(args), env=env, capture_output=True, text=True, timeout=180)
+                          if done.returncode:
+                              said = (done.stdout + done.stderr).replace(auth, '***').strip().splitlines()
+                              raise RuntimeError('git %s: %s' % (args[0], said[-1][:200] if said else done.returncode))
+                          return done.stdout.strip()
+                      try:
+                          git('init', '-q')
+                          git('fetch', '-q', '--depth=%d' % (len(commits) + 1), remote, head)
+                          git('checkout', '-q', '--detach', commits[0] + '~1')
+                          for sha in commits:
+                              git('cherry-pick', '--allow-empty', '--keep-redundant-commits', sha)
+                              if sha in fixes:
+                                  note = os.path.join(tmp, '.git', 'LAND_MESSAGE')
+                                  with open(note, 'w') as handle:
+                                      handle.write(fixes[sha])
+                                  git('commit', '-q', '--amend', '--allow-empty', '-F', note)
+                          new = git('rev-parse', 'HEAD')
+                          if git('rev-parse', 'HEAD^{tree}') != git('rev-parse', head + '^{tree}'):
+                              return None, 'the rewritten branch has another tree'
+                          git('push', '-q', '--force-with-lease=refs/heads/%s:%s' % (branch, head), remote, 'HEAD:refs/heads/' + branch)
+                      except (OSError, subprocess.TimeoutExpired, RuntimeError) as err:
+                          return None, str(err)[:300]
+                  return new, ''
 
               def listed(token, api, number, commit):
                   """(the pull request's commit ids, '') for a pull request this run has just opened or
@@ -739,7 +800,7 @@ spec:
                       return ''
 
               def land(token, table, policy, repo, ref, commit, wait=ci_wait, failed=None, gitea=GITEA, tries=24, pause=5,
-                       budget=50 * 60, push=None, turn=lambda: True, tidy=lambda api: None, queue=3 * 60 * 60):
+                       budget=50 * 60, push=None, turn=lambda: True, tidy=lambda api: None, queue=3 * 60 * 60, rewrite=None):
                   """(what landed, refusal): ({'outcome': 'landed', 'commit': ..., 'change-ids': ...}, '') or
                   ({}, why not). One push is one run: a branch behind main is rebased by Gitea and this
                   run goes on with the new commit, as often as main moves, until it is merged or the
@@ -769,6 +830,27 @@ spec:
                       commits, problem = listed(token, api, pull['number'], commit)
                   if not problem:
                       ids, problem = checked(token, api, commits, policy, repo, seen)
+                  first, fixes = commit, {}
+                  if problem and rewrite is not None and ('no Change-Id trailer' in problem
+                                                          or 'Change-Id outside the last paragraph' in problem):
+                      fixes = {sha: fixed_message(message, sha) for sha, message in zip(commits, messages(token, api, commits))
+                               if message and not change_id(message)}
+                      new, why = rewrite(repo, branch, commit, commits, fixes) if fixes else (None, 'no message to fix')
+                      if why:
+                          return {}, problem + ' (the landing could not add it: %s)' % why
+                      head, problem = rebased_head(token, api, pull, pause=pause)
+                      if not problem and head != new:
+                          problem = 'refused: the branch moved after this run started; its new push has its own run'
+                      if problem:
+                          return {}, problem
+                      print('NOTICE: %s had no Change-Id in its last paragraph; the landing added it and goes on with %s '
+                            '(the CI of %s judges the same tree)' % (', '.join(s[:12] for s in fixes), new[:12], first[:12]),
+                            flush=True)
+                      commit, seen = new, set()
+                      pull = dict(pull, head=dict(pull.get('head') or {}, sha=commit))
+                      commits, _, problem = walked(token, api, commit, len(commits))
+                      if not problem:
+                          ids, problem = checked(token, api, commits, policy, repo, seen)
 
                   def done(result):
                       # rerun: none (the pushed commit landed), ran (CI judged the rebased commit) or
@@ -776,6 +858,8 @@ spec:
                       # directories; main's own CI run tests the rebased tree).
                       result['rerun'] = 'none' if commit == pushed else (
                           ('own' if own else 'skipped') if skip == commit else 'ran')
+                      if fixes:
+                          result['trailers'] = 'Change-Id added to %s' % ','.join(s[:12] for s in fixes)
                       hit = tripwired(entry, seen)
                       if hit:
                           print('TRIPWIRE: this change touches %s (watched, not stopped)' % ', '.join(hit), flush=True)
@@ -787,8 +871,10 @@ spec:
                   # merge_base Gitea reports. After a rebase that field, the pull request's commit list
                   # and the list of open pull requests all lag (2026-11-13: land-79dsl, land-wbnxq), so
                   # from then on the run reads only by commit id and by the pull request's number.
-                  pushed, stale, on = commit, 0, pull.get('merge_base')
+                  pushed, stale, on = first, 0, pull.get('merge_base')
                   sat_on, skip, own = on, None, False  # the commit the pushed one sits on; a rebased commit to land on that run
+                  if commit != first:
+                      skip = commit  # only the messages changed: the pushed commit's CI on `on` is the check
                   while time.time() < deadline:
                       base, problem = up_to_date(token, api, pull['number'], on, turn)
                       if problem == 'waiting':
@@ -902,6 +988,8 @@ spec:
                                              os.environ['REPO'], os.environ['BRANCH'], os.environ['COMMIT'],
                                              push=lambda repo, commit, depth: fast_forward(
                                                  user, secret, GITEA + '/bifrost/' + repo + '.git', commit, depth),
+                                             rewrite=lambda repo, branch, head, commits, fixes: amend_trailers(
+                                                 user, secret, GITEA + '/bifrost/' + repo + '.git', branch, head, commits, fixes),
                                              turn=lambda: first_in_line(os.environ['RUN'], os.environ['REPO']),
                                    tidy=lambda api: close_abandoned(secret, api, os.environ['REPO']))
                   if problem:

@@ -236,8 +236,9 @@ def test_land_is_inline_takes_the_pushed_commit_and_talks_to_gitea_only():
     # what wakes the pusher can say why; it is not a result of the pipeline, which a failed run does not give.
     # tripwire: 2026-11-17, see test_a_change_to_the_head_release_loop_lands_and_is_reported.
     # rerun: 2026-11-24, see test_a_rebase_onto_main_that_touched_other_directories_lands_on_the_pushed_commits_ci.
+    # trailers: 2026-11-25, see test_a_commit_without_a_change_id_gets_one_and_lands_on_the_pushed_commits_ci.
     assert [r["name"] for r in land_task()["taskSpec"]["results"]] == ["outcome", "commit", "change-ids", "refusal", "tripwire",
-                                                                       "rerun"]
+                                                                       "rerun", "trailers"]
     assert "('outcome', 'refused'), ('refusal', problem[:2000]), ('change-ids', ids)" in script()
 
 
@@ -481,7 +482,7 @@ IDS = "I" + "1" * 40
 
 
 def run_land(gitea, ref=REF, commit=SHA, repo=PLATFORM, wait=None, budget=3000, push=None, turn=None, tidy=None,
-             failed=lambda commit, ci: ""):
+             failed=lambda commit, ci: "", rewrite=None):
     """(outcome, refusal); the whole answer is left in gitea.landed."""
     waits = []
 
@@ -496,7 +497,7 @@ def run_land(gitea, ref=REF, commit=SHA, repo=PLATFORM, wait=None, budget=3000, 
     scope["call"] = gitea.call
     gitea.landed, problem = scope["land"]("tok", table(), policy(), repo, ref, commit, wait=wait or waited,
                                           failed=failed, gitea=gitea.HOST, tries=3, pause=0, budget=budget, push=push, turn=turn or (lambda: True),
-                                          tidy=tidy or (lambda api: None))
+                                          tidy=tidy or (lambda api: None), rewrite=rewrite)
     gitea.waits = waits
     return gitea.landed.get("outcome", ""), problem
 
@@ -656,6 +657,111 @@ def test_a_commit_without_a_change_id_is_refused_before_anything_is_changed():
     outcome, problem = run_land(gitea)
     assert outcome == "" and "no Change-Id trailer" in problem and SHA[:12] in problem
     assert gitea.merges() == [] and gitea.paths("/update") == [] and gitea.waits == []
+
+
+def rewriting(gitea, fail=""):
+    """The landing's rewrite against the stub: the branch's head becomes a new commit with the
+    fixed message and the same files, on the same parent."""
+    seen = []
+
+    def rewrite(repo, branch, head, commits, fixes):
+        seen.append((repo, branch, head, list(commits), dict(fixes)))
+        if fail:
+            return None, fail
+        new = "3" * 40
+        gitea.commits[new] = dict(gitea.commits[head], message=fixes[head])
+        gitea.head = new
+        return new, ""
+    return rewrite, seen
+
+
+def test_a_commit_without_a_change_id_gets_one_and_lands_on_the_pushed_commits_ci():
+    """Why: walls review [74], 2026-11-25 (Owner's batch of loosenings, owner_said e6a1558c): a commit
+    without a Change-Id was refused, and a pusher whose clone ran no hook heard nothing: 11-20 the
+    map line waited 30 minutes, 11-22 and 11-23 two of plan's branches sat over an hour. The landing
+    now adds the trailer, pushes the branch back, and lands it on the pushed commit's CI (the tree
+    is the same)."""
+    gitea = Gitea(message="fix: a thing\n\nbody")
+    rewrite, seen = rewriting(gitea)
+    assert run_land(gitea, rewrite=rewrite) == ("landed", "")
+    ((repo, branch, head, commits, fixes),) = seen
+    assert (repo, branch, head, commits) == (PLATFORM, "ready/x", SHA, [SHA])
+    made = module()["change_id"](fixes[SHA])
+    assert made and made.startswith("I") and fixes[SHA].startswith("fix: a thing\n\nbody\n\nChange-Id: ")
+    assert gitea.landed["commit"] == "3" * 40 and gitea.landed["change-ids"] == made
+    assert gitea.landed["trailers"] == "Change-Id added to " + SHA[:12] and gitea.landed["rerun"] == "skipped"
+    assert gitea.waits == [("bifrost-ci-platform", MAIN, SHA)]  # the pushed commit's CI judged it
+
+
+def test_trailers_split_by_a_blank_line_are_joined_and_a_failed_rewrite_still_refuses():
+    """Same origin. The split block of plan's 986bef69 is joined, not given a second Change-Id.
+    Positive control: when the rewrite cannot be done, the refusal stands and says why."""
+    split = "fix\n\nbody\n\nClaude-Session: s\nChange-Id: Iabc\n\nCo-Authored-By: A B <a@b.c>\n"
+    gitea = Gitea(message=split)
+    rewrite, seen = rewriting(gitea)
+    assert run_land(gitea, rewrite=rewrite) == ("landed", "")
+    assert seen[0][4][SHA] == "fix\n\nbody\n\nClaude-Session: s\nChange-Id: Iabc\nCo-Authored-By: A B <a@b.c>\n"
+    assert gitea.landed["change-ids"] == "Iabc"
+    gitea = Gitea(message="fix: a thing")
+    rewrite, _ = rewriting(gitea, fail="git push: rejected")
+    outcome, problem = run_land(gitea, rewrite=rewrite)
+    assert outcome == "" and "no Change-Id trailer" in problem and "could not add it: git push: rejected" in problem
+    assert gitea.merges() == []
+
+
+@pytest.mark.parametrize("message", [
+    "fix: a thing",
+    "fix: a thing\n\nbody text",
+    "fix\n\nClaude-Session: s\nWork: LANE-x",
+    "fix\n\nChange-Id: example\nThis is ordinary body text, not a trailer block.",
+])
+def test_the_added_change_id_is_a_trailer_and_the_same_each_time(message):
+    """Same origin: a rerun of the landing must make the same Change-Id, and what it writes must
+    read back as the trailer."""
+    m = module()
+    once, twice = m["fixed_message"](message, SHA), m["fixed_message"](message, SHA)
+    assert once == twice and m["change_id"](once) and m["change_id"](once).startswith("I")
+    assert m["fixed_message"](message, OTHER) != once
+    assert m["fixed_message"]("fix" + TRAILERS, SHA) == "fix" + TRAILERS  # positive control: nothing to fix
+
+
+def test_amend_trailers_rewrites_messages_only_and_does_not_overwrite_a_newer_push(tmp_path):
+    """Same origin, against real git: the messages change, the tree does not, the branch moves to
+    the new head; a push that came in between is not overwritten (the lease names the old head)."""
+    m = module()
+    remote, work = tmp_path / "remote.git", tmp_path / "work"
+    env = dict(os.environ, GIT_AUTHOR_NAME="a", GIT_AUTHOR_EMAIL="a@b.c", GIT_COMMITTER_NAME="a",
+               GIT_COMMITTER_EMAIL="a@b.c", GIT_CONFIG_GLOBAL="/dev/null", GIT_CONFIG_NOSYSTEM="1")
+    git = lambda *a, cwd=work: subprocess.run(["git", *a], cwd=cwd, env=env, check=True, capture_output=True,
+                                              text=True).stdout.strip()
+    subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True, env=env)
+    work.mkdir()
+    git("init", "-q")
+    (work / "f").write_text("1")
+    git("add", "f")
+    git("commit", "-q", "-m", "base")
+    (work / "f").write_text("2")
+    git("commit", "-q", "-am", "change one")
+    (work / "g").write_text("3")
+    git("add", "g")
+    git("commit", "-q", "-m", "change two\n\nChange-Id: Itwo")
+    first, head = git("rev-parse", "HEAD~1"), git("rev-parse", "HEAD")
+    git("push", "-q", str(remote), "HEAD:refs/heads/ready/x")
+    fixes = {first: m["fixed_message"]("change one", first)}
+    new, why = m["amend_trailers"]("bifrost-merger", "tok", str(remote), "ready/x", head, [first, head], fixes)
+    assert why == "" and new != head
+    assert git("rev-parse", "refs/heads/ready/x", cwd=remote) == new
+    assert git("rev-parse", new + "^{tree}", cwd=remote) == git("rev-parse", head + "^{tree}")
+    assert m["change_id"](git("log", "-1", "--format=%B", new + "~1", cwd=remote)) == m["change_id"](fixes[first])
+    assert git("log", "-1", "--format=%an", new + "~1", cwd=remote) == "a"  # the author stays
+    # Positive control: someone pushed the branch meanwhile, so the lease on the old head refuses.
+    (work / "h").write_text("4")
+    git("add", "h")
+    git("commit", "-q", "-m", "a later push\n\nChange-Id: Ilater")
+    git("push", "-q", "-f", str(remote), "HEAD:refs/heads/ready/x")
+    later = git("rev-parse", "HEAD")
+    again, why = m["amend_trailers"]("bifrost-merger", "tok", str(remote), "ready/x", head, [first, head], fixes)
+    assert again is None and "push" in why and git("rev-parse", "refs/heads/ready/x", cwd=remote) == later
 
 
 # --- what is checked is what is merged (independent review, 2026-11-13) -----------------

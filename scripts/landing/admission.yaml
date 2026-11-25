@@ -29,7 +29,7 @@ bring:
     precheck: checked
   - id: trailers
     what: 每个提交带四个尾注 Claude-Session、Claude-Transcript、Change-Id、Work，放在最后一段，同一段里不空行。11-21 的 39 次里有 8 次是缺 Change-Id。
-    get_from: infra 的提交钩子会补（sh scripts/git-hooks/install.sh --check）；platform、frontend 新开的 worktree 和单独克隆不跑钩子，要自己写。
+    get_from: infra 的提交钩子会补（sh scripts/git-hooks/install.sh --check）；platform、frontend 新开的 worktree 和单独克隆不跑钩子，要自己写。缺 Change-Id 或尾注被空行隔开时，合入流水线自己补上、推回同一分支再合入（结果 trailers 写着补了哪几个，提交号会变）；补不成才拒（walls review [74]，11-25）。
     command: git log -1 --format=%B | git interpret-trailers --parse
     refused_with: {says: "has no Change-Id trailer"}
     precheck: checked
