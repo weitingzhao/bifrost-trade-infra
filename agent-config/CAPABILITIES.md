@@ -58,8 +58,10 @@
 | 读集群（节点、负载） | 0-foundation-decouple（cluster 这栋楼） | MCP `get_cluster_summary`、`get_cluster_nodes`；或 `kubectl --kubeconfig ~/.kube/bifrost-k3s.yaml get …`（路径原样写全，别在脚本里拼，否则 preflight 当成 Owner 凭证拦下） | 只读身份 `bifrost-agent`；exec 只在 research、两个插件命名空间 | `MCP:135,139`、`infra:scripts/station/README.md:16`、`AF` §8c「集群与节点」 |
 | 读库 | 0-foundation-decouple【推：底座管库】 | `psql -h 192.168.10.73 -p 30432 -U agent_reader -d <库>`；或 MCP bifrost-postgres（viewer）的 `get_data_freshness`、`get_postgres_backup_status` 等 | 只用 `agent_reader` | `CM:118`、`AF` §8c「入口与 NodePort」数据层行 |
 | 查 Prometheus | 8-3-metrics（规则和抓取）；读口在 foundation | MCP bifrost-prometheus：`query_prometheus`、`list_alerts`、`list_targets`；或 `get_telemetry_overview` / `get_telemetry_alerts` / `get_telemetry_targets` | port-forward 只准 `prometheus-kube-prometheus-stack-prometheus-0` | `DOM` foundation commands、`MCP:766,776,783`、`AF` §8c |
-| 看系统存档的评估读数（CI 用时、发布成功率、Owner 动手次数等） | 8-3-metrics | `get_evaluation_readings` 或 `GET /api/v1/readings/evaluation?days=1..31&name=` | 只算已结束的芝加哥整天；每个数带 definition、samples、status | `CH/8-3-metrics.md:25`、`MCP:647` |
+| 看系统存档的评估读数（CI 用时、发布成功率、Owner 动手次数等） | 8-3-metrics | `get_evaluation_readings` 或 `GET /api/v1/readings/evaluation?days=1..31&name=` | 只算已结束的芝加哥整天；每个数带 definition、samples、status。读口只给最近 N 天的合计，不给过去某一天单独的数；逐日的看共享笔记 `metrics/daily-readout/<日期>.json`（每天 06:05Z 存） | `CH/8-3-metrics.md:25`、`MCP:647` |
 | 问「这个数是多少、从哪来」「这条告警保护什么、响了几次」 | 8-3-metrics | 发指标线信箱 | — | `CARD/8-3-metrics.yaml:15-17` |
+| 看 preflight 真拦截了几次 | 8-3-metrics | `get_evaluation_readings` name=`guard_blocks` days=1；labels 里有 by_rule、hosts | session 为「-」的是自测，不算 | `plat:api/internal/evalreadings/guardblocks.go` |
+| 改告警规则之前先跑测试 | 8-3-metrics | `make check-alert-rules`（`python3 scripts/check_alert_rules.py`），用 promtool 跑 `rule-tests/*.test.yaml` | 本机没有 promtool 就走 Docker 镜像 v3.13.2 | `infra:scripts/check_alert_rules.py` |
 | 查 Trade 各域健康（只读） | 7-payload（占位） | MCP bifrost-trade-api：`get_market_health`、`get_account_health` 等，`trade_mcp_capabilities` | 只读 | `AF` §8b MCP 表、`CH/7-payload.md:14` |
 | 查自己是谁、能做什么 | 0-foundation-decouple（identity） | `whoami`；`get_auth_capabilities`；`get_trust_matrix` | — | `MCP:931,118,433`、`infra:docs/AGENT_WORK.md` §2 |
 | 查连通性、环境列表 | 0-foundation-decouple | `get_connectivity_matrix`、`list_environments`、`get_ops_context` | — | `MCP:92,110,114` |
@@ -116,8 +118,9 @@
 | 登记一件外部工作（让人看得见谁在干什么） | 2-lineage | 先 `put_artifact` 传描述（9 个字段的 JSON），再 `register_external_work`；过程用 `record_external_work_event`（started / heartbeat / submitted…）。派 Codex 时 `dispatch.sh` 自动登记 | 登记不授权、submitted 不等于做完 | `MCP:948,957,1029`、`CH/2-lineage.md:12-13`、`infra:scripts/agent-host/dispatch.sh:2-4` |
 | 查一个提交是谁改的、落地没有 | 2-lineage | `get_commit_lineage`；`git log --all --grep='Claude-Session: local_…'`；按 `Change-Id` 判落地，不按标题 | — | `MCP:480`、`CM` §5「提交血缘」、`CARD/2-lineage.yaml:17` |
 | 「X 归谁」、新包要加归属行 | 0-2-catalog | `get_owner`（repo、path，可带 domain）或 `GET /api/v1/catalog/owner?repo=&path=`；没主的路径给出可粘贴的那一行 | 和改动放同一个提交 | `infra:scripts/landing/admission.yaml:41-45`、`CH/0-2-catalog.md:21-22` |
-| 按事找该用哪个工具 | 0-2-catalog | `find_by_task`（`?task=`）；领域 `self` 指向的 admission.yaml 由它给出去 | 现在只有合入、领活两份自我说明 | `MCP:610`、`infra:scripts/station/README.md:23` |
-| 某领域有什么、开放什么、健康吗；图外有什么；某包谁在用 | 0-2-catalog | `get_domain`、`get_domain_status`、`get_catalog_index`、`get_unperceived`、`get_package_users` | 读口不在请求时列集群 | `MCP:602,594,586,566,618`、`CARD/0-2-catalog.yaml:12` |
+| 按事找该用哪个工具 | 0-2-catalog | `find_by_task`（`?task=`）；领域 `self` 指向的 admission.yaml 由它给出去 | 现在有自我说明的：verification 和 delivery（合入，共用 CI 那份）、station（领活） | MCP `find_by_task`、`infra:scripts/station/README.md:23` |
+| 某领域有什么、开放什么、健康吗；图外有什么；某包、某仓库谁在用 | 0-2-catalog | `get_domain`、`get_domain_status`、`get_catalog_index`、`get_unperceived`、`get_package_users`、`get_repo_users`（clone、build、governance、cluster-object 四种，退役仓库也查） | 读口不在请求时列集群；status 里另有 daily（每天一个点）和 criteria（完成标准计数） | MCP 同名工具、`CARD/0-2-catalog.yaml:12` |
+| 哪个线程坐在哪个领域、哪个席位；名册原样、身份卡 | 0-2-catalog | `get_seats` 或 `GET /api/v1/catalog/seats`（名册五段原样加 cards，数据是工坊的 `seats.yaml`，地图每 10 分钟存一份） | 名册改了，下一轮扫描就跟着变 | `plat` 3f804e06、f2744415 |
 | 要加表、删表、写事件账本；能不能直接引用别的领域的包 | 0-foundation-decouple | 发底座信箱；新表由提出的领域设计，落迁移在底座；删有数据的走卡 | 加表先看 skill `database-design`；架构级先列选项 | `CARD/0-foundation-decouple.yaml:7,17-19`、`CH/0-foundation-decouple.md:8` |
 | 记一次 preflight 拦截 | 0-foundation-decouple【推：拦截记录的生产方】 | `record_guard_block`，B 级（目录里有，MCP 没注册，直接调接口） | rule、session | `CAT:241`、`CARD/8-3-metrics.yaml:23` |
 
@@ -153,7 +156,7 @@
 
 ### foundation（0-foundation-decouple + 0-2-catalog；总线由 8-2 维护）
 - 管：底座包（eventlog、actor 等）、agentrt 迁移和 schema、包之间的墙（codeguard、repoguard）、platform 里没人认领的代码；地图线管归属表、总目录、无法感知池。`CARD/0-foundation-decouple.yaml:5-9`、`CH/0-2-catalog.md:6-15`
-- 口子：包间函数 `eventlog.Append/InTx/Declare`、`actor.CheckWriter/IdempotentAs/Register*`；地图读口 `/api/v1/catalog/{unperceived,owner,index,status,domain,users}` 和对应 MCP；集群、网络、遥测、审计等读口（`DOM` foundation request_response）。底座线自己说「没有自己的路由和 MCP 工具」（`CH/0-foundation-decouple.md:17`），但 `DOM` 把集群、遥测、目录等读口登在 foundation 名下【冲突：登记表和章程口径不同】。
+- 口子：包间函数 `eventlog.Append/InTx/Declare`、`actor.CheckWriter/IdempotentAs/Register*`；地图读口 `/api/v1/catalog/{unperceived,owner,index,status,domain,users,seats,repo-users}` 和对应 MCP；集群、网络、遥测、审计等读口（`DOM` foundation request_response）。底座线自己说「没有自己的路由和 MCP 工具」（`CH/0-foundation-decouple.md:17`），但 `DOM` 把集群、遥测、目录等读口登在 foundation 名下【冲突：登记表和章程口径不同】。
 - 能为别人做的事：答「这个包归谁、能不能直接引用」「加表删表怎么落」；给新包一行归属（`get_owner` 给可粘贴的行）；按事找工具（`find_by_task`）；看领域健康；读集群、读 Prometheus、读审计日志（`get_audit_log`）。
 
 ### plan（1-plan，11-23 起是「立法」：法的名录、修法票、闭环、计划树）
@@ -193,7 +196,7 @@
 
 ### coordination（8-2-comm-desk 沟通线、8-3-metrics 指标线、8-1 值班由主统筹兼）
 - 管：总线、事件、信箱、叫醒、窗口排队（8-2）；Prometheus 抓取、告警规则、评估读口（8-3）。`CH/8-2-comm-desk.md:13-19`、`CH/8-3-metrics.md:15-19`
-- 口子：事件登记表、订阅表、CloudEvents 信封、`/bus/*` 读口、MCP `send_message`、`wait_for_messages`、`read_message`、`ack_messages`、`report_status`、`request_stop`、`wait_for_event`、窗口三件；门铃；`GET /api/v1/readings/evaluation`、记录规则 `bifrost_metrics:*`、告警规则。`CH/8-2-comm-desk.md:25-35`、`CH/8-3-metrics.md:23-27`
+- 口子：事件登记表、订阅表、CloudEvents 信封、`/bus/*` 读口、MCP `send_message`、`wait_for_messages`、`read_message`、`ack_messages`、`report_status`、`request_stop`、`wait_for_event`、窗口三件；门铃；`GET /api/v1/readings/evaluation`、记录规则 `bifrost_<area>:*`（`infra:k8s/monitoring/NAMING.md`）、告警规则。`CH/8-2-comm-desk.md:25-35`、`CH/8-3-metrics.md:23-27`
 - 能为别人做的事：送信、叫醒别的会话；答「这件事在总线上有没有、为什么没送到」；登记新事件；告诉你一个数是多少、从哪来、哪天的窗口；加告警规则。
 
 ### station（11-station，工坊；11-24 和 Crew 合并）
@@ -231,11 +234,11 @@
 1. **集群外主机（Mac mini .50/.52、ubt-k3s-06、NAS、4090 的系统层）上跑命令**：执行口和 node-run 都够不着；`runner: host` 文档说没做；SSH 谁能进哪台没有表。06 回集群这次只能等 Owner 在 MacBook 上做。→ 6-compute、5-approvals、Station
 2. **SSH 钥匙和登录面的清单**：哪台机器、哪把钥匙、能进哪台主机、用什么用户，没有一处写全。→ 6-compute（节点）、Station（Agent 主机）
 3. **节点入群的免人手路径**：取令牌、装系统、join 全靠 Owner；有没有可能用主机档在 .73 上读令牌、能不能这样做（令牌是 Secret，属六类），没人判过。→ 6-compute 提，Owner 定
-4. **四个领域合约为空**：crew、station、audit、triage 在 `DOM:584-610` 都是 `{}`；只有 Station 写了一份自我说明（领活），合入那份 verification 和 delivery 共用。发布窗口、建卡、发信三份自我说明还没写（`infra:scripts/station/README.md:40`）。→ 各线
+4. **领域合约为空**：crew、triage 已并进 station、audit（b0336adc），剩 station、audit 两份合约是空的，由各线自己补。原记：crew、station、audit、triage 在 `DOM:584-610` 都是 `{}`；只有 Station 写了一份自我说明（领活），合入那份 verification 和 delivery 共用。发布窗口、建卡、发信三份自我说明还没写（`infra:scripts/station/README.md:40`）。→ 各线
 5. **占位领域没人值守**：7-payload 信箱没登记（1-plan 11-23 起是立法线，有人值守）、「自己定」「必须答」空着；2-lineage 席位空着。要用计划、插件、租户接入时找不到人答。→ 主统筹定先后
 6. **Trade 和 Research 的业务改动找谁**：名册里没有 Trade 五仓、Research 的席位；章程只覆盖 Ops 一侧。→ 主统筹
-7. **数据库备份、CNPG、UniFi 网络动作归谁**：`trigger_cnpg_backup`、`repair_cnpg_wal_store`、`sweep_failed_backups`、`unifi_*`、`ensure_metrics_server`、`sync_kubeconfig` 等在动作目录里，但归属表的合约没把它们登在任何领域下（只有 `unifi_firewall_apply` 在 foundation）。→ 地图线、Foundation
-8. **preflight.js 归谁**：Crew 和 Foundation 的卡都说不是自己的、待裁（`CH/11-station.md`（原 9-crew 章程已并入）、`CARD/0-foundation-decouple.yaml:24`）。被它误拦时该找谁没有定。→ 主统筹
+7. **数据库备份、CNPG、UniFi 网络动作归谁**：`trigger_cnpg_backup`、`repair_cnpg_wal_store`、`sweep_failed_backups`、`unifi_*`、`ensure_metrics_server`、`sync_kubeconfig` 等在动作目录里，但归属表的合约没把它们登在任何领域下（只有 `unifi_firewall_apply` 在 foundation）。→ 地图线、Foundation **认领**：0-foundation-decouple（章程第 2 节，infra 4e356a7a）；登进归属表合约由地图线做；缺口怎么看：`get_domain_status` 的 checks 里 class=mcp-tool 那一项的 not_registered。
+8. **preflight.js 归谁**：Crew 和 Foundation 的卡都说不是自己的、待裁（`CH/11-station.md`（原 9-crew 章程已并入）、`CARD/0-foundation-decouple.yaml:24`）。被它误拦时该找谁没有定。→ 主统筹 **认领**：11-station（主统筹 11-25 分给工坊；墙清理 11-25 也由工坊做）。被它误拦找工坊。
 9. **4090 的 harness、agent-06 当执行机**：算力线说缺；装到 06 属阶段 B 现在不做（`CH/6-compute.md:61,74`）；06 已决定格式化回集群，Agent 主机这块谁收尾只在手续第 7 步一句话。→ 6-compute、Station
 10. **叫醒没挂门铃的会话**（8-2 已补，2026-11-25）：平台信箱只留底，叫醒要对方挂着门铃。没挂门铃的 Claude 会话，用 harness 的会话消息直接发给它的 `local_…` 会话号（Claude Desktop 里的 SendMessage），会开启它的一个回合；回执写 delivered 和「turn has started」。Codex 坐席发给它在 Claude 一侧的联络会话。会话消息不留在平台的事件账里，要留底的话，同一件事再发一封平台信。席位空着（`session: null`）的，两种都叫不醒，找主统筹。→ 8-2-comm-desk
 11. **谁把 submitted 变成做完、计划步怎么认领**：1 号计划没定（`infra:docs/AGENT_WORK.md` §4）。→ 1-plan
