@@ -112,6 +112,23 @@ tests:
   - eval_time: 20m
     alertname: BifrostAPIHighLatency
     exp_alerts: []
+# 2026-11-25 (Foundation): the bus gate's long poll /api/v1/bus/events waits up to 25s by design
+# and pinned PROD's p99; it must not page. Its control is the next test (an ordinary slow read pages).
+- name: 'bifrost-platform-prod: bus events long poll does not page'
+  interval: 1m
+  input_series:
+  - series: http_request_duration_seconds_bucket{namespace="bifrost-platform-prod",service="platform-api",handler="/api/v1/bus/events",le="0.5"}
+    values: 0+0x30
+  - series: http_request_duration_seconds_bucket{namespace="bifrost-platform-prod",service="platform-api",handler="/api/v1/bus/events",le="5"}
+    values: 0+0x30
+  - series: http_request_duration_seconds_bucket{namespace="bifrost-platform-prod",service="platform-api",handler="/api/v1/bus/events",le="10"}
+    values: 0+60x30
+  - series: http_request_duration_seconds_bucket{namespace="bifrost-platform-prod",service="platform-api",handler="/api/v1/bus/events",le="+Inf"}
+    values: 0+60x30
+  alert_rule_test:
+  - eval_time: 20m
+    alertname: BifrostAPIHighLatency
+    exp_alerts: []
 - name: 'bifrost-platform-stg: ordinary slow reads still page'
   interval: 1m
   input_series:

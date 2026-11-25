@@ -87,6 +87,10 @@ spec:
           # Work 558: platform claim / message reads intentionally wait up to 25s
           # before headers. Exclude only these long-poll routes from the fallback
           # histogram; ordinary platform reads and all Python highr series remain.
+          # 2026-11-25 (Foundation): /api/v1/bus/events is the bus gate's long poll (wait up to 25s,
+          # bus/gate/gate.go), averaging 23.4s, and pinned PROD's p99 at the 10s bucket. Excluded.
+          # /api/v1/agent/threads was asked for too but is not excluded: its handler does not wait,
+          # so its 8.8s average (1h, 23:50Z) is real slowness this rule should see.
           # Threshold from the 7 days to 2026-10-07, recomputed without /health and SSE: PROD's
           # normally slow reads (/bars/benchmark, /portfolio/model-analysis) take 1-3.4 s and one
           # slow request holds a 5m p99 up for 5 minutes (traffic is a few requests per window),
@@ -104,7 +108,7 @@ spec:
               or
               histogram_quantile(
                 0.99,
-                sum(rate(http_request_duration_seconds_bucket{namespace=~"bifrost-.*|research|plugin-.*",handler!~"/api/v1/(agentrt/(claim|messages)|approvals/claim)"}[5m])) by (le, namespace, service)
+                sum(rate(http_request_duration_seconds_bucket{namespace=~"bifrost-.*|research|plugin-.*",handler!~"/api/v1/(agentrt/(claim|messages)|approvals/claim|bus/events)"}[5m])) by (le, namespace, service)
               )
             ) > 5
           for: 10m
