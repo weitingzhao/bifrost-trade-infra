@@ -719,6 +719,22 @@ const QUOTES_ONLY = new Set(['echo', 'printf', 'cat', 'grep', 'egrep', 'fgrep', 
 const GIT_ENV_OVERRIDE =
   /\bGIT_CONFIG_(COUNT|KEY|VALUE|PARAMETERS)\b|^(?:GIT_(?:CONFIG\w*|DIR|WORK_TREE|NAMESPACE|SSH|SSH_COMMAND)|HOME|XDG_CONFIG_HOME)=|^--config-env\b/
 
+/** The directory after `cd <arg>` / `pushd <arg>` from dir; null when it cannot be read from the text. */
+function cdTarget(words, dir) {
+  if (dir === null) return null
+  const word = commandWord(words)
+  const args = words.slice(words.findIndex(w => w.text === word) + 1).filter(w => !/^-[LPe@]+$/.test(w.text))
+  if (word === 'popd' || args.length !== 1) return null
+  const a = args[0]
+  if (/[$`]/.test(a.text) || a.text === '-') return null
+  let target = a.text
+  if (a.tilde) {
+    if (target !== '~' && !target.startsWith('~/')) return null
+    target = path.join(require('node:os').homedir(), target.slice(1))
+  }
+  return path.resolve(dir, target)
+}
+
 function githubPushRule(cmd, cwd) {
   if (!/\bgit\b/.test(cmd) || !/\bpush\b/.test(cmd)) return null
   const primaries = giteaPrimaries()
@@ -741,10 +757,14 @@ function githubPushRule(cmd, cwd) {
     return '有仓库以 Gitea 为主时，不在命令行上换 git 的配置、仓库或连接（GIT_CONFIG_*、GIT_DIR、HOME、--config-env…）再推送：看不出推到哪里'
   }
   if (!ok && listed) return unclear('引号没收尾')
-  let movedDir = false
+  // Follow `cd <literal dir>` so the push is checked in the checkout it runs in; a cd whose target is not
+  // a literal (variable, `-`, no argument, popd) leaves the directory unknown and the push unclear.
+  // Origin: walls review 2026-11-25 [19] (LAW-17 two): `cd <checkout> && git push origin …` was refused
+  // although the remote resolves the same way as with git -C.
+  let dir = cwd || process.cwd()
   for (const words of commands) {
     if (/^(cd|pushd|popd)$/.test(commandWord(words))) {
-      movedDir = true
+      dir = cdTarget(words, dir)
       continue
     }
     const call = gitCall(words)
@@ -763,7 +783,7 @@ function githubPushRule(cmd, cwd) {
     if (!listed) continue
     // 不写远端时 git 按 branch.<分支>.pushRemote、remote.pushDefault、branch.<分支>.remote、origin 挑（复核 244 A3）
     if (dests.length === 0) return unclear('没写远端，默认推送远端由配置决定')
-    if (movedDir) return unclear('前面 cd 过，这里查的不是它推送的仓库')
+    if (dir === null) return unclear('前面 cd 到的目录看不出（变量、cd -、popd）')
     const globals = resolvedGlobals(call.globals)
     if (globals === null) return unclear('全局选项里有变量或命令替换')
     for (const dest of dests) {
@@ -771,7 +791,7 @@ function githubPushRule(cmd, cwd) {
       if (NOT_PRINTABLE_ASCII.test(dest)) return unclear(`远端 ${dest} 里有可打印 ASCII 以外的字符`)
       const literal = githubRepoOf(dest)
       if (literal && primaries.has(literal)) return toGitHub(literal)
-      const urls = effectivePushUrls(dest, globals, cwd)
+      const urls = effectivePushUrls(dest, globals, dir)
       if (urls === null) return unclear(`查不到 ${dest} 的推送地址`)
       for (const url of urls) {
         if (NOT_PRINTABLE_ASCII.test(url)) return unclear(`${dest} 推到 ${url}，里面有可打印 ASCII 以外的字符`)

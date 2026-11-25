@@ -383,6 +383,10 @@ const cases = [
   ['gitea-primary', 'ALLOW', '--git-dir 推 origin（Gitea）', bashIn(`git --git-dir ${PRIMARY.repo}/.git push origin x:refs/heads/x`, PRIMARY.outside)],
   // 同一类：看不出在哪个检出、推哪个远端时拒绝
   ['gitea-primary', 'DENY', '先 cd 再推', bashIn(`cd ${PRIMARY.repo} && git push backup v1:refs/tags/v1`, PRIMARY.outside)],
+  // walls review 2026-11-25 [19] (LAW-17 two): after a literal cd the push is checked in that checkout; the backup row above
+  // (GitHub) and the variable-cd row are the controls.
+  ['gitea-primary', 'ALLOW', '先 cd 到检出再推 Gitea', bashIn(`cd ${PRIMARY.repo} && git push origin x:refs/heads/x`, PRIMARY.outside)],
+  ['gitea-primary', 'DENY', 'cd 到变量目录再推', bashIn('cd $REPO && git push origin x:refs/heads/x', PRIMARY.outside)],
   ['gitea-primary', 'DENY', 'bash -c 里推', bash("bash -c 'git push backup v1:refs/tags/v1'")],
   ['gitea-primary', 'DENY', 'xargs 包着推', bash('echo backup | xargs -I{} git push {} v1:refs/tags/v1')],
   ['gitea-primary', 'DENY', '-c 定义的别名', bash('git -c alias.p=push p backup v1:refs/tags/v1')],
