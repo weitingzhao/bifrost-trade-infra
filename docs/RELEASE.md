@@ -79,7 +79,7 @@ scripts/release/release-check.sh diff old.json new.json --allow <file>
   period / symbol）对齐，顺序变化不算变化。新增的键和新成交永远放行；改值、删除、长度变化要在 `--allow` 文件里列出
   （每行一个 glob，`*` 任意，`[*]` 表示列表行，例：`perf.summary.win_rate`、`execs.*.q`），否则 exit 1。
   每次发布的预期变化放 `scripts/release/expected.d/<date>-<name>.allow`（示例：`2026-10-03-td-batch.allow`）；
-  `expected.d/always.allow` 每次都带上（Owner 2026-10-06：里面只放盘中随实时权益移动的字段——按 capital_base /
+  `expected.d/always.allow` 每次都带上（Owner 2026-10-06（RULE，执行 LAW-6）：里面只放盘中随实时权益移动的字段——按 capital_base /
   current_equity 算的各组 return_pct、capital_base / start_equity / current_equity、IB 透传的 total_cash /
   buying_power / net_liquidation；未实现盈亏金额不在里面，它们不随实时报价动）。
 - **/health**：monitor / trading / market / research 的 `core_sha` 必须等于 `--run` 的 clone-core 提交，
@@ -90,7 +90,7 @@ scripts/release/release-check.sh diff old.json new.json --allow <file>
 
 ## Platform PROD source check（W-56 guardrail 2）
 
-> 状态：**已应用到集群**（Owner 2026-10-12 21:13，文件取自提交 `79c8088`；应用前在集群里试跑过一正一反）。平台那一半随 `26a10b5` 在正式环境上。
+> 状态：**已应用到集群**（Owner 2026-10-12 21:13，文件取自提交 `79c8088`；应用前在集群里试跑过一正一反；一次性决定，不是规矩）。平台那一半随 `26a10b5` 在正式环境上。
 > 2026-10-13 18:32 起线上的 PROD 流水线取自提交 `b9ec378`：源检查与上面相同，只有 `rollout` 改成重启后按摘要核对 Pod（护栏 ⑤ 收口片；同日 18:25 STG 流水线也取自这个提交）。要退回到只有源检查、不核对摘要的那一版，用 `0e3d33b`（与 `79c8088` 逐字节相同），见 `agent-config/work/multi-agent/OWNER-STEPS-digest-s2-s3.md` 的「撤回」。
 
 `bifrost-deliver-platform-prod` 在 mirror-sync 后、clone 前拒绝两种情况：平台提交没有整 SHA 匹配的 Succeeded `bifrost-ci-platform`，或无法证明 STG 克隆了同一整 SHA。STG 取 `bifrost-deliver-platform` 中克隆了这个整 SHA 的、成功的 run 里创建时间最新的一条；它之后又起过的 STG 发布（失败、在途、交叠或别的提交）不影响（2026-11-11 清理第 1 波删掉了「PROD 只认最新一次 STG」：没有证据它拦下过真问题）。这个提交在 STG 没有成功过（run 只留 1 天，见 `k8s/cicd/tekton/cronjob-pipelinerun-ttl.yaml` 的 MAX_AGE_SECONDS；11-19 起从 7 天降下来，原因写在那里）就拒绝。查询失败或证据畸形也拒绝。
@@ -102,7 +102,7 @@ and infra commit results pin the other checkouts.
 
 没有 allow-red。覆盖检查的途径是 Owner 应用此前版本的 Pipeline 定义。上线顺序是先把包含 check-source 身份接线的 platform 发到 PROD 并核对，再由 Owner 在没有平台发布在途、没有未结 PROD 发布单时应用 `k8s/cicd/tekton/pipeline-deliver-platform-prod.yaml`；反过来会拒绝每次平台 PROD 发布。回退由 Owner 重新应用此前版本的同一 Pipeline 文件。
 
-**正式环境不再构建，按 STG 核对过的摘要部署**（TD-335，W-31 3.4 ①，Owner 2026-10-21「D3 A」；切法 `agent-config/work/multi-agent/CUT-release-speedup-2026-10-22.md`）。`check-source` 认定的那条 STG run，它的 `rollout` 核对过的 api、console 两个摘要（只在 Pod 真跑着之后才写），就是 PROD 发布的那一对；同一条 run 的 `clone-ui` 提交必须等于这张单子的 uiRevision。`agentrt-schema` 按这对里的 api 摘要查迁移，`promote-images` 把 `:prod` 挪到这一对（给 tag 的读者：Owner 的迁移 Job、registry 的保留集），`gitops-sync`（任务 `bifrost-argocd-pin-sync-platform`）在同一次 patch 里把应用 `bifrost-platform-prod` 的 `spec.source.kustomize.images` 钉到这两个摘要并发出同步、等这一次同步完成，`rollout` 以 `requireSpecDigest=true` 核对：三个 Deployment 的 spec 写着这个摘要，Pod 的 imageID 也是它（workers 用 API 摘要）。读取不是原子快照，不保证读完之后的状态。之后成立的是：Deployment 写的是摘要，Pod 重启拉的还是这一对，`:prod` 被谁改写都不改变 PROD 跑什么（TD-331）。STG 同样按本次构建的摘要钉住（TD-419）。
+**正式环境不再构建，按 STG 核对过的摘要部署**（TD-335，W-31 3.4 ①，Owner 2026-10-21（RULE，执行 LAW-6）「D3 A」；切法 `agent-config/work/multi-agent/CUT-release-speedup-2026-10-22.md`）。`check-source` 认定的那条 STG run，它的 `rollout` 核对过的 api、console 两个摘要（只在 Pod 真跑着之后才写），就是 PROD 发布的那一对；同一条 run 的 `clone-ui` 提交必须等于这张单子的 uiRevision。`agentrt-schema` 按这对里的 api 摘要查迁移，`promote-images` 把 `:prod` 挪到这一对（给 tag 的读者：Owner 的迁移 Job、registry 的保留集），`gitops-sync`（任务 `bifrost-argocd-pin-sync-platform`）在同一次 patch 里把应用 `bifrost-platform-prod` 的 `spec.source.kustomize.images` 钉到这两个摘要并发出同步、等这一次同步完成，`rollout` 以 `requireSpecDigest=true` 核对：三个 Deployment 的 spec 写着这个摘要，Pod 的 imageID 也是它（workers 用 API 摘要）。读取不是原子快照，不保证读完之后的状态。之后成立的是：Deployment 写的是摘要，Pod 重启拉的还是这一对，`:prod` 被谁改写都不改变 PROD 跑什么（TD-331）。STG 同样按本次构建的摘要钉住（TD-419）。
 
 准入策略 `bifrost-platform-application`（`k8s/platform-rbac/40-admission.yaml`）只许 `tekton-deliver` 对这两个平台应用写这一种改动：`spec.source.kustomize` 只有 `images`，api、console 各一项，都按摘要。平台身份不能改 `kustomize`；Owner 用管理员身份钉（下面的回滚）不受它管。
 
@@ -114,7 +114,7 @@ kubectl -n cicd patch application bifrost-platform-prod --type merge -p '{"spec"
 
 钉子只在应用对象里：`kubectl apply` 重新应用 git 里的应用定义不会删它（那个字段不在定义里）；`kubectl replace` 整个对象会删掉它，Deployment 回到写 `:prod`，跑 `:prod` 那一刻指着的东西。那**不一定**是刚才钉着的一对：回滚钉回旧的一对不挪 `:prod`，一次 PROD 发布挪了 `:prod` 却钉失败，也会让两者不一致（复核 513 C1）。钉子丢了，就从最后一次成功 PROD run 的 `check-source` 结果（或台账）取那两个摘要，用上面的命令钉回去，再看三个 Deployment 写着 `@sha256:<摘要>`、Pod 的 imageID 也是它；不靠 `:prod`。
 
-### 卡片写者的最低可回退版本（W-31 BI-1 切片 1b，Owner 2026-10-23「Y 选 A」）
+### 卡片写者的最低可回退版本（W-31 BI-1 切片 1b，Owner 2026-10-23「Y 选 A」；RULE，执行 LAW-6）
 
 从 platform 提交 `ca645debff6d545ef7ad6e3fa9762921f9dad4b3`（含它的父提交 `b7f7d520`）起，问题卡片库的每个写者在业务问题的卡（work_id 以 `BI-` 开头）上都不存调用方的文字：Owner 的答复只收卡上的一个选项（带文字、`none` 都拒）；规则自动作答整张拒；撤回照收，但理由一律存固定的中性句。更早的版本会收 `none` 加文字，并经通用卡片读接口给 viewer 及以上看到（复核 518、520、521，设计 `agent-config/work/crew/DESIGN-crew-intake-2026-10-22.md` 第十一节末）。
 
@@ -154,7 +154,7 @@ git show 27e4467:k8s/cicd/tekton/pipeline-deliver-platform-prod.yaml | kubectl a
 |---|---|---|
 | `identity cannot read PipelineRuns/TaskRuns in cicd` | 检查没跑在 tekton-deliver 下 | platform 那一半还没到 PROD，或这条 run 是手建的、没给 check-source 指身份 |
 | `no exact-SHA Succeeded full CI` | 开关 `requireFullCI` 为 `on` 时：这个提交没有成功的全量 `bifrost-ci-platform`：没有 run、全量 run 是红的，或者只有 `api-scope=console` 的 run 成功（R5:5.7-1：只改 console 的分支与落地只跑一部分 Go 测试；没有 `api-scope` 结果的旧 run 算全量） | 等 CI；推上 main 的那一轮是全量的。CI 没起，先查这个提交在不在 Gitea 上（它是主仓库，推上去钩子就起 CI），再起一次 |
-| `no exact-SHA Succeeded CI` | 开关 `requireFullCI`（PROD 流水线参数，默认 `off`；release.sh 读 `BIFROST_RELEASE_REQUIRE_FULL_CI`）关着时：这个提交没有成功的 `bifrost-ci-platform`，全量或部分都没有（部分 = `api-scope` 为 `console` 或落地 CI 的 `incremental`）。Owner 2026-11-06：还没有用户，PROD 不强制全量；以后打开开关，回到上一行的要求 | 等 CI；落地 CI 绿了就算 |
+| `no exact-SHA Succeeded CI` | 开关 `requireFullCI`（PROD 流水线参数，默认 `off`；release.sh 读 `BIFROST_RELEASE_REQUIRE_FULL_CI`）关着时：这个提交没有成功的 `bifrost-ci-platform`，全量或部分都没有（部分 = `api-scope` 为 `console` 或落地 CI 的 `incremental`）。Owner 2026-11-06（RULE，执行 LAW-6）：还没有用户，PROD 不强制全量；以后打开开关，回到上一行的要求 | 等 CI；落地 CI 绿了就算 |
 | `no STG delivery` | 集群里一条 `bifrost-deliver-platform` 的 run 都没有（run 只留 1 天） | 发一次 STG |
 | `no Succeeded STG delivery of this commit` | 集群里没有一条成功的、克隆了这个提交的 STG 发布 | 先把这个提交发到 STG |
 | `STG clone commit is ambiguous` | 一条成功的 STG 发布的拉代码记录里没有或有多个 commit 结果 | 再发一次 STG |
@@ -329,7 +329,7 @@ PROD / platform-prod / research 的发布（级别 C）等 Owner 批，STG 与�
   revision 是 main 头或 tag——PROD 与 platform-prod 改为「钉住的提交 = 最新一条 STG / platform STG 发布记录发的提交」；
   每个 SHA 有 Succeeded 的 `ci-*`；diff（上次发布记录 → 这次）不碰 D10 路径、不碰信任根，碰 DDL 时必须只增不改
   （`additive_ddl`：只加行；无 DROP / RENAME / ALTER COLUMN / 不带 CONCURRENTLY 的 CREATE INDEX / 无默认值的 NOT NULL 列等）。
-  **模板的 `allow` 不含 `bifrost-deliver-prod`**（Owner 2026-10-10，Codex 审查 R02）：Trade 的 PROD 发布仍由 Owner 批。**`bifrost-deliver-platform-prod` 2026-11-12 起在 `allow` 里**（Owner 定，主通道）：规则覆盖时直接发，不覆盖时照旧出卡；W-56 没做完的门槛（失败自动退回、可信发布记录等）仍然没做完。
+  **模板的 `allow` 不含 `bifrost-deliver-prod`**（Owner 2026-10-10，Codex 审查 R02；RULE，执行 LAW-4、LAW-6）：Trade 的 PROD 发布仍由 Owner 批。**`bifrost-deliver-platform-prod` 2026-11-12 起在 `allow` 里**（Owner 定，主通道）：规则覆盖时直接发，不覆盖时照旧出卡；W-56 没做完的门槛（失败自动退回、可信发布记录等）仍然没做完。
   **2026-10-10 起模板里 `additive_ddl` 是 `false`**：现有分类器按行匹配禁止词、默认放行，换行或没列进清单的语句会被放过（Codex 审查 R01，已复现）。W-55 把它重做成允许清单并经独立复核之前，命中 DDL 路径的发版一律等 Owner。
 - **级别 B**（STG、构建）：设了冻结就 409 拒绝；有生效策略时照常起 run，并写审计 `release_policy.check`（covered / not covered + 条款），
   这是 PROD 依赖这些事实之前的影子演练。

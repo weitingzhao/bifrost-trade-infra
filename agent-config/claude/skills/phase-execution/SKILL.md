@@ -43,7 +43,7 @@ Build Desk（Briefing / In Flight / Delivery、`/api/v1/programs`、`config/prog
    - 标记当前 Phase 为 ✅
    - 填写完成日期
    - 记录实际改动摘要
-9. **交单**（Owner 2026-11-12、11-13、11-14）：只在交结果时写，要短；过程里不在对话里报进展。写这六样：
+9. **交单**（Owner 2026-11-12、11-13、11-14，LAW-7）：只在交结果时写，要短；过程里不在对话里报进展。写这六样：
 
 ```
 ## Phase N 交单
@@ -62,7 +62,7 @@ Build Desk（Briefing / In Flight / Delivery、`/api/v1/programs`、`config/prog
 当 Owner 已确认 **batch mode**（说「批量执行」或「执行」且上下文为 delivery program batch run — 见 `.claude/skills/batch-execution/OWNER_COMMANDS.md`）时：
 
 - **允许自动推进**到下一个 Phase，无需每 Phase 等待「继续」
-- **只在这几种情况停下**并报告 Owner（Owner 2026-11-14：给拐杖，不给桎梏）：
+- **只在这几种情况停下**并报告 Owner（Owner 2026-11-14：给拐杖，不给桎梏，LAW-5）：
   - 会越过安全边界（`CLAUDE.md` §3 和六类始终是 Owner 的事）
   - 收不回
   - 要 Owner 动手

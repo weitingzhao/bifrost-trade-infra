@@ -83,7 +83,7 @@ kubectl get pods -A -l 'app.kubernetes.io/name in (platform-api,owner-exec)' -o 
 
 ## 还有哪些情况要他回电脑
 
-这一节是全仓库唯一的清单。除第 5 条外，每一条都是系统的缺陷，不是规矩（Owner 2026-11-13：要他动手的事手机上要办得完）。
+这一节是全仓库唯一的清单。除第 5 条外，每一条都是系统的缺陷，不是规矩（Owner 2026-11-13：要他动手的事手机上要办得完，LAW-6）。
 
 1. **集群或 Console 自己挂了**。执行程序在集群里，跟着没了。这时用卡上不带码的 Approve，加他终端里的执行脚本（老路一直保留）。
 2. **命令必须用到他那台 Mac 上的东西**：本机文件、本机的凭据、局域网里集群够不着的机器。在 Mac 上执行的那一种还没做（TD-578）。
@@ -92,7 +92,7 @@ kubectl get pods -A -l 'app.kubernetes.io/name in (platform-api,owner-exec)' -o 
 5. **交易相关的一切**。这扇门对它们是关着的，D10 解锁也不会自动打开。
 6. **一次性库步骤**（`scripts/release/db-steps.d/` 的 `commit:` 行）：卡批完后，命令现在还是他在电脑上跑。执行口能不能跑这类命令没验证过（TD-578）。
 7. **装进集群的自举清单**（`docs/RELEASE.md` 里写明不走 apply 流水线的那几个：冻结检查的 Task、PROD 平台流水线的检查）：现在还是他在电脑上 apply。能不能改成一张带清单的执行卡没验证过（TD-578）。
-8. **PROD 的 agentrt 迁移 Job：已不用回电脑（2026-11-21 起）**。都由平台的 `run_agentrt_migration` 跑：只增不删的由 Agent 用 `run_agentrt_migration` 直接调，签名规则放行（Owner 2026-11-18）；会删表等不在那一类的，同一个动作建成 C 级卡，Owner 在 Console 批，平台自己起 Job（第一次：#671，0042 `DROP TABLE`，结果 `applied=[42]`）。号码留着是为了别处按号引用的条目不错位。
+8. **PROD 的 agentrt 迁移 Job：已不用回电脑（2026-11-21 起）**。都由平台的 `run_agentrt_migration` 跑：只增不删的由 Agent 用 `run_agentrt_migration` 直接调，签名规则放行（Owner 2026-11-18，LAW-6）；会删表等不在那一类的，同一个动作建成 C 级卡，Owner 在 Console 批，平台自己起 Job（第一次：#671，0042 `DROP TABLE`，结果 `applied=[42]`）。号码留着是为了别处按号引用的条目不错位。
 9. **应用 auto mode 规则**（`apply-auto-mode.sh`）：写的是他本机的设置文件（TD-578）。
 
 碰到这张清单以外、却发现非他回电脑不可的事，当作系统的缺口报给统筹并登记进 `TECH_DEBT.md`，不要默默给他派一条终端命令。
@@ -122,7 +122,7 @@ bash scripts/owner-exec/node-run.sh selftest   # 不需要集群
 **说清楚的边界**
 
 1. **设备档是特权 Pod。** 它能看到该节点的全部设备、带 CAP_SYS_ADMIN，原则上能挂载宿主盘（可读可写）、借盘上的节点凭证以节点身份读调度到该节点的 Pod 引用的 Secret。限制它只读的是配方文本，不是内核。控制靠「命令写死 + 全文在卡上 + Owner 读卡再输码」。不要写「它读不了任何 Secret」。
-2. **主机档就是该节点的 root。** Owner 2026-11-18 决定它可以用在有 Trade 或 IB 服务的节点（逐卡由他读卡输码），所以工具不再因节点上有这些 Pod 而拒绝，只把它们列在卡面前几行。D10 不解除：不下单、不改交易服务、不动这些 Pod 及其卷和 Secret。
+2. **主机档就是该节点的 root。** Owner 2026-11-18 决定它可以用在有 Trade 或 IB 服务的节点（逐卡由他读卡输码；RULE，执行 LAW-4、LAW-6），所以工具不再因节点上有这些 Pod 而拒绝，只把它们列在卡面前几行。D10 不解除：不下单、不改交易服务、不动这些 Pod 及其卷和 Secret。
 3. **命令文本的字面关卡是绊线，不是栅栏。** 它拦 `bifrost-prod/stg/dev`、`redis-ib`、`ib-gateway`、`ib:operator`、`daemon`、`kubernetes.io~secret`、`/var/lib/kubelet/pods`、`/run/secrets`、`serviceaccount/token` 这些字面，拦的是手滑。root 命令可以把同样的意思拼成任何正则看不出来的写法。真正的控制是 Owner 读卡；卡要短到手机上读得完。
 4. **不在范围内：** 集群外的机器（Mac mini、NAS、ubt-k3s-06）。这条路是集群里的 Pod，够不着它们。
 5. **验过什么：** 设备档在 ubt-k3s-05 上真跑过一次（卡 #602，2026-11-18，exit 0，执行结果的 `command_sha256` 与卡面一致）。主机档**从未在集群上跑过**。`selftest`（24 个用例，不需要集群）还没进 CI：quick 清单由 platform 的 `api/cmd/infracheck` 生成，加进去要改 platform，见 TD-585。
@@ -131,7 +131,7 @@ bash scripts/owner-exec/node-run.sh selftest   # 不需要集群
 
 ## 重签发布策略：一张执行卡（2026-11-15 起）
 
-Owner 2026-11-15：重签不该非回到放钥匙的电脑不可。输码批准的卡已经证明他同意的是那一份精确内容。
+Owner 2026-11-15（LAW-6）：重签不该非回到放钥匙的电脑不可。输码批准的卡已经证明他同意的是那一份精确内容。
 
 平台认两把钥匙签的发布策略：他 Mac 上原来那把，和集群里 Secret `bifrost-owner-exec/release-policy-signer` 那把
 （`bifrost-platform` `api/internal/releasepolicy/anchor.go` 的 `ClusterSignerFingerprint`；卡 #572 生成，#573 编进生产）。

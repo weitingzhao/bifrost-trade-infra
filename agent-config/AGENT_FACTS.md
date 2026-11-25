@@ -110,10 +110,10 @@ Trade 页面经 Ask Copilot 读 Research 后端（Positions / Instances / Live 3
 
 `bifrost_api.account` 目录 = account 域实现。
 
-**网关前缀：一个进程一个前缀**（TD-55，Owner 2026-10-04 选 B）：`/api/monitor`（monitor 进程；ops 在 `/api/monitor/ops/*`、docs 在
+**网关前缀：一个进程一个前缀**（TD-55，Owner 2026-10-04 选 B；一次性决定，不是规矩）：`/api/monitor`（monitor 进程；ops 在 `/api/monitor/ops/*`、docs 在
 `/api/monitor/research/docs/*`）· `/api/account`（account 进程）· `/api/market` · `/api/research`。旧别名前缀
 `/api/trading|strategy|portfolio|ops|docs`、它们的 strip 中间件与别名 Service `api-trading|strategy|portfolio|ops|docs` 已在
-B2 删除（Owner 2026-10-04：单用户，不等 7 天；`make check-trade-gateway-routes` 断言它们不再出现）。集群内调用一律用进程
+B2 删除（Owner 2026-10-04：单用户，不等 7 天；`make check-trade-gateway-routes` 断言它们不再出现；一次性决定，不是规矩）。集群内调用一律用进程
 Service 名 `api-monitor|account|market|research`。没配路由的 `/api/<x>/…`（含已删的别名）是 SPA 兜底（200 HTML），只看状态码分不出来。
 
 ### 其余服务
@@ -149,10 +149,10 @@ Service 名 `api-monitor|account|market|research`。没配路由的 `/api/<x>/�
 |------|------|------|
 | `bifrost-trader-engine` | **已 NAS 归档并移出工作区** | spine **D8**，2026-06-29 |
 | `bifrost-trade-ib-edge` | 被 `bifrost-trade-socket` 取代 | 2026-05-30 架构调整 |
-| `bifrost-trade-socket` | **GitHub Archived** · 已从多仓 workspace / CI/CD / Gitea 清除 | Owner 2026-08-31；GitHub `22bd9d6`；本地 tip/tag `b0a59f5`/`archived-14gf`（只读无法 push）；tarball 备份 |
+| `bifrost-trade-socket` | **GitHub Archived** · 已从多仓 workspace / CI/CD / Gitea 清除 | Owner 2026-08-31（一次性决定，不是规矩）；GitHub `22bd9d6`；本地 tip/tag `b0a59f5`/`archived-14gf`（只读无法 push）；tarball 备份 |
 | Trade Celery runtime + Celery workers + Flower `:5555` | 退役 | Wave 5（runtime）· **D-Wave-6.1**（代码）· **D-Wave-6.2**（文档/配置），2026-08-24 |
 | massive API `:8766` + Polygon Massive WS | 退役 | P7 → Market Data Plugin `:8790` |
-| Plugin `polygon-ws-ingestor` + `redis-massive`（含 `REDIS_MASSIVE_*`、`redis_massive:`） | 退役，无任何 Polygon WS ingest | Owner 2026-09-27（Options Starter 无实时 WS） |
+| Plugin `polygon-ws-ingestor` + `redis-massive`（含 `REDIS_MASSIVE_*`、`redis_massive:`） | 退役，无任何 Polygon WS ingest | Owner 2026-09-27（Options Starter 无实时 WS；一次性决定，不是规矩） |
 | `bifrost-analytics` | 并入 `bifrost-research/src/bifrost_research/dbt/` | spine **D13**，2026-08-21。目录保留但 README 标 ARCHIVED，**勿再改** |
 | 裸机 PostgreSQL `.80` | 退役 → CloudNativePG @ `data` NS | spine **D2-prime**，2026-06-20；节点重装为 `ubt-k3s-06` |
 | `features_daily` / `features_option` 等 legacy schema | DROP | **D-Wave-6.6**，2026-08-24；canonical 为 `features.*` |
@@ -305,7 +305,7 @@ D10 冻结的那个进程只有一个，但在代码、集群与界面上有十�
 | 名字 | 是什么 | 在哪 | 备注 |
 |------|--------|------|------|
 | `daemon` | Deployment / 容器 / `app.kubernetes.io/name` 标签（ns `bifrost-{dev,stg,prod}`） | infra `k8s/base/worker/manifest.yaml` | **规范名，不得改名**（D10 overlay 按名打补丁） |
-| `GsTrading` | 主类，Gs = Gamma Scalping；入口 `scripts/run_daemon.py` | worker `daemon/app/gs_trading.py` | 代码里的规范名（Owner 2026-10-03：不改名） |
+| `GsTrading` | 主类，Gs = Gamma Scalping；入口 `scripts/run_daemon.py` | worker `daemon/app/gs_trading.py` | 代码里的规范名（Owner 2026-10-03：不改名；一次性决定，不是规矩） |
 | `bifrost-worker` | 镜像名（worker 镜像里只有 daemon） | registry `bifrost-worker:<tag>` | |
 | `daemon-worker` | ServiceAccount（Lease RBAC，Role `daemon-lease`） | infra `k8s/base/worker/daemon-rbac.yaml` | |
 | `bifrost-daemon` | coordination Lease，主备选主，只有持有者跑 FSM | worker `daemon/lease.py` 默认值 | **不得改名**（滚动期间会出现两个主） |
@@ -405,7 +405,7 @@ kubeconfig：`~/.kube/bifrost-k3s.yaml` 是只读身份 `system:serviceaccount:b
 
 <!-- node-table:outside:begin -->
 集群外：Win11 TWS ×2（topology `win11-host` / `win11-secondary`；`bifrost-platform-plugin/config/gateway.yaml` 模板写的是 `.30` / `.32`；永不调度进 K3s）、
-Mac mini `.50` / `.52`（Agent 主机：Owner 2026-11-23 定 Agent 的岗位住这两台，用 Owner 自己的用户和账号，照 Mac Pro 上 Claude 外壳的干活方式布置；工坊 11 管，章程 `charters/11-station.md`）、ubt-k3s-06 `.79`（2026-11-24 格式化重装、重新入群当 K3s 节点，不再是 Agent 主机；原 agentd 和 `scripts/agent-host/` 随之退役）、NAS `.20`（归档与备份目标）、本机 MacBook（kubectl / MCP / Vite）。
+Mac mini `.50` / `.52`（Agent 主机：Owner 2026-11-23（RULE，执行 LAW-12） 定 Agent 的岗位住这两台，用 Owner 自己的用户和账号，照 Mac Pro 上 Claude 外壳的干活方式布置；工坊 11 管，章程 `charters/11-station.md`）、ubt-k3s-06 `.79`（2026-11-24 格式化重装、重新入群当 K3s 节点，不再是 Agent 主机；原 agentd 和 `scripts/agent-host/` 随之退役）、NAS `.20`（归档与备份目标）、本机 MacBook（kubectl / MCP / Vite）。
 <!-- node-table:outside:end -->
 
 ### 入口与 NodePort
@@ -453,7 +453,7 @@ Tekton 流水线：`bifrost-ci-{frontend,platform,python}` · `bifrost-deliver-{
   Research `analytics_writer`（不再继承 `bifrost`）。登录名以各 Secret 的 `PGUSER` / `postgres-user` 为准，ConfigMap 里的 `user:` 只是回落。
 - `redis-ib` @ `data`：共享 IB 事件总线；`redis-live` / `redis-queue` 每环境一套。
 
-### IB 接入模型（账户号不是秘密 — Owner 2026-09-06 明确）
+### IB 接入模型（账户号不是秘密 — Owner 2026-09-06 明确，LAW-4）
 
 - IB **登录只发生在两台 Win11 的 TWS 软件里**（Owner 手工登录 + 2FA）；工作区与集群里没有 IB 密码。
 - 其余系统只经 **IB API socket**（TWS `tws_live` 端口；client_ids 70/71 Host、72/73 Secondary）由 Platform IB Gateway Plugin 连接 → `redis-ib`；
