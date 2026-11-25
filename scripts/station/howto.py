@@ -12,7 +12,7 @@ import sys
 import yaml
 
 INFRA = pathlib.Path(__file__).resolve().parents[2]
-# Each domain's self-description sits beside the code it describes, named admission.yaml (law 95, map line's
+# Each domain's self-description sits beside the code it describes, named admission.yaml (LAW-10, map line's
 # default with Station, 2026-11-22); platform's come through the map's /catalog/domain?task=.
 SELF = sorted(INFRA.glob('scripts/**/admission.yaml'))
 

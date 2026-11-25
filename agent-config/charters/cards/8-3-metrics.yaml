@@ -23,6 +23,6 @@ not_mine:
   - {what: 拦截的系统记录（生产方）, to: Foundation 箭0}
 walls:
   - 集群只读；monitoring 写入走 plan_manifest/apply_manifest（C 级卡），删对象走 D 级
-  - 改裁判（检查脚本的判定、加检查、改尺子）交 Owner（法 94）
+  - 改裁判（检查脚本的判定、加检查、改尺子）交 Owner（LAW-9）
   - 不读 Secret、令牌、~/.config/bifrost；不碰 D10；不改 auto mode 规则
   - 被拦记原话不绕

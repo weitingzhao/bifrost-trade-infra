@@ -253,7 +253,7 @@ spec:
         # them, so the run's reason stays Succeeded; the base's run stands for it.
         - name: run-modules
           value: $(tasks.changes.results.run-modules)
-        # 2026-11-21 (CI line, law 90): the files vitest starts from on a branch run;
+        # 2026-11-21 (CI line, LAW-5): the files vitest starts from on a branch run;
         # "*" runs every test (main, the daily full CI, any doubt).
         - name: console-files
           value: $(tasks.changes.results.console-files)

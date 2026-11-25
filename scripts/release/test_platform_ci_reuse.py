@@ -55,7 +55,7 @@ def test_empty_tested_by_is_a_fresh_original():
     assert choose([run]) == run
 
 
-# 2026-11-21, CI line under law 90: the push to main after an incremental landing stands on
+# 2026-11-21, CI line under LAW-5: the push to main after an incremental landing stands on
 # the landing's run (same tree, ui, infra). On 2026-11-20 the 58 full runs of those pushes
 # found 0 failures that the landing run had not. Replaces the 2026-11-16 rule that an
 # increment is never reused; the full pass PROD needs comes from the daily full CI.

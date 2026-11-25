@@ -1,5 +1,5 @@
 # 身份卡 11-station（Station，箭11）。第 1 栏从 seats.yaml 取。
-# 出处：charters/11-station.md §1、§2、§4，Owner 11-21 的定名、法 90，Crew 交接信（11-21）。只提炼，不新定。
+# 出处：charters/11-station.md §1、§2、§4，Owner 11-21 的定名、LAW-5，Crew 交接信（11-21）。只提炼，不新定。
 as_of: 2026-11-21
 laws: [OWNER_LAW 23 ownership, 24 出错先补环境, 29 改裁判规则交 Owner, 49 先执行再评价, 58 自己判不问, 66 Station 改名与接管, 67 身份卡, D10 交易冻结]
 owns:

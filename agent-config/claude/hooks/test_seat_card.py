@@ -1,4 +1,4 @@
-"""seat-card.py (Station, Owner law 90, 2026-11-21): the card reaches the agent at session start and
+"""seat-card.py (Station, Owner LAW-5, 2026-11-21): the card reaches the agent at session start and
 before it asks a person; a session outside the seats table gets the way in; nothing ever breaks a session.
 Origin: 2026-11-21 entry test, a fresh Claude found the rules but no seat and no way to claim or hand in work.
 

@@ -336,7 +336,7 @@ def executable(rel: str):
 
 # --- console-files: which files test-console's vitest starts from (2026-11-21) ----------------
 #
-# Origin: CI line under law 90, 2026-11-21. Over the 24 hours before, 50 branch runs ran every
+# Origin: CI line under LAW-5, 2026-11-21. Over the 24 hours before, 50 branch runs ran every
 # console test (median step 171 s, the tests about 110 s of it) though most touched a few files;
 # vitest related runs only the tests that import what changed. Every doubt runs every test.
 

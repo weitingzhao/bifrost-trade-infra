@@ -10,6 +10,6 @@ bifrost-platform:api/internal/agentrt/migrations/*.sql:*  # applied migrations: 
 bifrost-platform:api/internal/agentrt/planstore/*_test.go:*  # the register's tests build their own register; its numbers are not the real laws
 bifrost-platform:api/internal/instruments/*:*  # the citation parser and its tests: the numbers are its inputs and examples
 bifrost-platform:console/src/pages/shell/owner/__tests__/lawFramework.test.tsx:*  # the Laws page's tests use their own register
-bifrost-platform:console/src/pages/shell/owner/__tests__/auditConclusionsModel.test.ts:*  # a fixture law 12 and the history of law 85 moving to law 91
-bifrost-platform:console/src/pages/shell/owner/auditConclusionsModel.ts:85  # history: says law 85's standard moved to law 91 (2026-11-24, #749)
+bifrost-platform:console/src/pages/shell/owner/__tests__/auditConclusionsModel.test.ts:*  # a fixture law 12 and the history of law 85 moving to LAW-6
+bifrost-platform:console/src/pages/shell/owner/auditConclusionsModel.ts:85  # history: says law 85's standard moved to LAW-6 (2026-11-24, #749)
 bifrost-trade-infra:agent-config/claude/auto-mode/project.autoMode.json:*  # the auto mode rules are the Owner's; he changes them

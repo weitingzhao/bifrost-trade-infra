@@ -103,7 +103,7 @@ npx tsc --noEmit
 echo "==> npm run lint"
 npm run lint
 
-# 2026-11-21 (CI line, law 90): a branch run tests what its changes reach.
+# 2026-11-21 (CI line, LAW-5): a branch run tests what its changes reach.
 # task changes names the changed files the tests could import
 # (CONSOLE_FILES); vitest related runs the tests that import them, and
 # this adds every test that reads files from disk, which no import graph
@@ -352,7 +352,7 @@ def worker_pin_problems(script: str, cpu_limit: object) -> list[str]:
 def related_problems(script: str, cpu_limit: object) -> list[str]:
     """Why the branch run's vitest related line is not the gate's vitest line narrowed.
 
-    2026-11-21 (CI line, law 90): a branch run runs the related tests instead of
+    2026-11-21 (CI line, LAW-5): a branch run runs the related tests instead of
     every test. That line keeps the worker pin and must not hide its exit; it is
     the only other vitest line.
     """
@@ -743,7 +743,7 @@ class ConsoleGateTests(unittest.TestCase):
                 )
 
     def test_the_related_line_keeps_the_pin_and_its_exit(self) -> None:
-        # 2026-11-21: branch runs narrowed to vitest related (CI line, law 90); the
+        # 2026-11-21: branch runs narrowed to vitest related (CI line, LAW-5); the
         # narrowed line must not lose what the vitest run line is held to.
         self.assertEqual(related_problems(CANONICAL, "6"), [])
         related = "npx vitest related --run --maxWorkers=6 ${changed} ${read_disk}"

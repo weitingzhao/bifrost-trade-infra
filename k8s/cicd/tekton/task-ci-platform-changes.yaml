@@ -15,7 +15,7 @@
 # the evidence ledger. The result is "*" (everything), or the names between spaces
 # (" api repo "). "*" before anything else and on any doubt: no answer, an answer cut
 # short, a line this task does not read, a commit with no declaration, nothing left out.
-# console-files (2026-11-21, CI line under law 90): the files test-console's vitest starts
+# console-files (2026-11-21, CI line under LAW-5): the files test-console's vitest starts
 # from (vitest related): every changed path test-console's tests could import, relative to
 # console/ (console/src/** as src/**, any other path as ../path; Go and Markdown files are
 # left out, as vite imports neither). "none" when there is none; "*" (every test) before

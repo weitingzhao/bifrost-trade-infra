@@ -8,12 +8,12 @@
 - 【裁，#17】CI 定保留规则；算力执行四类清理、维护 Tekton 清理配置；值班只记清单。未定规则不删，归属不代替授权。
 - 【裁，#19】算力牵头共享节点余量/阈值，与数据库/Trade 对齐，不改业务/节点数据；转正前采集算力代管，展示归领域 2、值班代管。
 - 【裁，#19/#12】9.1 核实 agent-06；主机常驻（含 Codex 等信）归算力，等信协议/命令归 8.2；执行者/身份/额度未核实不装不启。
-- 【量，OWNER_LAW #97，2026-11-19】老家、借用、收回：每台节点有老家（`bifrost_node:home_info`）；老家空着的 CPU 借给能重跑的 CI 活（`api/internal/placement` 的停接线）；库所在节点越线（ComputePain 收回告警）时，算力线删正在跑的 CI 客人（手册 `compute/reclaim-runbook.md`）。数据库、Trade、IB 不当客人。法 97 在一次真收回之前算没验证。
+- 【量，LAW-12，2026-11-19】老家、借用、收回：每台节点有老家（`bifrost_node:home_info`）；老家空着的 CPU 借给能重跑的 CI 活（`api/internal/placement` 的停接线）；库所在节点越线（ComputePain 收回告警）时，算力线删正在跑的 CI 客人（手册 `compute/reclaim-runbook.md`）。数据库、Trade、IB 不当客人。LAW-12 在一次真收回之前算没验证。
 - 【量】代码包只归算力的（`config/domain-ownership.json`，2026-11-22 读）：`placement`、`computenodes`、`computereadings`、`elasticreadings`、`devsession`、`selfhealth`、`operatorplane`、`mcp`、`patrol`；路径 `agent/deploy`、`agent/git-bridge`、`scripts/agent`；负载 `kube-system`。节点的硬件读数（盘的型号、按真实负载量的写延迟）也归算力；算力查询在 `api/internal/computereadings/`，由 foundation 的 telemetry 路由提供。
 
 ## 2. 对外的口子
 
-按合约形式列，评判和测试只对着这些做（法 95）。【量】「登记」指平台的 `config/domain-ownership.json` 中的合约；2026-11-22 核对 `origin/main`（`14c3d646`），算力合约的 `measured_at` 仍是 `2e93ae09`，指令与共享存储已由 `d8e74354` 补登记。
+按合约形式列，评判和测试只对着这些做（LAW-10）。【量】「登记」指平台的 `config/domain-ownership.json` 中的合约；2026-11-22 核对 `origin/main`（`14c3d646`），算力合约的 `measured_at` 仍是 `2e93ae09`，指令与共享存储已由 `d8e74354` 补登记。
 
 | 口子 | 形式 | 登记了吗 | 谁在用 |
 |---|---|---|---|
@@ -57,7 +57,7 @@
 ## 6. 现状和已知缺口
 
 - 【量，2026-11-22】6 台 Ready（01、02、04、05、07、08），GPU 机按需开机、平时关着。05 换了新盘，11-22 解封（#676），老家 general，带 batch=deny。
-- 【量】法 97：17 步完成 14，剩第 13 步（放行跑满 7 天，到 11-26）、第 14 步（前后对比，11-27 由指标线读）、第 17 步（一次真收回）。
+- 【量】LAW-12：17 步完成 14，剩第 13 步（放行跑满 7 天，到 11-26）、第 14 步（前后对比，11-27 由指标线读）、第 17 步（一次真收回）。
 - 【量】STG 三常驻声明和不主动抢占类已挂，#560 软亲和仍在。三入口亲和验收 11-21 从 9.1（经 Crew）交回算力线，每个入口取三次样本，11-21 已取 1 个。
 - 【量】缺申请/排队/等待核账、GPU 唤醒、agent-06；CI 修读取重开 STG 核对，短窗不证 workers 长期预算。
 

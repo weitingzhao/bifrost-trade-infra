@@ -876,7 +876,7 @@ function kubeconfigValueAllowed(raw) {
     // that string: `K="--kubeconfig $HOME/.kube/bifrost-k3s.yaml"` reads
     // `$HOME/.kube/bifrost-k3s.yaml"`. The allow-list below is unchanged.
     // Origin: 2026-11-20, the decoupling line's count: 81 refusals in 22
-    // sessions in 7 days, most of them this form (law 90).
+    // sessions in 7 days, most of them this form (LAW-5).
     value = value.slice(0, -1).trim()
   }
   if (value === '~/' + ALLOWED_KUBE_TAIL) return true
@@ -1125,7 +1125,7 @@ function blockLogLine(kind, payload, now) {
 
 // logBlock appends that line under ~/.bifrost-dev/logs, outside every
 // repository, so the rules that refuse can be counted without reading
-// transcripts (law 90: execute, then evaluate). Any error is swallowed: the
+// transcripts (LAW-5: execute, then evaluate). Any error is swallowed: the
 // log must never change a verdict.
 // Origin: 2026-11-20, the decoupling line's gate inventory had to count
 // refusals by scanning session transcripts.

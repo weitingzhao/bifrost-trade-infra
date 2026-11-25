@@ -230,7 +230,7 @@ sys.exit(1)
 window_put() {
   local what="$1" who="$2" reason="$3" env="$4"
   local body
-  # reason and rollback reach the action record (法 91: a reversible act is
+  # reason and rollback reach the action record (LAW-6: a reversible act is
   # done and recorded); a renewal is not recorded again (platform side).
   body="$(python3 -c 'import json,sys; print(json.dumps({"what":sys.argv[1],"who":sys.argv[2],"reason":sys.argv[3],"env":sys.argv[4],"ttl_minutes":int(sys.argv[5]),"rollback":"the window frees itself %s minutes after the last renewal, and at once when the holding process exits" % sys.argv[5]}))' \
     "${what}" "${who}" "${reason}" "${env}" "${WINDOW_TTL_MINUTES}")"
