@@ -1,7 +1,7 @@
 ---
 name: code-health
 description: >-
-  代码健康度棘轮（duplication / contract coverage / image spread）。
+  代码健康度棘轮（duplication / contract coverage）。
   Use when a code-health check fails, when lowering a baseline in baselines.env,
   when adding a metric to scan.sh, when reading Ops Console → Code Health, or when
   deciding whether a conclusion rests on verified code or on stale memory.
@@ -112,7 +112,6 @@ Live Re-scan 环境（可选）：`BIFROST_WORKSPACE_ROOT`（stocks 根）、`PL
 |------|------|-------------|
 | duplicated function names | 有 >3 处定义的**不同函数名个数**；排除 tests 与 dunder | 数的是「重复的概念」。加第 52 个 `_run` 不触发（框架接口不算腐化），出现一个**新的**重复名才触发 |
 | API modules without schema | `src/api/*.ts` 里没接 `withValidation` / `lib/schemas` 的 | 两个 payload 独立发布后，没契约的端点漂移了没人知道 |
-| research image tiers | `bifrost-research/k8s` 里不同的镜像 tag 数 | 每多一档，就多一个组件在跑没人追踪的代码 |
 | hard-coded facts in Ops source | platform 的 `console/src`、`api/internal` 里带日期、状态词、写死比例或计数的字符串和 JSX 文本，每处算一次；不算测试、夹具、注释（`ops-hardcoded-facts.awk`） | LAW-8：Ops 显示的都从源头算。这是代理指标，只看往下走；不设文件内豁免，提高基线要 Owner 批 |
 
 **只扫 `git ls-files`**：gitignore 排除的（node_modules / `.venv*` / dist）自动不算。

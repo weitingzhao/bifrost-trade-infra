@@ -305,19 +305,9 @@ add_metric code.contract-coverage.satellite "API modules without schema" satelli
 fi
 
 # ---------------------------------------------------------------- metric 4
-# Distinct research image tags pinned across k8s. Each extra tier is a
-# component running code that no release actually tracked. Only the
-# bifrost-research image itself: bifrost-research-pine (the pine-runner, W6)
-# is a separate artifact with its own version line.
-if want bifrost-research; then
-rs_k8s="$(tracked bifrost-research 'k8s/*')"
-tiers="$(grep_files bifrost-research "$rs_k8s" 'image:[[:space:]]*[^ ]*bifrost-research:[^ ]*' \
-  | sed -E 's/.*://' | sort -u)"
-tiers_n=$(printf '%s' "$tiers" | grep -c . || true)
-add_metric code.image-version-spread.research "distinct research image tags" research bifrost-research \
-  "$tiers_n" RESEARCH_IMAGE_TIERS_BASELINE \
-  "tags: $(printf '%s' "$tiers" | tr '\n' ' ')" "$tiers"
-fi
+# Retired 2026-11-25 (walls review [71], owner_said e6a1558c): distinct
+# research image tags are a release cadence, not debt (LAW-11 四: each layer
+# has its own); the spread is a reading on Ops, not a ratchet here.
 
 # ---------------------------------------------------------------- metric 5
 # Facts written by hand into Ops source (LAW-8: everything
