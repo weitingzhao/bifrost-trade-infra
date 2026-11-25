@@ -157,10 +157,5 @@
         ]
       }
     ]
-  },
-  "permissions": {
-    "deny": [
-      "Edit(/bifrost-analytics/**)"
-    ]
   }
 }

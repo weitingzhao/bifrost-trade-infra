@@ -203,11 +203,6 @@ const TERMINATE_TARGET = new RegExp(
 /** 命令段开头（行首或 ; & | ` ( 之后），后面才算「要执行的命令」：
  *  `pip install celery`、`grep celery` 这类提到名字的写法不算。 */
 const SEGMENT = '(?:^|[;&|`(\\n])\\s*(?:sudo\\s+)?'
-// 退役运行时名字拆开拼接，理由同 MANAGED。
-const RETIRED_RUNTIME = new RegExp(
-  SEGMENT + '(?:python3?\\s+-m\\s+)?(?:' + ['cel' + 'ery', 'flo' + 'wer'].join('|') + ')(?:\\s|$)' +
-  '|' + SEGMENT + '(?:(?:python3?|bash|sh)\\s+)?\\S*' + 'bifrost-trade-' + 'socket/\\S+\\.(?:py|sh)\\b',
-)
 const PACKAGE_RUNNER = new RegExp(SEGMENT + '(?:(?:bash|sh)\\s+)?\\S*\\brun_(?:frontend|backend)\\.sh\\b')
 
 function devServiceRules(cmd) {
@@ -222,9 +217,6 @@ function devServiceRules(cmd) {
   }
   if (PACKAGE_RUNNER.test(cmd)) {
     return '直接长跑整包 runner `run_frontend.sh` / `run_backend.sh` —— 本地服务归 bdev：`bdev restart <name>`'
-  }
-  if (RETIRED_RUNTIME.test(cmd)) {
-    return '启动已退役的运行时（bifrost-trade-socket、Celery / Flower）—— 它们会和现役链路重复写 IB 总线，是事故，不要起'
   }
   if (TERMINATE_TARGET.test(cmd)) {
     return '直接终止 bdev 托管的服务进程 —— 用 `bdev restart <name>`（清 CRASHED 标记并走 supervise）'
