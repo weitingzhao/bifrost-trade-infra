@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Residual scan of the laws (legislation, 2026-11-24).
 
-Owner 2026-11-24: deleting or merging a law is not done until nothing in the
+LAW-1: deleting or merging a law is not done until nothing in the
 project still points at it; and the cycle (inventory, distil, delete,
 inventory again) runs many rounds, so the scan is a tool run each round, not
 a one-off.
@@ -55,9 +55,8 @@ ISSUE_FINE = {"open", "drafted", "in_force", "closed"}
 # 法 N, but not a word ending in 法 followed by a number (合法 0, 读法 0, 算法 2:
 # round 1 counted twelve 「合法 0」 as citations of a law 0).
 CITE = r"(?:(?<![合方算办做写用语手说想看读解打玩立执修宪司违守依无设])法 ?|[Ll]aw |OWNER_LAW ?#)([0-9]{1,3})(?![0-9])"
-# A law is written by its level's word and its number in that level (Owner
-# 2026-11-25: 「以后法条统一叫LAW 开始，不用简写」, then 「每一层都用特定的单词
-# 表示，同时采用特定的编号体系」；每个单词最多四个字母): DAO-k, CORE-k, LAW-k, ZONE-k (the
+# A law is written by its level's word and its number in that level (LAW-1 一:
+# one word per level, at most four letters, no abbreviations): DAO-k, CORE-k, LAW-k, ZONE-k (the
 # platform's planstore lawcode.go). A law added from round 2 on carries its
 # code in its record; the laws before had LAW-k = number 85+k, and 89 is
 # CORE-1. Rows 1 to 85 were material and have no code.

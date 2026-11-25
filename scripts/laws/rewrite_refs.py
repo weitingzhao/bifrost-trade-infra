@@ -95,7 +95,7 @@ def main():
     ap.add_argument("checkout")
     ap.add_argument("--laws", help="the register as JSON (default: read PROD as agent_reader)")
     ap.add_argument("--dry-run", action="store_true")
-    ap.add_argument("--to-codes", action="store_true", help="rewrite citations of laws in force as LAW-k (Owner 2026-11-25)")
+    ap.add_argument("--to-codes", action="store_true", help="rewrite citations of laws in force as LAW-k (LAW-1 一)")
     a = ap.parse_args()
     laws = residual_scan.read_laws(a.laws)
     material = {b["law"] for b in laws if residual_scan.state(b) == "素材"}

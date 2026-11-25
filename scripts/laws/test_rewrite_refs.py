@@ -35,7 +35,7 @@ def test_what_is_not_absorbed_material_stays():
 
 
 def test_laws_in_force_are_written_as_their_code():
-    # Origin: 2026-11-25, Owner: 「以后法条统一叫LAW 开始，不用简写」. A citation
+    # Origin: 决定 2026-11-25 (LAW-1 一: laws are cited by code, no abbreviations). A citation
     # of a law in force by number becomes LAW-k, prefix and all; material and
     # other numbers stay (the positive control's other side).
     codes = {"86": "LAW-1", "89": "CORE-1", "91": "LAW-6", "95": "LAW-10", "98": "LAW-13", "99": "DAO-1"}

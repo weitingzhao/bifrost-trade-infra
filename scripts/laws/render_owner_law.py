@@ -28,7 +28,7 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 FILE = ROOT / "agent-config" / "OWNER_LAW.md"
 ROW = re.compile(r"^\|\s*(\d+|(?:DAO|CORE|LAW|ZONE)-\d+)\s*\|")
-CODE_BASE = 85  # LAW-k is number 85+k (Owner 2026-11-25; platform planstore lawcode.go)
+CODE_BASE = 85  # LAW-k is number 85+k (LAW-1 一; platform planstore lawcode.go)
 
 
 def code(law):
@@ -91,8 +91,8 @@ def render(text, laws):
         seen.add(n)
         last = i
         law = by.get(n)
-        # A repealed law leaves the file (Owner 2026-11-24: a repealed law
-        # must not linger as poison; it stays only in the platform's ledger).
+        # A repealed law leaves the file (LAW-1: a repealed law
+        # must not linger; it stays only in the platform's ledger).
         if law and repealed(law):
             drop.add(i)
             continue
