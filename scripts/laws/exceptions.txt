@@ -13,3 +13,4 @@ bifrost-platform:console/src/pages/shell/owner/__tests__/lawFramework.test.tsx:*
 bifrost-platform:console/src/pages/shell/owner/__tests__/auditConclusionsModel.test.ts:*  # a fixture law 12 and the history of law 85 moving to LAW-6
 bifrost-platform:console/src/pages/shell/owner/auditConclusionsModel.ts:85  # history: says law 85's standard moved to LAW-6 (2026-11-24, #749)
 bifrost-trade-infra:agent-config/claude/auto-mode/project.autoMode.json:*  # the auto mode rules are the Owner's; he changes them
+bifrost-platform:api/internal/agentrt/planstore/lawcode.go:LAW-4  # says LAW-4 stays unused (89 became CORE-1); naming the gap is the point

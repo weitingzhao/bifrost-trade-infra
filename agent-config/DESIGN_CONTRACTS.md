@@ -747,11 +747,11 @@ Description 193px → 446px,截断 13/15 → 2/15)。
 4. **棘轮审计**(与白天清账同一把尺):扫全库 `.dc.html` 中不在 `var(--…,` 兑底位的 `#a3e635 #7dd3fc #38bdf8 #c084fc #a78bfa`;命中逐个判归属(实体→换 var · 模块色/lamp→豁免 · accent 误用→换 `--sk-accent`)。新页面裸写这五个值作实体墨 = 审计不过。
    **tint 填充同尺**(2026-09-23 二轮):方向/实体色的半透填充必须写 `rgb(var(--color-profit-rgb, 74 222 128) / α)` 形;暗中性微线必须写 `color-mix(… var(--sk-line|surface) α%, transparent)`;裸暗三元组(全通道 <90,黑色 scrim/阴影除外)= 审计不过。
    现状:全库已清零(壳件 + 72 页 + tint 二轮);豁免清单见 CLEANUP。
-5. **图表图层可借身份色**(Owner 2026-09-25,Performance 图层 1b):当一条图层恰是某类实体的汇总(Options 层 = 全部合约 · Stocks 层 = 全部股票)时,取该实体墨(`--sk-contract` / `--sk-ticker`);不属于实体的图层(FI 现金流 · Cash-like)用中性墨 + 虚线,且同图内每条灰线取不同档(`--sk-soft` / `--sk-mute` / `--sk-faint`;`--sk-mute2` 在部分皮肤里与 `--sk-mute` 同值,不作区分用)。图层线不得取方向色、lamp 色或 `--sk-accent`;Total 下的面积区按 0 轴分色——水上 profit、水下 loss 低饱和填充(§14.7 #5),线本身永不红绿。
+5. **图表图层可借身份色**(Owner 2026-09-25,Performance 图层 1b;RULE,执行 ZONE-1):当一条图层恰是某类实体的汇总(Options 层 = 全部合约 · Stocks 层 = 全部股票)时,取该实体墨(`--sk-contract` / `--sk-ticker`);不属于实体的图层(FI 现金流 · Cash-like)用中性墨 + 虚线,且同图内每条灰线取不同档(`--sk-soft` / `--sk-mute` / `--sk-faint`;`--sk-mute2` 在部分皮肤里与 `--sk-mute` 同值,不作区分用)。图层线不得取方向色、lamp 色或 `--sk-accent`;Total 下的面积区按 0 轴分色——水上 profit、水下 loss 低饱和填充(§14.7 #5),线本身永不红绿。
 
 ---
 
-## 16. 页面精修原则(北极星,Owner 2026-09-23 定)
+## 16. 页面精修原则(北极星,Owner 2026-09-23 定;RULE,执行 ZONE-1)
 
 > 样板页:`Portfolio Positions.dc.html`(Rev 2026-09-23.21)。每页按本节逐条过,**不求一次铺完,慢慢推进**;进度表在 CLEANUP「页面精修进度」。
 
@@ -775,7 +775,7 @@ Description 193px → 446px,截断 13/15 → 2/15)。
 
 **16.9 主题中立**:页面不得假设某个主题(暗 / 亮 / 自动)。凡页面里写死的色值、阴影底色、玻璃底色,都要能在四种组合下成立。
 
-**16.10 统一页头 `_Shell PageHead`(Owner 2026-09-25)**:每页页头只用这一个共用件,不再手写 `<h1>` 或直接用 DS `PageHeader`。
+**16.10 统一页头 `_Shell PageHead`(Owner 2026-09-25;RULE,执行 ZONE-1)**:每页页头只用这一个共用件,不再手写 `<h1>` 或直接用 DS `PageHeader`。
 - **第 1 行**(≥36px):标题 22/700(§16.4,单行不折,最多占 45%)· `ⓘ`(页说明,悬停显示、点击钉住,Esc / 点外关闭;说明**不上屏**,一句不删)· **时间戳位永远有**(有会话 → `ASOF`,`_Part AsofTag`;只有抓取时刻 → `FETCHED`,§4.6 不伪造 ASOF;参考页 Docs/Settings → `REV`;数据页无读数 → `ASOF —` 灰,§11.3.1)· 右侧 meta(计数,mono)+ 操作按钮(DS `Button`,主操作 ≤1 个)。
 - **第 2 行**(可选,32px):下划线 Tab,当前项用 `--sk-accent` 下划线(§1「一个视图一个激活物」)。页面级视图切换放这里;**筛选 / 账户范围不进页头**,放页头下方工具条。
 - 页头以一条 `line0` 细线收尾。高度只有两档:无 Tab 43px · 有 Tab 75px。
@@ -786,9 +786,9 @@ Description 193px → 446px,截断 13/15 → 2/15)。
 - 操作按钮可带状态色(`ink` / `border`,如 Refresh 的 polling 琥珀 / 完成青色),带状态色的按钮 `aria-live=polite`。
 - 定稿后提升到 `@bifrost/ui` 的 `PageHeader`(加 `info` / 时间戳位 / `tabs` / 带状态的 `actions`)。
 
-**16.10a Symbol 仍是例外,改成四层头(Owner 2026-09-25)**:不进 `_Shell PageHead`。页头从上到下:主语(symbol 26 · 名称 · 价格 · 涨跌 · 持有)→ Verdict(判定 + Send to · Plan this)→ 依据一行(灰字:lens 概述 · from 来源 · 入选理由)→ 控件行(Reading / Method · snapshot · ASOF · 本次解读的动词)。lamp 行退役,状态灯只在 Tab 上;← n of N → 走 Symbol 列表坞的 Source 列表(Shell Spec §5a.11)。
+**16.10a Symbol 仍是例外,改成四层头(Owner 2026-09-25;RULE,执行 ZONE-1)**:不进 `_Shell PageHead`。页头从上到下:主语(symbol 26 · 名称 · 价格 · 涨跌 · 持有)→ Verdict(判定 + Send to · Plan this)→ 依据一行(灰字:lens 概述 · from 来源 · 入选理由)→ 控件行(Reading / Method · snapshot · ASOF · 本次解读的动词)。lamp 行退役,状态灯只在 Tab 上;← n of N → 走 Symbol 列表坞的 Source 列表(Shell Spec §5a.11)。
 
-**16.12 面包屑不重复页名(Owner 2026-09-25)**:页名只在页头做主角。
+**16.12 面包屑不重复页名(Owner 2026-09-25;RULE,执行 ZONE-1)**:页名只在页头做主角。
 - 顶栏面包屑的**上级可点**(`crumbsFor()` 给每级解析 `to`:同名路由且前缀一致 → 该路由;顶层组 → 层页;解析不到的组名保持纯文字)。
 - **末级(当前页名)在页头可见时收起**,连同它前面的 `›`;页头滚出视口后淡入(≈200ms)。`_Shell PageHead` 用 IntersectionObserver 广播 `bifrost:pagehead`(`in` / `out`),并写 `<html data-pagehead>`;TopBar 据此收放。
 - 没有换 `_Shell PageHead` 的页不广播,末级照常显示——过渡期没有页面会看不到自己的名字。
@@ -818,11 +818,11 @@ Description 193px → 446px,截断 13/15 → 2/15)。
 - **不显示的页**:数据全是系统自身状态的页(Inbox · Book · Autopilot · Copilot · Plans · Playbook · Desk · Alerts · Today · Events · Orchestration · System Status)不显示标签——不依赖外部源,给时间什么也说明不了。`ASOF —` 只留给「本该报告却没报告」。
 - 样板:Positions(execution · 多源 · 第 3 层列标)· Trade Expiration(execution · 第 4 层 Create plans 确认)· Stock ratings(research)· StatusBar 数据灯。原型预览:任一样板页的置信度弹层底部「Preview」切三个场景(Healthy / Snapshot stale · thin chain / IB quotes down;localStorage `bifrost.dataScenario`)。
 
-**16.11 页面不横向滚动(Owner 2026-09-25)**:目标最小窗口 **1440px**(含侧栏)。页面滚动容器一律 `overflow-y: auto; overflow-x: hidden`。放不下的宽表在**卡片内**横向滚动,首列固定:表的包裹层加 `data-sr-hscroll`(registry 统一提供 sticky 首列样式)。网格列不用固定 px(用 `minmax(0,1fr)` 或 §16.5 的 flex 写法);`white-space: nowrap` 只给数字、代码和标签,不给说明文字。
+**16.11 页面不横向滚动(Owner 2026-09-25;RULE,执行 ZONE-1)**:目标最小窗口 **1440px**(含侧栏)。页面滚动容器一律 `overflow-y: auto; overflow-x: hidden`。放不下的宽表在**卡片内**横向滚动,首列固定:表的包裹层加 `data-sr-hscroll`(registry 统一提供 sticky 首列样式)。网格列不用固定 px(用 `minmax(0,1fr)` 或 §16.5 的 flex 写法);`white-space: nowrap` 只给数字、代码和标签,不给说明文字。
 
 ---
 
-## 17. 交互模式标准(Owner 2026-09-25 立,分批推进)
+## 17. 交互模式标准(Owner 2026-09-25 立,分批推进;RULE,执行 ZONE-1)
 
 > 与 §16 同轮做:精修一页时顺带过本节六条。顺序:状态 → 表格 → 工具条 → KPI → 弹层 → 间距。每类:规则 → 共用件 → 样板页 → 分批迁移(每批 8–10 页),进度在 CLEANUP「交互模式对齐」。
 
@@ -924,7 +924,7 @@ Description 193px → 446px,截断 13/15 → 2/15)。
 ## 15. 业务价值高于视觉(Owner 裁定 2026-09-12,2026-09-23 升格入契约)
 
 > 起草:Claude Code(2026-09-23,走 design/trade 落地第 N 轮时提出)。
-> **动机**:Owner 2026-09-12 就裁定过「设计里没有 ≠ 该删」,但这条只活在 app 侧的路由注释里,
+> **动机**:Owner 2026-09-12 就裁定过「设计里没有 ≠ 该删」(现 ZONE-1 一),但这条只活在 app 侧的路由注释里,
 > **本契约一个字都没写**,所以设计侧从来不知道自己有这个义务。代价是可量的:到 2026-09-23,
 > `/docs/design-adoption` 有 4 页停在 `moving`,其中 3 页的能力去向要么弱于原页、要么设计里
 > 根本没有对应——而 HANDOFF 从未被要求交代这些。
@@ -987,7 +987,7 @@ app 的 `/docs/design-adoption` 有 `moving` 一档,记录「设计要它搬家�
 **一页停在 `moving` 而 HANDOFF 给不出 §15.2 的去向表,就是本节没被满足。**
 这一档的页数可以作为本契约的执行指标。
 
-### 15.6 有数据就要放(Owner 2026-09-26)
+### 15.6 有数据就要放(Owner 2026-09-26,ZONE-1 一)
 
 > Owner 裁语:「有数据肯定要放。设计并不知道你有什么数据,设计永远是给业务让路的,
 > 同时是在满足业务的前提下美化。」
@@ -1005,7 +1005,7 @@ app 的 `/docs/design-adoption` 有 `moving` 一档,记录「设计要它搬家�
   实有 30 个交易日;Dealer 面写「max pain 30 日没存」,插件 `/market/analytics/max-pain/compute/history`
   实有 55 个交易日。)
 
-### 15.7 同一能力两处都有:先交付强的,全部可见后再分主次(Owner 2026-09-26)
+### 15.7 同一能力两处都有:先交付强的,全部可见后再分主次(Owner 2026-09-26,ZONE-1 三)
 
 - 设计指定的新去处比旧处弱(§15.3 判「弱」)时,**先把强的那一版交付出来**——把旧处的
   元素补进新去处,而不是接受更少的列、更少的读法。
@@ -1015,7 +1015,7 @@ app 的 `/docs/design-adoption` 有 `moving` 一档,记录「设计要它搬家�
   |Rank−50| 两端、VRP 低端榜、斜率极值明细都补进 Ratings,而不是因为「设计说放 Ratings」
   就接受 Ratings 现在的列。
 
-### 15.8 数据缺席先分原因:订阅权限,还是 Bug(Owner 2026-09-26)
+### 15.8 数据缺席先分原因:订阅权限,还是 Bug(Owner 2026-09-26,ZONE-1 四)
 
 一个能力「没数据」时,先查清原因,再定去留。判定要有证据(端点、表、作业状态、
 订阅说明),不能拿页面上已有的一句「unmeasured」当证据。
@@ -1026,7 +1026,7 @@ app 的 `/docs/design-adoption` 有 `moving` 一档,记录「设计要它搬家�
 | **Bug / 作业停跑 / 代码路径没实现** | 修。修好之前留座并写「因 X 暂缺」,不以「没数据」为由移除 |
 | **数据本身是推测**(scaffolding、低置信) | 如实标注,显不显示由 Owner 定 |
 
-### 15.9 取舍总原则:业务优先(Owner 2026-09-26)
+### 15.9 取舍总原则:业务优先(Owner 2026-09-26,ZONE-1 六)
 
 设计美观、页面精简、代码整洁与业务能力冲突时,**业务能力赢**;美化发生在业务被满足之后。
 §15.1–15.8 都是这一条的展开。拿不准时,选让交易者看到得更多、判断得更准的那一个。
