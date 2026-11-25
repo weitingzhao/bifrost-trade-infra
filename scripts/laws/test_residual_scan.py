@@ -109,3 +109,18 @@ def test_issue_refs_are_classified(monkeypatch):
 def test_kind_of():
     assert [scan.kind_of(p) for p in ("api/x_test.go", "src/__tests__/a.ts", "scripts/laws/test_x.py", "docs/A.md", "k8s/a.yaml", "api/x.go")] == \
         ["test", "test", "test", "doc", "config", "code"]
+
+
+# Patrol (ISSUE-104, 2026-11-25): who still writes the Owner's words into code. The commit's Claude-Session
+# trailer names the session; a commit without one is "" (made outside an agent session).
+def test_who_added_reads_the_session_trailer(monkeypatch):
+    def run(args, **k):
+        if "blame" in args:
+            return type("P", (), {"stdout": "abcdef1234567890 3 3 1\nauthor x\n"})()
+        return type("P", (), {"stdout": "2026-11-25T10:00:00-06:00\nlocal_6ab1ad67-09a8-4522-9b4a-a03125b10b2c\n\n"})()
+    monkeypatch.setattr(scan.subprocess, "run", run)
+    got = scan.who_added("bifrost-platform", "a.go", 3, cache={})
+    assert got == {"commit": "abcdef123456", "date": "2026-11-25", "session": "local_6ab1ad67-09a8-4522-9b4a-a03125b10b2c"}
+    # positive control: a line git cannot blame names no commit
+    monkeypatch.setattr(scan.subprocess, "run", lambda *a, **k: type("P", (), {"stdout": ""})())
+    assert scan.who_added("bifrost-platform", "gone.go", 1, cache={})["commit"] == ""

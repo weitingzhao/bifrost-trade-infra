@@ -150,6 +150,23 @@ def owner_words():
     return out
 
 
+def who_added(repo, path, line, cache={}):
+    """The commit that last wrote this line on main, its date and the session it names (Claude-Session, else
+    Claude-Transcript; "" for a commit made outside an agent session): the patrol's answer to who still writes
+    the Owner's words into code (ISSUE-104)."""
+    p = subprocess.run(["git", "-C", str(ROOT / repo), "blame", "--porcelain", "-L", f"{line},{line}", "origin/main", "--", path],
+                       capture_output=True, text=True)
+    sha = p.stdout.split(" ", 1)[0] if p.stdout else ""
+    if not sha:
+        return {"commit": "", "date": "", "session": ""}
+    if sha not in cache:
+        q = subprocess.run(["git", "-C", str(ROOT / repo), "log", "-1", "--format=%cI%n%(trailers:key=Claude-Session,valueonly,separator=%x2C)%n"
+                            "%(trailers:key=Claude-Transcript,valueonly,separator=%x2C)", sha], capture_output=True, text=True).stdout.split("\n")
+        q += ["", "", ""]
+        cache[sha] = {"commit": sha[:12], "date": q[0][:10], "session": (q[1] or q[2]).strip()}
+    return cache[sha]
+
+
 def state(law):
     if law.get("status") == "废止":
         return "废止"
@@ -243,6 +260,7 @@ def main():
     ap.add_argument("--json")
     ap.add_argument("--law")
     ap.add_argument("--issues", help="JSON {ISSUE-n: status} instead of reading the register")
+    ap.add_argument("--since", help="name who added each line of the Owner's words written on or after this date (YYYY-MM-DD)")
     ap.add_argument("--root", help="the workspace holding the bifrost-* repositories (default: two levels above this repository)")
     a = ap.parse_args()
     global ROOT
@@ -273,6 +291,11 @@ def main():
     asks = owner_asks()
     irefs = issue_refs(read_issues(a.issues))
     words = owner_words()
+    words_new = []
+    if a.since:
+        for w in words:
+            w.update(who_added(w["repo"], w["path"], w["line"]))
+        words_new = [w for w in words if w["date"] >= a.since]
     words_by = {}
     for w in words:
         words_by.setdefault(w["repo"], {}).setdefault(w["kind"], 0)
@@ -288,6 +311,12 @@ def main():
               "owner_asks": {"total": len(asks)},
               "issues": {"total": len(irefs), "stale": sum(1 for i in irefs if i["stale"])},
               "words": {"total": len(words), "files": len({(w["repo"], w["path"]) for w in words}), "by_repo": words_by}}
+    if a.since:
+        by_session = {}
+        for w in words_new:
+            k = w["session"] or "(no session)"
+            by_session[k] = by_session.get(k, 0) + 1
+        report["words"]["since"] = {"date": a.since, "lines": len(words_new), "by_session": by_session}
     if a.json:
         pathlib.Path(a.json).write_text(json.dumps({**report, "ref_list": cited, "shadow_list": sh, "owner_ask_list": asks,
                                                     "issue_list": irefs, "word_list": words}, ensure_ascii=False, indent=1))
@@ -298,6 +327,9 @@ def main():
     print(f'owner asks: {len(asks)} undated lines asking the Owner, not tied to a law (for review; not part of LAW-1 s1)')
     print(f'issues: {len(irefs)} citations of an Owner issue; stale (dropped or no such issue): {report["issues"]["stale"]}')
     print(f'words: {len(words)} lines in {report["words"]["files"]} files carry the Owner\'s words or an Owner date (target 0): {words_by}')
+    if a.since:
+        s = report["words"]["since"]
+        print(f'words added on or after {s["date"]}: {s["lines"]} lines, by session: {s["by_session"]}')
     return 0
 
 
