@@ -9,6 +9,7 @@
 
 const fs = require('node:fs')
 const { reportThreadTitle } = require('./report-thread-title.js')
+const { reportOwnerSaid } = require('./report-owner-said.js')
 
 async function main() {
   let payload = {}
@@ -24,6 +25,12 @@ async function main() {
   // 标题上报（TD-197）：失败一律吞掉。
   try {
     await reportThreadTitle(payload)
+  } catch {
+    // never block a session
+  }
+  // Owner 的话上报（Owner 2026-11-25「需要自动收集」，report-owner-said.js）：失败一律吞掉。
+  try {
+    await reportOwnerSaid(payload)
   } catch {
     // never block a session
   }
