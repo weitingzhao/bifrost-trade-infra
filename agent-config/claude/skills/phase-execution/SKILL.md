@@ -29,12 +29,12 @@ Build Desk（Briefing / In Flight / Delivery、`/api/v1/programs`、`config/prog
 
 ## 执行过程中
 
-5. **架构级决策不擅自做**。以下属于架构级：
+5. **跨领域、改对外合约的事找 Owner，自己领域里的自己定**（Owner 2026-11-25 批准改写；RULE，执行 LAW-5 二、七和 LAW-2 五）。要找 Owner 的：
    - 新增 RPC op / 改变数据流方向
-   - 新增外部依赖（pip/npm package）
-   - 改变模块公开接口（函数签名、类属性）
-   - 新增数据库列，或别的领域的表（自己领域里新增表、迁移只增不删的，席位自己判，见根 `CLAUDE.md`「席位自己判新表该不该建」）
+   - 改别的领域在用的接口或事件（对外合约）
+   - 动别的领域的表
    - 遇到时：明确列出 2–3 个选项 + 推荐 → 等 Owner 确认
+   领域主人自己判、写明理由、不问 Owner 的：自己领域里的新外部依赖（写开源候选为什么不行）、新表新列（迁移只增不删的直接跑）、内部函数签名和类属性。
 6. **最小化变更范围**：只改 Phase scope 内的代码，不做 scope 外的 refactor。
 
 ## 完成 Phase 后
@@ -67,7 +67,7 @@ Build Desk（Briefing / In Flight / Delivery、`/api/v1/programs`、`config/prog
   - 收不回
   - 要 Owner 动手
   - 被权限分类器或闸门拦了
-  - 遇到架构级决策（rule 5）
+  - 遇到跨领域或改对外合约的决策（rule 5）
   - Owner 明确说「停」/「pause」
 - 其余的失败自己查、自己修、接着走，交单里写一句
 - Batch 全部 Phase 完成后仍须输出 **Batch Execution Report**（见 batch-execution SKILL）并走 Global QA
