@@ -18,6 +18,7 @@ Not rewritten:
 
   scripts/laws/rewrite_refs.py <checkout>            # rewrite, print a summary
   scripts/laws/rewrite_refs.py <checkout> --dry-run  # only print
+  scripts/laws/rewrite_refs.py <checkout> --to-codes # laws in force by number -> LAW-k
 """
 import argparse
 import fnmatch
@@ -72,15 +73,33 @@ def rewrite(text, amap, material):
     return re.sub(FORMS, sub, text), count
 
 
+def to_codes(text, in_force):
+    """Rewrite citations of laws in force by number (law 95, 法 95, OWNER_LAW
+    #95) as their code (LAW-10), the form and its prefix replaced."""
+    count = 0
+
+    def sub(mt):
+        nonlocal count
+        n = mt.group(2)
+        if n in in_force and residual_scan.code(n):
+            count += 1
+            return residual_scan.code(n)
+        return mt.group(0)
+
+    return re.sub(FORMS, sub, text), count
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("checkout")
     ap.add_argument("--laws", help="the register as JSON (default: read PROD as agent_reader)")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--to-codes", action="store_true", help="rewrite citations of laws in force as LAW-k (Owner 2026-11-25)")
     a = ap.parse_args()
     laws = residual_scan.read_laws(a.laws)
     material = {b["law"] for b in laws if residual_scan.state(b) == "素材"}
     amap = absorbed_map(laws)
+    in_force = {b["law"] for b in laws if residual_scan.state(b) == "现行"}
     root = pathlib.Path(a.checkout)
     files = subprocess.run(["git", "-C", str(root), "ls-files"], capture_output=True, text=True, check=True).stdout.split("\n")
     total, touched = 0, 0
@@ -92,7 +111,10 @@ def main():
             text = p.read_text()
         except (UnicodeDecodeError, IsADirectoryError, FileNotFoundError):
             continue
-        new, n = rewrite(text, amap, material)
+        if a.to_codes:
+            new, n = to_codes(text, in_force)
+        else:
+            new, n = rewrite(text, amap, material)
         if n:
             total += n
             touched += 1

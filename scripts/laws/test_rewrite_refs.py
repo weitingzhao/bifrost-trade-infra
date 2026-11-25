@@ -32,3 +32,11 @@ def test_what_is_not_absorbed_material_stays():
     amap = rr.absorbed_map(LAWS)
     text, n = rr.rewrite("law 90, law 12, 合法 28", amap, {"28", "50", "12"})
     assert (text, n) == ("law 90, law 12, 合法 28", 0)
+
+
+def test_laws_in_force_are_written_as_their_code():
+    # Origin: 2026-11-25, Owner: 「以后法条统一叫LAW 开始，不用简写」. A citation
+    # of a law in force by number becomes LAW-k, prefix and all; material and
+    # other numbers stay (the positive control's other side).
+    text, n = rr.to_codes("law 95 and 法 91; OWNER_LAW #86; Law 98 s1; law 28; 法 99", {"86", "91", "95", "98"})
+    assert (text, n) == ("LAW-10 and LAW-6; LAW-1; LAW-13 s1; law 28; 法 99", 4)

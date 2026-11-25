@@ -53,3 +53,10 @@ def test_exceptions_may_name_a_class(tmp_path):
     assert not hit("bifrost-platform", "a.go", "86")
     assert not hit("bifrost-platform", "api/x/other.go", "28")
     assert not hit("bifrost-trade-infra", "api/x/migrations/0029_a.sql", "28")
+
+
+def test_law_codes():
+    # Origin: 2026-11-25, the laws are written LAW-k (k from number 86).
+    assert scan.code("86") == "LAW-1" and scan.code("98") == "LAW-13" and scan.code("85") == ""
+    assert scan.number_of("LAW-1") == "86" and scan.number_of("LAW-13") == "98" and scan.number_of("90") == "90"
+    assert re.findall(scan.CODE, "see LAW-10 and LAW-1, not LAW-0 or law-1") == ["10", "1"]

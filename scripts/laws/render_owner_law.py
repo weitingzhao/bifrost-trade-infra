@@ -27,7 +27,17 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 FILE = ROOT / "agent-config" / "OWNER_LAW.md"
-ROW = re.compile(r"^\|\s*(\d+)\s*\|")
+ROW = re.compile(r"^\|\s*(\d+|LAW-\d+)\s*\|")
+CODE_BASE = 85  # LAW-k is number 85+k (Owner 2026-11-25; platform planstore lawcode.go)
+
+
+def code(n):
+    return f"LAW-{int(n) - CODE_BASE}" if str(n).isdigit() and int(n) > CODE_BASE else str(n)
+
+
+def number_of(ref):
+    m = re.fullmatch(r"LAW-(\d+)", ref)
+    return str(CODE_BASE + int(m.group(1))) if m else ref
 PSQL = os.environ.get("PSQL", "/opt/homebrew/opt/libpq/bin/psql")
 QUERY = """SELECT json_agg(b ORDER BY (b->>'law')::int) FROM (
   SELECT DISTINCT ON (event_stream_id) body_json AS b FROM agentrt.event
@@ -53,7 +63,7 @@ def row(law):
     if law.get("op") != "transcribed":
         # A card changed it: the card is the law; say which, and which version.
         status = f"{status}（第 {law.get('version')} 版）"
-    return "| " + " | ".join([law["law"], cell(law.get("said_on")), cell(law.get("text")), cell(law.get("where")),
+    return "| " + " | ".join([code(law["law"]), cell(law.get("said_on")), cell(law.get("text")), cell(law.get("where")),
                               cell(law.get("enforced_by")), cell(status), cell(law.get("old_wording"))]) + " |"
 
 
@@ -66,7 +76,7 @@ def render(text, laws):
         m = ROW.match(lines[i])
         if not m:
             continue
-        n = m.group(1)
+        n = number_of(m.group(1))
         seen.add(n)
         last = i
         law = by.get(n)

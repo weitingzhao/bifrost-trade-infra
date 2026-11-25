@@ -10,7 +10,7 @@ It reads the register of laws (PROD, read-only as agent_reader, or --laws
 JSON) and every repository's main, and reports:
 
   refs     every citation of a law by number in code and documents
-           (法 N, law N, Law N, OWNER_LAW #N), each classified by the state
+           (LAW-k; and the old forms 法 N, law N, Law N, OWNER_LAW #N), each classified by the state
            of what it points at: 现行 (fine), 素材 (to be rewritten when a
            law absorbs it), 废止 (to be removed now), 无 (no such law);
   shadow   rules in the governance files that carry an Owner date but sit
@@ -38,6 +38,24 @@ QUERY = """SELECT json_agg(b ORDER BY (b->>'law')::int) FROM (
 # 法 N, but not a word ending in 法 followed by a number (合法 0, 读法 0, 算法 2:
 # round 1 counted twelve 「合法 0」 as citations of a law 0).
 CITE = r"(?:(?<![合方算办做写用语手说想看读解打玩立执修宪司违守依无设])法 ?|[Ll]aw |OWNER_LAW ?#)([0-9]{1,3})(?![0-9])"
+# A law is written LAW-k (Owner 2026-11-25: 「以后法条统一叫LAW 开始，不用简写」):
+# k counts from the first law the framework holds, number 86 (the platform's
+# planstore lawcode.go). Rows 1 to 85 were material and have no code.
+CODE = r"LAW-([1-9][0-9]*)(?![0-9])"
+CODE_BASE = 85
+
+
+def code(n):
+    """Law n's code, or "" for material (n at most 85)."""
+    return f"LAW-{int(n) - CODE_BASE}" if str(n).isdigit() and int(n) > CODE_BASE else ""
+
+
+def number_of(ref):
+    """A reference (LAW-k or a number) as the register's number."""
+    m = re.fullmatch(CODE, ref.strip())
+    return str(CODE_BASE + int(m.group(1))) if m else ref.strip()
+
+
 SKIP = (":!**/node_modules/**", ":!*.lock", ":!**/OWNER_LAW.md", ":!scripts/laws/**")  # the scan's own examples are not citations
 SHADOW_FILES = ("agent-config/CLAUDE.md", "agent-config/OWNER_EXEC.md", "agent-config/claude/skills", "agent-config/charters")
 OWNER_DATE = re.compile(r"Owner[ ,，（(]*20[0-9]{2}-[0-9]{2}-[0-9]{2}|（Owner [0-9]{2}-[0-9]{2}")
@@ -96,11 +114,12 @@ def repos():
 def refs():
     out = []
     for r in repos():
-        p = subprocess.run(["git", "-C", str(r), "grep", "-nP", CITE, "origin/main", "--", *SKIP], capture_output=True, text=True)
+        p = subprocess.run(["git", "-C", str(r), "grep", "-nP", f"{CITE}|{CODE}", "origin/main", "--", *SKIP], capture_output=True, text=True)
         for line in p.stdout.splitlines():
             _, path, num, text = line.split(":", 3)
-            for n in re.findall(CITE, text):
-                out.append({"repo": r.name, "path": path, "line": int(num), "law": n, "text": text.strip()[:200]})
+            found = [(n, "number") for n in re.findall(CITE, text)] + [(str(CODE_BASE + int(k)), "code") for k in re.findall(CODE, text)]
+            for n, form in found:
+                out.append({"repo": r.name, "path": path, "line": int(num), "law": n, "form": form, "text": text.strip()[:200]})
     return out
 
 
@@ -130,6 +149,10 @@ def main():
     allowed = exceptions()
     for c in cited:
         c["state"] = state(laws[c["law"]]) if c["law"] in laws else "无"
+        # A law in force cited by its number, not its code: written the old
+        # way, to be rewritten (rewrite_refs.py --to-codes).
+        if c["state"] == "现行" and c.get("form") == "number":
+            c["state"] = "旧写法"
         if excepted(c, allowed):
             c["state"] = "例外"
     if a.law:
