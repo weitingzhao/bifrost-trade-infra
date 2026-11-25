@@ -116,6 +116,16 @@
       "pipeline": "bifrost-deliver-stg",
       "task": "stage-frontend-dockerfile",
       "taskspec_sha256": "69b1cce62f36bd0ec2745362e3d8df885954d844e14505c415089360f420b4df"
+    },
+    {
+      "pipeline": "bifrost-ci-platform",
+      "task": "resolve-ui",
+      "taskspec_sha256": "a14cc3288d910d0f60ec40c9cb57ff3dd9c805a1c6e403c82ca807aeae87a0a4"
+    },
+    {
+      "pipeline": "bifrost-ci-frontend",
+      "task": "resolve-ui",
+      "taskspec_sha256": "a14cc3288d910d0f60ec40c9cb57ff3dd9c805a1c6e403c82ca807aeae87a0a4"
     }
   ],
   "side_effect": [

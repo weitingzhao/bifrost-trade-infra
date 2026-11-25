@@ -1,5 +1,7 @@
 # The release-window task reads two ConfigMaps: the window, and the release freeze
-# (W-42; written only by platform-api). Nothing else in cicd is granted here.
+# (W-42; written only by platform-api). CI's resolve-ui step reads a third, bifrost-ui's
+# stable pin (R0E, 2026-11-25; written only by platform-api's agentrt-ui-check). Nothing
+# else in cicd is granted here.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -10,7 +12,7 @@ metadata:
 rules:
   - apiGroups: [""]
     resources: ["configmaps"]
-    resourceNames: ["bifrost-release-window", "bifrost-release-freeze"]
+    resourceNames: ["bifrost-release-window", "bifrost-release-freeze", "bifrost-ui-stable"]
     verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1

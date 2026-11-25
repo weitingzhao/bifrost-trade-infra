@@ -202,7 +202,9 @@ EXPECTED_CLONE_UI = {
     "taskRef": {"name": "bifrost-git-clone-gitea"},
     "params": [
         {"name": "url", "value": "$(params.giteaBase)/bifrost-ui.git"},
-        {"name": "revision", "value": "$(params.uiRevision)"},
+        # R0E (2026-11-25): the ui the console is tested with is resolve-ui's answer, the
+        # stable pin when uiRevision is "stable" and uiRevision itself otherwise.
+        {"name": "revision", "value": "$(tasks.resolve-ui.results.revision)"},
         {"name": "subdir", "value": "bifrost-ui"},
     ],
     "workspaces": [
