@@ -65,7 +65,7 @@ if STATIC:
 
 def rel(p): return str(p.relative_to(ROOT))
 
-# ─────────── 3. 已退役实体引用 ───────────
+# ─────────── 3. 已退役实体引用（LAW-10 五）───────────
 # 名字 -> (匹配式, 原因)。socket 也认 `bifrost-trade-{core,socket,...}` 这种花括号写法。
 DEAD = {
     'bifrost-trader-engine': (r'bifrost-trader-engine', 'spine D8 已归档移出工作区'),
@@ -151,7 +151,7 @@ if STATIC:
     print(f'parity-static: governance consistency; failures={len(fails)}')
     sys.exit(bool(fails))
 
-# ─────────── 5. 硬边界 hook 接线 ───────────
+# ─────────── 5. 硬边界 hook 接线（CORE-1、LAW-8 六、LAW-10 五）───────────
 guard = ROOT / 'scripts/agent-guard/preflight.js'
 if not guard.exists():
     fails.append("缺少 scripts/agent-guard/preflight.js")

@@ -90,6 +90,7 @@ function main() {
 try {
   main()
 } catch (err) {
+  // CORE-1, LAW-10 five: an adapter error passes nothing, or Codex would run without the boundary.
   process.stdout.write(deny('Codex 适配层出错，按拦截处理：' + String((err && err.message) || err)))
   process.exit(0)
 }

@@ -4,7 +4,7 @@
 top=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 staged=$(git diff --cached --name-only --diff-filter=ACMRD)
 
-# TD-280: no credential values in tracked config YAML (all workspace repos are
+# TD-280 (CORE-1 two): no credential values in tracked config YAML (all workspace repos are
 # public). Only when one of the files it guards is staged. Checks the staged
 # copies; prints file, line and key only.
 check="$top/scripts/scrub_config_secrets.py"
@@ -44,7 +44,7 @@ if [ -f "$top/scripts/check_http_metrics_coverage.py" ] && [ -f "$top/scripts/ch
       || echo "pre-commit: monitoring checks failed (warning; CI statics decides)" >&2
   fi
 fi
-# TD-396: the chief exam's grading keys never enter infra, which Agent hosts
+# TD-396 (LAW-10 five, LAW-9 three): the chief exam's grading keys never enter infra, which Agent hosts
 # check out and GitHub publishes. Checks the staged copies; prints the file and
 # the kind of key, never the key.
 if [ -n "$staged" ] && [ -f "$top/scripts/agentrt/test_no_exam_keys.py" ]; then

@@ -80,7 +80,7 @@ const GUARD_FILES = /daemon-scale-zero\.patch\.yaml|daemon-observe-safe\.patch\.
 const AUTHORITY =
   'spine D10 · bifrost-platform/config/ops-context.yaml · agent-config/AGENT_MODES.md FORBIDDEN_ACTIONS'
 
-// ─────────────────────────────── D10 规则（高风险，不豁免） ───────────────────────────────
+// ─────────────────────────────── D10 规则（CORE-1 一，高风险，不豁免） ───────────────────────────────
 // Research domain writes are ALLOWED while D10 is BLOCKED:
 //   research.ai_draft kind=order_intent · research.candidate_pool · harness propose-only
 // ib:operator:cmd remains blocked (only Daemon may write that stream).
@@ -181,7 +181,7 @@ function d10McpRule(toolName, input) {
   return null
 }
 
-// ─────────────────────────────── dev-services 规则（卫生，可豁免） ───────────────────────────────
+// ─────────────────────────────── dev-services 规则（LAW-16 二，卫生，可豁免） ───────────────────────────────
 
 // 服务进程名拆开拼接，避免本文件自身内容在被 grep / 引用时触发静态扫描。
 const MANAGED = [
@@ -288,7 +288,7 @@ function sharedWorktreeRules(cmd) {
   return null
 }
 
-// ─────────────────────── 推 main 只经 push-main.sh（TD-341） ───────────────────────
+// ─────────────────────── 推 main 只经 push-main.sh（LAW-9 三，TD-341） ───────────────────────
 //
 // 推主线前要先过 CI 自己的 code-health 棘轮。2026-10-13、10-14 两次把超过 800 行的文件
 // 推上 platform main；第三次（10-14 c7f4de8）扫描跑了，退出码却被 `| tail -1 &&` 吞掉。
@@ -560,7 +560,7 @@ function pushMainRule(cmd) {
   return null
 }
 
-// ─────────────── Gitea 做主的仓库不从这里推 GitHub（CUT-gitea-primary 0g） ───────────────
+// ─────────────── Gitea 做主的仓库不从这里推 GitHub（LAW-16 四） ───────────────
 //
 // 名单 agent-config/gitea-primary.txt 里的仓库以 Gitea 为主：人和 Agent 推 Gitea，GitHub 只由
 // 集群里的同步（k8s/cicd/github-sync，只快进 main 和标签）去推。两头都推会分叉（切法第 7 节）。
@@ -803,7 +803,7 @@ function githubPushRule(cmd, cwd) {
   return null
 }
 
-// ─────────────────────── 审批旁路（ADR §5，始终生效） ───────────────────────
+// ─────────────────────── 审批旁路（CORE-1、LAW-6 二，始终生效） ───────────────────────
 //
 // 聊天批准保留（ISSUE-89）。admin 令牌在本机进程可读是已知的接受风险，
 // 这条文本拦截挡的是「不走弹窗、直接批准」和「把令牌读出来自己用」。
@@ -887,7 +887,7 @@ function approvalGuard(toolName, input, cmd) {
 }
 
 
-// ─────────────────────── Owner 凭证（LANE-W33D） ───────────────────────
+// ─────────────────────── Owner 凭证（CORE-1 二） ───────────────────────
 //
 // Cursor 与 Claude 共用这一份闸门（scripts/agent-guard/preflight.js）。
 // Cursor 侧不用另改。Owner 应用 preflight-w33d.patch 之后才生效。
@@ -964,7 +964,7 @@ const OWNER_SCRIPT_RE = new RegExp([
   'scripts/unifi_(?![A-Za-z0-9_]*_test\\.)[A-Za-z0-9_]+\\.(?:sh|py)',
 ].join('|'))
 
-// TD-278: plugin redis-ib scripts that load the Owner env when they run.
+// TD-278 (CORE-1 two): plugin redis-ib scripts that load the Owner env when they run.
 // Only running them is refused (bash/sh/source with any flags, ./ after a
 // space or separator, or the make target);
 // reading, editing or committing them by name is not.
@@ -996,7 +996,7 @@ function ownerCredentialGuard(toolName, input, cmd) {
   return null
 }
 
-// ─────────────────────── 本机 NAS 共享（TD-326，文本绊线） ───────────────────────
+// ─────────────────────── 本机 NAS 共享（CORE-1 二，TD-326，文本绊线） ───────────────────────
 
 const NAS_REASON = '这是 NAS 上的共享，里面有未加密的备份；要看备份内容走平台动作或请 Owner 处理'
 
