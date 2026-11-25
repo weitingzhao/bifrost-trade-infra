@@ -28,7 +28,7 @@ repositories:
   - {name: bifrost-trade-infra, tier: foundation, domain: foundation, public: true, ready: true, purpose: "every manifest, Tekton, the governance layer (agent-config), scripts"}
   - {name: primary-probe, tier: foundation, domain: delivery, public: false, ready: false, purpose: "probes Gitea's branch protection (Gitea primary, step 1)"}
   - {name: repo-template, tier: foundation, domain: delivery, public: false, ready: false, purpose: "the template new repositories are created from (main rules, CI hooks)"}
-  - {name: bifrost-engine, tier: shared, domain: owner, public: false, ready: false, purpose: "the UI engine backend every view reads (City, Signals, Agents, Ledger, Console); R0C, Owner lifted the repo pause for it 2026-11-24"}
+  - {name: bifrost-engine, tier: shared, domain: owner, public: false, ready: true, purpose: "the UI engine backend every view reads (City, Signals, Agents, Ledger, Console); R0C, repo pause lifted for it alone (decision 2026-11-24)"}
   - {name: bifrost-ui, tier: shared, domain: foundation, public: true, ready: false, purpose: "@bifrost/ui: shared components and the City frame"}
   - {name: bifrost-trade-core, tier: shared, domain: payload, public: true, ready: false, purpose: "the Trade Python library (bifrost-core) api, worker and flex-query use"}
   - {name: bifrost-trade-api, tier: payload, domain: payload, public: true, ready: false, purpose: "the Trade API"}
