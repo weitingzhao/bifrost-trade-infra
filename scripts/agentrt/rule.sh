@@ -5,6 +5,7 @@
 #   rule.sh check   <file.yaml>     [--env stg|prod]              what the platform reads from it; writes nothing
 #   rule.sh sign    <file.yaml>     [--env stg|prod] [--key f]    Owner: check, sign, hand in
 #   rule.sh tighten <file.yaml>     [--env stg|prod]              hand in a tightening, unsigned
+#   rule.sh install <file.yaml>     [--env stg|prod] --sig <f>    hand in a text another key signed (the phone card, OWNER_EXEC.md)
 #
 # A rule is YAML (agent-config/agentrt-rules/README.md). sign first asks the
 # platform to read the file as it would (POST /rules/{id}/check: the closed
@@ -27,10 +28,11 @@ here="$(cd "$(dirname "$0")" && pwd)"
 infra="$(cd "${here}/../.." && pwd)"
 ENV_FILE="${ENV_FILE:-${infra}/.env}"
 KEY="${BIFROST_RELEASE_KEY:-${HOME}/.ssh/bifrost_release_owner}"
+SIG=""
 NAMESPACE="bifrost-agentrt-rule"
 
 die() { echo "rule.sh: $1" >&2; exit "${2:-1}"; }
-usage() { sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+usage() { sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 
 [[ $# -ge 2 ]] || usage
 cmd="$1" arg="$2"
@@ -40,6 +42,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --env) env_name="${2:?--env needs stg or prod}"; shift 2 ;;
     --key) KEY="${2:?--key needs a path}"; shift 2 ;;
+    --sig) SIG="${2:?--sig needs a path}"; shift 2 ;;
     *) usage ;;
   esac
 done
@@ -130,6 +133,18 @@ case "${cmd}" in
     ssh-keygen -Y sign -f "${KEY}" -n "${NAMESPACE}" "${arg}"
     echo "== handing it in"
     call POST "/rules/${id}/sign" "$(body "${arg}" "${sig}")" ;;
+  install)
+    # A text signed elsewhere: the code-approved card that signs with the
+    # cluster key (Owner 2026-11-25, OWNER_EXEC.md 「重签运行时规则」). The
+    # platform verifies the signature against its compiled-in keys; the
+    # caller adds no authority.
+    [[ -f "${arg}" ]] || die "no file ${arg}" 2
+    [[ -n "${SIG}" && -f "${SIG}" ]] || die "install needs --sig <file with the armored signature>" 2
+    id="$(rule_id_of "${arg}")"
+    echo "== the platform reads ${arg} as:"
+    call POST "/rules/${id}/check" "$(body "${arg}")"
+    echo "== handing it in with ${SIG}"
+    call POST "/rules/${id}/sign" "$(body "${arg}" "${SIG}")" ;;
   tighten)
     [[ -f "${arg}" ]] || die "no file ${arg}" 2
     call POST "/rules/$(rule_id_of "${arg}")/tighten" "$(body "${arg}")" ;;

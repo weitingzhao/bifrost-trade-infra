@@ -160,5 +160,5 @@ Owner 2026-11-25：「任何需要重签的话，可以通过我这个就是 Ops
 2. `python3 bifrost-trade-infra/scripts/owner-exec/rule_sign_card.py --text <文件> > card-command.txt`：打印卡的命令，stderr 给出全文的 sha256。正文原样写进卡（here-document），他在卡上看到的就是要签的字节；正文要以换行结尾。
 3. 建 `owner_run_command` 的卡，`params.command` 原样用 `card-command.txt` 的内容，不要手改。理由第一段用白话写「规则换成哪一版、相对现行版多给了或收回了什么」，写上 sha256；照常写「改了什么：」「批了以后谁因此能做什么新事：」两行、怎么撤、没验什么。
 4. 他输码之后，执行口核对 sha256、用集群那把钥匙签名、验一遍，把签名打印在卡的输出里；它不装任何东西。
-5. 把正文和卡输出里的签名交给 `POST /api/v1/agentrt/rules/<rule_id>/sign`（平台认的是签名，不是谁交的）；`rule.sh show <rule_id> --env prod` 确认是新版。
+5. 把卡输出里的签名存成文件，`bash bifrost-trade-infra/scripts/agentrt/rule.sh install <文件> --env prod --sig <签名文件>` 交给平台（平台认的是签名，不是谁交的）；`rule.sh show <rule_id> --env prod` 确认是新版。第一次：#762 签 `plan-standing` 第 2 版，2026-11-25 装上。
 
