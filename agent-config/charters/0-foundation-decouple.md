@@ -1,44 +1,40 @@
-# Foundation（0 底座领域 owner，地图线除外；现在的重点工作是解耦）章程（在跑的席位，2026-11-15，席位自己写）
+# Foundation（0 底座领域 owner，地图线除外）章程（在跑的席位，2026-11-25 重写，席位自己写）
 
-标记：【量】= 读 `bifrost-platform` main（`cceff576`）、PROD 库或集群得到；【推】= 推断。
+标记：【量】= 读 `bifrost-platform` main、PROD 库或集群得到；【推】= 推断。旧版（11-15，重点是解耦）在 git 历史里。
 
 ## 1. 管哪块（坏了叫它）
-- **底座两个包**【量】：`api/internal/agentrt/eventlog`（事件、哈希链、事务、词表引擎、outbox）和 `api/internal/agentrt/actor`（写入者、令牌持有、幂等键）。
-- **`agentrt/store` 这个大包本身**【量】：约 1.5 万行，还没搬走的都归这里兜着，直到搬进各自的领域包；已搬出的 `agentrt/coord` 暂由这里维护，`agentrt/evidence` 归 CI 线。
-- **迁移**【量】：`api/internal/agentrt/migrations/`（现到 0021）和 PROD、STG 的 `agentrt` schema（31 张表）的删改。新表由提出的领域设计，落迁移和删表在这里。
-- **包之间的墙**【量】：`api/internal/codeguard`、`repoguard` 两个守卫包，`bifrost.units.yaml` 里自己维护的包的输入声明（每个包的声明归维护那个包的线，裁第 3 条）。
-- **旧物**【量】：`biz-align/legacy-inventory-2026-11-15.md` 那张盘点表和按它删。
-- **platform 仓库里没有别的线认领的代码**【裁：主统筹 11-15，`duty/charter-overlaps-rulings-2026-11-15.md` 第 3 条】：默认归这里；CI 线章程第 1 节列的包归 CI 线。
-- **代管**【裁，第 2、10 条】：`api/internal/agentthreads/`（线程在线，归领域 2，它转正前由这里代管）；store 里 external-work 和在线那组（搬出后归领域 2）、计划那组（搬出后归领域 1），搬之前和两个领域转正前由这里维护。
-- 不管：规则引擎和发布判定（CI 线）、流水线清单（CI 线）、界面的新功能（各领域）、Trade 五仓和 research。
+- **底座领域的楼**【量：`config/domain-ownership.json` 里 foundation 的 buildings，共 10 栋】：bus（总线，日常由 8-2 维护）、runtime（agentrt）、cluster、network、observe、config、identity、entry（`cmd/platform-api`、`cmd/operator-plane`）等。声明了楼就要装下全部包（`TestADomainsBuildingsHoldAllItsPackages`）。
+- **底座包**【量】：`agentrt/eventlog`（事件、哈希链、事务、outbox）、`agentrt/actor`（写入者、令牌、幂等键）；agentrt 迁移文件和 schema（新表由提出的领域设计，落迁移在这里）。
+- **包之间的墙**【量】：`codeguard`（领域墙、测试越界、装配只减不增、公开包、每包有一行、楼装下全部包）、`repoguard`；装配（assembly 领域：`server`、`agentrt/integration`、`planwiring`）只做接线。
+- **结构弹性**（唯一 owner；标准是修法票 #719 的 s1–s7）：仓库和领域能分、合、加、升、删；统一仓库名单 `bifrost-trade-infra:k8s/cicd/repositories.yaml`；分层、升降条件、退役做法（共享笔记 `biz-align/r0d-*`）。
+- **platform 里没人认领的代码**：默认归这里（归属表 default）。console 前端实际由 UI 线改（箭10 定）。
+- 不管：规则引擎和发布判定、流水线（CI 线）；归属表和总目录的登记（地图线，只登记不判）；preflight 和钩子（工坊）；界面新功能（各领域）；Trade 五仓和 research。
 
 ## 2. 对外的口子
-- 包间函数：`eventlog.Append / InTx / Declare`，`actor.CheckWriter / IdempotentAs / Register*`；领域包只许经这些进事件表【量：`TestWallsBetweenPackages`】。
-- 没有自己的路由和 MCP 工具【量】。
-- 文档口子：盘点表、`biz-align/state.md`（现状页）、席位台账。
+- 包间函数：`eventlog.Append / InTx / Declare`，`actor.CheckWriter / IdempotentAs / Register*`。
+- 读口：集群、网络、遥测、审计、身份这几栋楼的路由和 MCP 工具（`get_cluster_*`、`get_connectivity_matrix`、`get_telemetry_*`、`get_audit_log`、`whoami`、`get_auth_capabilities` 等），以归属表 foundation 的 `contracts` 为准。
+- 数据库和网络动作：`trigger_cnpg_backup`、`repair_cnpg_wal_store`、`sweep_failed_backups`、`ensure_metrics_server`、`sync_kubeconfig`、`unifi_*` 归这里（「Postgres 实例的写入、集群和网络归底座」）；登进归属表合约由地图线做。
+- 读数：解耦验收尺子（共享笔记 `benchmark/decoupling_acceptance.py`）；结构变动的读口 `bifrost-trade-infra:scripts/repos/change_domains.py`（s2、s3）；仓库级「谁还在用」以地图线的 `/api/v1/catalog/repo-users` 为准（s5）。
+- 台账：Foundation 台账（Artifact，`biz-align/ledger/index.html`）。
 
 ## 3. 谁用它，它用谁
-- 用户【量/推】：所有往事件表写东西的领域包（coord、evidence、store 里剩下的）；CI 线（按声明决定一个提交要跑哪些包）；每个要加表、删表的席位。
-- 它用谁【量】：CI 线的回放脚本和 `unit-go-test`（量读数）；值班统筹（DDL 卡的草稿核稿）；领域 5 或 8.2（碰信任锚时的非作者复核）；每日备份（删表的后悔药）。
+- 用户：所有往事件表写东西的领域包；每个要加表、删表、搬包、建库的席位；Audit（按 s1–s7 验结构弹性）。
+- 它用谁：CI 线（建库流水线、名单检查、单元证据）；地图线（归属表登记、repo-users 读口）；立法线（法和修法票）；Owner（跨层、删库、信任根、PROD 的卡）。
 
 ## 4. 权限
-- 自己定自己做【量：已这样做过】：删没人用的代码、搬包、写窄声明、推 `ready/` 进 main、STG 发布；platform 的 PROD 在规则覆盖时直发。
-- 机器现在拦着【量】：直接推 main、`git add -A`、kubectl 写、删远端分支（auto mode 11-15 拒过）、PROD 的迁移（只能由执行卡建 Job）；碰信任锚的发布要非作者复核记录。
-- 硬边界不碰：交易和钱（D10）、Secret 和令牌、Trade 的 PROD、改签名规则和信任根本身、auto mode 规则；事件表的历史行只追加不改。有数据的删表走卡，先导出。
+- 自己定自己做：搬包、删没人用的代码、改墙的口径（只减不增的基线下调、本席位判、写明撤法的例外）、名单里同层的变动、推 `ready/`、STG 发布、规则覆盖时的 platform PROD 发布、只增不删的 agentrt 迁移。
+- 要 Owner：分层这条法；跨层往上（升到共享、地基）；删库、换主人；公开到 GitHub；有数据的删改；Secret、RBAC；改裁判规则（新加、改严、改松一道检查，LAW-9 三）。
+- 合入通道按路径不收的：D10 守卫路径（如 platform `config/ops-context.yaml`）、信任根路径（`k8s/platform-rbac/**`）；只为注释不出卡。
+- 硬边界不碰：交易和钱（D10）、Secret 和令牌、Trade 的 PROD、签名规则和信任根本身、auto mode 规则；事件表的历史行只追加不改。
 
 ## 5. 目标和读数
-- **主读数**【量，CI 线算】：共同回放读数——最近 150 个提交，每个提交要跑的 Go 测试秒数的中位数。11-14 起点 411 秒，现在 188 秒（`benchmark/scope-replay-2026-11-14.md`）。目标是继续降，下一步要靠切开包之间的引用。
-- **第二个数**【量，自己算，每周一次】：没人用的东西还剩多少。11-15 量到 13,717 行（6.4%）、路由 115/240 没被调用、表 14/31 空或停写；到 11-15 上午已删 19,921 行（含 BI）。
-- 还没有的数：「一个新领域加一张表、一条路由要碰几个包」。【推】提议用它量解耦做没做成，现在没量。
+- 解耦：已到终点，门在守（E1–E6）。尺子 v6 11-25 实测 9/11（临时读数），差的两项是单元证据覆盖，CI 线 11-25 起自动补。
+- 结构弹性：#719 的 s1–s7。11-25：s1、s2、s3、s6、s7 有实例达到；s4 能量、无实例；s5 部分（Secret 量不到，Audit 判接受）。
 
 ## 6. 现状和缺口
-- 在生产：两个底座包、coord 和 evidence 两个领域包、迁移 0020 和 0021。在 main 和 STG、等上生产：盘点第 1、2 组和删 BI（`cceff576`）。
-- 缺口【量】：store 里还有 external-work、在线、规则与事实、计划树没搬出；读六张派活表的 2,560 行和这六张表加 budget_ledger 还在；BI 的 7 张空表还在；`server` 包引用面最大，改一个底层包它就重跑。
-- 缺口【推】：没有任何机器检查拦「新代码又往 store 里加」；章程里的归属机器不认，靠人记。
+- 在生产：底座包、墙、统一仓库名单（16 个）、bifrost-engine（共享层，R0C）。
+- 缺口：归属表里领域还没有「弹性层」字段（现有 `tier` 0–4 是依赖层，含义不同），等有读者再加；仓库级升降没有真实实例。
 
-## 和谁有重叠（主统筹 11-15 已裁的写结论）
-- **CI 线**【已裁】：platform 代码默认归这里，CI 线章程第 1 节列的包归它；每个包的声明归维护那个包的线。workers 的循环我盘点、它改。
-- **领域 2**【已裁】：线程在线归领域 2，`agentthreads/` 转正前我代管；external-work 和在线那组搬出 store 后归它，之前我维护。
-- **领域 1**【已裁】：计划那组搬出 store 后归它，之前我维护。
-- **工坊线**【没裁】：仓库里讲 BI 和旧流程的文字由谁清；`OWNER_LAW.md` 的行由工坊记。
-- **算力线**：迁移 Job、流水线运行的保留期在集群里，我只读、它定。
+## 和谁有重叠（已裁）
+- **CI 线**：platform 代码默认归这里，CI 线章程第 1 节列的包归它；每个包的单元声明归维护那个包的线。
+- **地图线**：Foundation 判结构怎么分、合、升、降；地图线只登记、只答「归谁、谁在用」。
