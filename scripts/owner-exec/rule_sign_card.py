@@ -17,8 +17,9 @@ platform-api when the card is created (tier X), not here.
 
   rule_sign_card.py --text plan-standing.yaml     prints the command and, on stderr, the sha256
 
-Refused: a text that is not UTF-8 or holds a single quote (the card writes the
-text between single quotes).
+Refused: a text that is not UTF-8, does not end with a newline, or holds the
+line RULE_TEXT_END (the card writes the text as a quoted here-document, byte
+for byte, so the Owner reads it as it is).
 """
 
 from __future__ import annotations
@@ -28,8 +29,8 @@ import hashlib
 import sys
 
 TEMPLATE = (
-    "set -eu; want={sha}; umask 077; "
-    "printf '%s' '{text}' > rule.yaml; "
+    "set -eu; want={sha}; umask 077\n"
+    "cat > rule.yaml <<'RULE_TEXT_END'\n{text}RULE_TEXT_END\n"
     'echo "$want  rule.yaml" | sha256sum -c - >/dev/null; '
     "kubectl -n bifrost-owner-exec get secret release-policy-signer -o jsonpath='{{.data.key}}' | base64 -d > key; "
     "ssh-keygen -Y sign -f key -n bifrost-agentrt-rule rule.yaml >/dev/null 2>&1; rm -f key; "
@@ -39,8 +40,10 @@ TEMPLATE = (
 
 
 def card_command(text: str) -> tuple[str, str]:
-    if "'" in text:
-        raise ValueError("the rule text holds a single quote; reword it")
+    if not text.endswith("\n"):
+        raise ValueError("the rule text must end with a newline (the card writes it as a here-document)")
+    if any(line == "RULE_TEXT_END" for line in text.splitlines()):
+        raise ValueError("the rule text holds the here-document's end line RULE_TEXT_END")
     sha = hashlib.sha256(text.encode("utf-8")).hexdigest()
     return TEMPLATE.format(sha=sha, text=text), sha
 

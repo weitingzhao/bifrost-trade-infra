@@ -9,21 +9,28 @@ import sys
 sys.path.insert(0, os.path.dirname(__file__))
 import rule_sign_card as card  # noqa: E402
 
-TEXT = "rule_id: plan-standing\nrule_version: 2\ndone_rules: true\n"
+TEXT = "rule_id: plan-standing\n# the step's own tasks\nrule_version: 2\ndone_rules: true\n"
 
 
 def test_the_command_carries_the_text_and_its_sha256():
     cmd, sha = card.card_command(TEXT)
     assert sha == hashlib.sha256(TEXT.encode()).hexdigest()
     assert f"want={sha};" in cmd and TEXT in cmd and "-n bifrost-agentrt-rule" in cmd
-    # what the card writes is byte for byte the text: the shell's printf of the quoted text
-    out = subprocess.run(["sh", "-c", f"printf '%s' '{TEXT}'"], capture_output=True, text=True).stdout
+    # what the card writes is byte for byte the text, apostrophes included
+    head = cmd.split("kubectl", 1)[0] + "cat rule.yaml"
+    out = subprocess.run(["sh", "-c", head.replace("set -eu; want=", "want=")], capture_output=True, text=True, cwd=_tmp()).stdout
     assert out == TEXT
 
 
-def test_refuses_a_single_quote():
-    try:
-        card.card_command("it's\n")
-    except ValueError:
-        return
-    raise AssertionError("accepted a single quote")
+def _tmp():
+    import tempfile
+    return tempfile.mkdtemp()
+
+
+def test_refuses_what_the_here_document_cannot_carry():
+    for bad in ("no newline at the end", "a\nRULE_TEXT_END\nb\n"):
+        try:
+            card.card_command(bad)
+        except ValueError:
+            continue
+        raise AssertionError(f"accepted {bad!r}")

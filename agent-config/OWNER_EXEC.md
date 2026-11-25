@@ -157,7 +157,7 @@ Owner 2026-11-25：「任何需要重签的话，可以通过我这个就是 Ops
 运行时规则（`agent-config/agentrt-rules/README.md`，例如 `plan-standing`）和发布策略认同样两把钥匙（`bifrost-platform` `api/internal/releasepolicy/anchor.go` 的 `RuleAnchors`）。在这之前运行时规则只认 Mac 那把，重签要回电脑；这一处缺口没登记在上面的清单里。
 
 1. 从线上取正文（README §1），存成文件，改好、版本号加 1；`bash bifrost-trade-infra/scripts/agentrt/rule.sh check <文件> --env prod` 看平台读成什么、是不是放宽。
-2. `python3 bifrost-trade-infra/scripts/owner-exec/rule_sign_card.py --text <文件> > card-command.txt`：打印卡的命令，stderr 给出全文的 sha256。正文不能有单引号。
+2. `python3 bifrost-trade-infra/scripts/owner-exec/rule_sign_card.py --text <文件> > card-command.txt`：打印卡的命令，stderr 给出全文的 sha256。正文原样写进卡（here-document），他在卡上看到的就是要签的字节；正文要以换行结尾。
 3. 建 `owner_run_command` 的卡，`params.command` 原样用 `card-command.txt` 的内容，不要手改。理由第一段用白话写「规则换成哪一版、相对现行版多给了或收回了什么」，写上 sha256；照常写「改了什么：」「批了以后谁因此能做什么新事：」两行、怎么撤、没验什么。
 4. 他输码之后，执行口核对 sha256、用集群那把钥匙签名、验一遍，把签名打印在卡的输出里；它不装任何东西。
 5. 把正文和卡输出里的签名交给 `POST /api/v1/agentrt/rules/<rule_id>/sign`（平台认的是签名，不是谁交的）；`rule.sh show <rule_id> --env prod` 确认是新版。
