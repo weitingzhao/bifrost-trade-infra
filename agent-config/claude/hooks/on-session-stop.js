@@ -28,7 +28,7 @@ async function main() {
   } catch {
     // never block a session
   }
-  // Owner 的话上报（Owner 2026-11-25「需要自动收集」，report-owner-said.js）：失败一律吞掉。
+  // Owner 的话上报（LAW-1，report-owner-said.js）：失败一律吞掉。
   try {
     await reportOwnerSaid(payload)
   } catch {

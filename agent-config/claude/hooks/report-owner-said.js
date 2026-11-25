@@ -1,7 +1,7 @@
 'use strict'
 /**
- * Report what the Owner says in this session to the Ops Platform (Owner 2026-11-25 in the legislation thread, choosing
- * automatic collection: 「我觉得B好，需要自动收集」).
+ * Report what the Owner says in this session to the Ops Platform (LAW-1: collected
+ * automatically).
  *
  * On every Stop the transcript is read from where the last run stopped (offset kept in ~/.cache/bifrost/owner-said.json).
  * A record is the Owner's own words when it is a user record whose origin.kind is "human": a peer session's message

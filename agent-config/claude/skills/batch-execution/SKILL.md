@@ -37,7 +37,7 @@ Owner says **「批量执行」** once → Agent orchestrates all remaining phas
 
 ## Execute Loop
 
-Work goes by **block, not by step** (Owner 2026-11-14，LAW-7): a block is a piece one agent can take from code to
+Work goes by **block, not by step** (LAW-7): a block is a piece one agent can take from code to
 live on its own. The orchestrator cuts the pending phases into blocks; phases that only make sense together are
 one block. One agent does a whole block (write, test, land, release, check) and is judged on the result.
 Blocks run in order unless the program doc says they are independent.
@@ -60,7 +60,7 @@ Blocks run in order unless the program doc says they are independent.
 ### Stop conditions (pause batch)
 
 - Crossing a safety boundary, something that cannot be taken back, something the Owner must do by hand, or a
-  refusal by the permission classifier or a guard (Owner 2026-11-14; the same list as phase-execution，LAW-5)
+  refusal by the permission classifier or a guard (the same list as phase-execution，LAW-5)
 - Architecture-level decision needed (new RPC, schema, dependency — see phase-execution rule 5)
 - Owner interrupt
 

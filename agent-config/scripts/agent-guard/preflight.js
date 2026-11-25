@@ -761,7 +761,7 @@ function githubPushRule(cmd, cwd) {
 
 // ─────────────────────── 审批旁路（ADR §5，始终生效） ───────────────────────
 //
-// Owner 2026-10-07：聊天批准保留。admin 令牌在本机进程可读是已知的接受风险，
+// 聊天批准保留（ISSUE-89）。admin 令牌在本机进程可读是已知的接受风险，
 // 这条文本拦截挡的是「不走弹窗、直接批准」和「把令牌读出来自己用」。
 // 防的是善意误操作，不是有决心的绕过（同本文件其他规则）。
 //
@@ -1071,7 +1071,7 @@ function denyMessage(kind, reason) {
   if (kind === 'approval') {
     return (
       '【审批旁路 — ADR §5】拦截原因：' + reason + '。\n' +
-      'Owner 2026-10-07 决定聊天批准保留（bifrost-approve + permissions.ask），' +
+      '聊天批准保留（ISSUE-89）（bifrost-approve + permissions.ask），' +
       '并接受「本机 Agent 理论上能读到 admin 令牌」的风险；这条文本拦截是当前的缓解。' +
       '见 ADR §5「已知的接受风险」。\n' +
       '批准或驳回只走 `mcp__bifrost-approve__*`（会弹「允许」）。\n' +
