@@ -8,7 +8,10 @@
  * (origin.kind "peer", isMeta), a summary's continuation (no origin), a tool result and a side chain are not his. The
  * text is his typed text: string content, or the text parts of a list, with the host's <system-reminder> blocks cut.
  * Each message goes once (the platform keys it by the record's uuid), to POST /api/v1/agentrt/owner-said, where the
- * legislation line classifies it (LAW-1 s7).
+ * legislation line classifies it (LAW-1 s7). Anything shaped like a secret is replaced before it leaves the machine
+ * (redact: CORE-1 2, passwords and secrets are never read or quoted): a private key block, a provider token, a bearer
+ * token, the value after password / token / secret / api key, and a base64 run of 40 or more characters; hex runs
+ * (commit ids, digests) stay.
  *
  * Config (nothing secret lives in the repo):
  *   PLATFORM_LINEAGE_URL      platform-api base (default: PROD NodePort)
@@ -57,6 +60,29 @@ function token() {
   }
 }
 
+const SECRETS = [
+  [/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(-----END [A-Z ]*PRIVATE KEY-----|$)/g, '[redacted: private key]'],
+  [/\b(sk|rk|pk)-[A-Za-z0-9_-]{16,}/g, '[redacted: token]'],
+  [/\bgh[pousr]_[A-Za-z0-9]{16,}/g, '[redacted: token]'],
+  [/\b(Bearer)\s+[A-Za-z0-9._~+/-]{16,}=*/gi, '$1 [redacted]'],
+  [/\b(password|passwd|pwd|token|secret|api[_-]?key)(\s*[:=：]\s*)\S{6,}/gi, '$1$2[redacted]'],
+  [/(^|[^A-Za-z0-9+/:])([A-Za-z0-9+/]{40,}={0,2})(?![A-Za-z0-9+/])/g, (m, pre, run) => (keyLike(run) ? `${pre}[redacted: long string]` : m)],
+]
+
+/** A run of 40 or more base64 characters is taken for a key when it mixes digits, capitals and small letters and is
+ *  not a path (two or more slashes), a hex digest or a Gerrit Change-Id (I and 40 hex). */
+function keyLike(run) {
+  if (/^I?[0-9a-f]+$/.test(run) || (run.match(/\//g) || []).length > 1) return false
+  return /[0-9]/.test(run) && /[A-Z]/.test(run) && /[a-z]/.test(run)
+}
+
+/** text with anything shaped like a secret replaced. */
+function redact(text) {
+  let out = text
+  for (const [re, to] of SECRETS) out = out.replace(re, to)
+  return out
+}
+
 /** The Owner's typed text of a user record, or '' when the record is not his. */
 function ownerText(rec) {
   if (!rec || rec.type !== 'user' || rec.isMeta || rec.isSidechain) return ''
@@ -65,7 +91,7 @@ function ownerText(rec) {
   let text = ''
   if (typeof c === 'string') text = c
   else if (Array.isArray(c)) text = c.filter((p) => p && p.type === 'text' && typeof p.text === 'string').map((p) => p.text).join('\n')
-  return text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim()
+  return redact(text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim())
 }
 
 /** The Owner's messages appended since st.offset; advances st.offset to the last complete line. */
@@ -156,4 +182,4 @@ async function reportOwnerSaid(payload, { fetchImpl = fetch, timeoutMs = 5000, e
   return { sent }
 }
 
-module.exports = { reportOwnerSaid, scan, ownerText }
+module.exports = { reportOwnerSaid, scan, ownerText, redact }

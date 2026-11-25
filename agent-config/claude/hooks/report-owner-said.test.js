@@ -71,6 +71,22 @@ async function main() {
   fs.appendFileSync(transcript, '{"type":"user","uuid":"' + u(7) + '","origin":{"kind":"human"')
   r = await reportOwnerSaid({ transcript_path: transcript }, { fetchImpl, env })
   assert.equal(r.sent, 0)
+  // secrets never leave the machine; commit ids and digests stay (CORE-1 2)
+  const { redact } = require('./report-owner-said.js')
+  assert.equal(redact('token: abcdefgh12345'), 'token: [redacted]')
+  assert.equal(redact('密码 password=hunter2hunter2 好'), '密码 password=[redacted] 好')
+  assert.equal(redact('curl -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5"'), 'curl -H "Authorization: Bearer [redacted]"')
+  assert.equal(redact('key sk-proj-ABCDEFGHIJKLMNOPQRSTUV end'), 'key [redacted: token] end')
+  assert.equal(redact('a ghp_ABCDEFGHIJKLMNOPQRSTUVWX b'), 'a [redacted: token] b')
+  assert.equal(redact('x QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVphYmNkZWZnaGlqaw== y'), 'x [redacted: long string] y')
+  assert.equal(redact('-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXk\n-----END OPENSSH PRIVATE KEY-----'), '[redacted: private key]')
+  // positive controls: a commit id, a sha256 digest and a key fingerprint stay
+  assert.equal(redact('commit 2f79feca0ec00fcf174f0e7100a15accda845010'), 'commit 2f79feca0ec00fcf174f0e7100a15accda845010')
+  assert.equal(redact('sha256 23ea1cb7b8262f2ddbd05b674e1dd9943d875a33a83a8d7e9640fec9a6db7b90'), 'sha256 23ea1cb7b8262f2ddbd05b674e1dd9943d875a33a83a8d7e9640fec9a6db7b90')
+  assert.equal(redact('SHA256:KWzT2m89T/mfDAFBmzOJvyDSu/lPwzhx8alEntAXz9Q'), 'SHA256:KWzT2m89T/mfDAFBmzOJvyDSu/lPwzhx8alEntAXz9Q')
+  // a path, a Change-Id and a hex run inside a path stay (2026-11-25: the first cut hid 422 of these in his history)
+  for (const keep of ['frontend/src/pages/research/loop/HarnessConsolePage', 'Change-Id: I4c3c8efbf31991b6be395062a528cb76cec42f01',
+    'run/80a8a4ab3b0d2a2470f24e670b101af357030215/SHA256SUMS']) assert.equal(redact(keep), keep)
   console.log('report-owner-said: ok')
 }
 
