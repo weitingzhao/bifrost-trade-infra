@@ -209,6 +209,21 @@ class PushMain(_Fixture):
         self.assertEqual(self._remote_main(), head)
         self.assertEqual(_git(self.work, "worktree", "list").count("\n"), 0, "the scan worktree was left behind")
 
+    def test_a_commit_ci_judged_green_is_not_scanned_or_tested_again(self) -> None:
+        """Walls review [81][82], 2026-11-25 (Owner's batch, owner_said e6a1558c): push stops without a
+        green CI run, and that run ran code-health and the tests; running them again here was the
+        same check twice. Positive control: test_over_the_baseline_is_refused, where no CI judged it."""
+        self._big_files(0, 1)
+        head = _git(self.work, "rev-parse", "HEAD")
+        scan = Path(self._tmp.name) / "scan-over.sh"
+        scan.write_text('#!/bin/sh\necho "code-health: would refuse" >&2\nexit 1\n')
+        scan.chmod(0o755)
+        r = self._push(env=self._env(PUSH_MAIN_SCAN=str(scan)))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("code-health of bifrost-platform: judged by its green CI run; not run again", r.stdout)
+        self.assertNotIn("would refuse", r.stderr)
+        self.assertEqual(self._remote_main(), head)
+
     def test_over_the_baseline_is_refused(self) -> None:
         # A scan that fails (a metric over its baseline) refuses the push.
         before = self._remote_main()
@@ -216,7 +231,7 @@ class PushMain(_Fixture):
         scan = Path(self._tmp.name) / "scan-over.sh"
         scan.write_text('#!/bin/sh\necho "code-health: fixture metric increased (1 > baseline 0)" >&2\nexit 1\n')
         scan.chmod(0o755)
-        r = self._push(env=self._env(PUSH_MAIN_SCAN=str(scan)))
+        r = self._push("--allow-red=no CI judged it: the local checks are under test (walls review [81][82])", env=self._env(PUSH_MAIN_SCAN=str(scan)))
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertIn("code-health refused", r.stderr)
         self.assertIn("fixture metric increased", r.stderr)
@@ -392,7 +407,7 @@ class PushMain(_Fixture):
         before = self._remote_main()
         self._big_files(0, 1)
         head = _git(self.work, "rev-parse", "HEAD")
-        r = self._push(env=env)
+        r = self._push("--allow-red=no CI judged it: the local checks are under test (walls review [81][82])", env=env)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(seen.read_text(), "", "the scan saw the environment's git configuration")
         # The override sent the push where it points; the fixture origin is as it was.
@@ -1226,7 +1241,7 @@ class PushMain(_Fixture):
         self._go_module()
         # Package a touched: vet and a's tests pass; b, red on main, is not run.
         head = self._add(self.work, "api/internal/a/a2.go", "package a\n\nfunc A2() int { return A() + 1 }\n")
-        r = self._push()
+        r = self._push("--allow-red=no CI judged it: the local checks are under test (walls review [81][82])")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("tests of bifrost-platform: go vet ./...", r.stdout)
         self.assertIn("tests of bifrost-platform: go test ./internal/a/", r.stdout)
@@ -1234,7 +1249,7 @@ class PushMain(_Fixture):
         self.assertEqual(self._remote_main(), head)
         # Package b touched: its failing test refuses the push.
         self._add(self.work, "api/internal/b/b2.go", "package b\n\nfunc B2() int { return B() }\n")
-        r = self._push()
+        r = self._push("--allow-red=no CI judged it: the local checks are under test (walls review [81][82])")
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertIn("go test ./internal/b/", r.stdout)
         self.assertIn("planted: B is not 3", r.stdout)
@@ -1247,13 +1262,13 @@ class PushMain(_Fixture):
         self._go_module()
         head = self._add(self.work, "api/internal/optional/optional.go",
                          "//go:build review_optional\n\npackage optional\n\nfunc O() int { return 0 }\n")
-        r = self._push()
+        r = self._push("--allow-red=no CI judged it: the local checks are under test (walls review [81][82])")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("no Go package of bifrost-platform is touched; go vet only", r.stdout)
         self.assertEqual(self._remote_main(), head)
         # Its testdata is no package either.
         head = self._add(self.work, "api/internal/a/testdata/fixture.go", "package broken(\n")
-        r = self._push()
+        r = self._push("--allow-red=no CI judged it: the local checks are under test (walls review [81][82])")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(self._remote_main(), head)
 
@@ -1262,7 +1277,7 @@ class PushMain(_Fixture):
         before = self._remote_main()
         self._add(self.work, "api/internal/a/bad.go",
                   'package a\n\nimport "fmt"\n\nfunc Bad() string { return fmt.Sprintf("%d", "not a number") }\n')
-        r = self._push()
+        r = self._push("--allow-red=no CI judged it: the local checks are under test (walls review [81][82])")
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertIn("go vet", r.stdout + r.stderr)
         self.assertIn("the tests of bifrost-platform failed", r.stderr)
@@ -1272,7 +1287,7 @@ class PushMain(_Fixture):
         # The fixture platform without api/ says so and pushes; a repo with no
         # test set says it has none.
         head = self._change("t.txt")
-        r = self._push()
+        r = self._push("--allow-red=no CI judged it: the local checks are under test (walls review [81][82])")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("bifrost-platform has no api/go.mod; no tests run", r.stdout)
         self.assertEqual(self._remote_main(), head)

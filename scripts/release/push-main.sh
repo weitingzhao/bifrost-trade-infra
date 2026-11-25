@@ -25,6 +25,9 @@
 #    --allow-red <reason> pushes anyway and prints the reason, as
 #    release.sh --allow-red does. A push that changes only Markdown is not
 #    checked, as it runs no tests.
+# 5 and 6 run only where no green CI run judged <commit> (a repository without
+#    CI of its own, documentation, --allow-red): such a run already ran them
+#    (walls review [81][82], 2026-11-25).
 # 5. For a repo whose CI runs the code-health ratchet, scan.sh runs on a
 #    fresh worktree of exactly <commit> (not the working tree, which may hold
 #    other sessions' edits), so a metric over its baseline (a file over 800
@@ -564,6 +567,7 @@ ci() {
       0)
         rm -rf "$runs"
         echo "push-main: CI: $out"
+        CI_JUDGED=true
         return 0
         ;;
       2)
@@ -585,6 +589,7 @@ ci() {
   done
 }
 
+CI_JUDGED=false
 gated=false
 [[ "$GATED" == *" $repo "* ]] && gated=true
 testing=false
@@ -595,6 +600,16 @@ if has_tests && [[ -z "$SKIP_TESTS" ]]; then
   fi
 fi
 ci
+# A green CI run of <commit> ran code-health and the tests already, and push
+# stops without one: running them again here was the same check twice (walls
+# review [81][82], 2026-11-25). They still run where no CI judged the commit:
+# a repository without CI of its own (infra), documentation, --allow-red.
+if $CI_JUDGED; then
+  $gated && echo "push-main: code-health of $repo: judged by its green CI run; not run again"
+  $testing && echo "push-main: the tests of $repo: judged by its green CI run; not run again"
+  gated=false
+  testing=false
+fi
 if $docs_only && has_tests && [[ -z "$SKIP_TESTS" ]]; then
   if $testing; then
     echo "push-main: only documentation changed: $docs_said"
@@ -616,7 +631,7 @@ if $gated; then
   rc=0
   bash "$SCAN" --root "$tmp" --repo "$repo" || rc=$?
   [[ "$rc" -eq 0 ]] || die "code-health refused $commit of $repo (exit $rc); nothing pushed"
-else
+elif ! $CI_JUDGED; then
   echo "push-main: $repo has no code-health task in CI; not scanned (scan.sh is not CI's judgment of this repository: a run of it by hand says nothing about $commit)"
 fi
 if $testing; then
@@ -632,6 +647,8 @@ elif [[ -n "$SKIP_TESTS" ]]; then
   else
     echo "push-main: --skip-tests given ($SKIP_TESTS), but $repo has no fast tests here"
   fi
+elif $CI_JUDGED; then
+  :
 elif ! $docs_only || ! has_tests; then
   echo "push-main: $repo has no fast tests here; none run"
 fi
