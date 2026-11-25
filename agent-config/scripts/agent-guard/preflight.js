@@ -464,11 +464,9 @@ function gitPushes(cmd) {
   const out = []
   for (const m of cmd.matchAll(re)) {
     out.push(
-      m[1]
-        .trim()
-        .split(/\s+/)
-        .filter(Boolean)
-        .map(t => t.replace(/^['"(]+|['"`)]+$/g, '')),
+      joinSubstitutions(m[1].trim().split(/\s+/).filter(Boolean)).map(t =>
+        t.includes('$(') ? t.replace(/^['"]+|['"`]+$/g, '') : t.replace(/^['"(]+|['"`)]+$/g, ''),
+      ),
     )
   }
   return out
@@ -480,6 +478,36 @@ const LOCAL_REMOTE = /^(\/|\.|~|file:)/
 const MAIN_REF = /^(refs\/heads\/)?main$/
 
 /** 这次 push 会写 main（'main'），或看不出写哪个分支（'unclear'）；都不是返回 null。 */
+// A command substitution split into words is one refspec part: `$(git rev-parse HEAD):refs/heads/ready/x`
+// arrives as `$(git`, `rev-parse`, `HEAD):refs/heads/ready/x`. Rejoin them so the destination after the
+// colon is read; a substitution in the destination is still unclear.
+// Origin: walls review 2026-11-25 [17] (LAW-17 two): on 11-24 a push of a rev-parse sha to a ready/ branch
+// was refused as unclear.
+function joinSubstitutions(tokens) {
+  const out = []
+  let open = 0
+  for (const t of tokens) {
+    if (open > 0) {
+      out[out.length - 1] += ' ' + t
+    } else {
+      out.push(t)
+    }
+    open += (t.match(/\$\(/g) || []).length - (t.match(/\)/g) || []).length
+    if (open < 0) open = 0
+  }
+  return out
+}
+
+function firstColonOutside(spec) {
+  let depth = 0
+  for (let i = 0; i < spec.length; i++) {
+    if (spec[i] === '$' && spec[i + 1] === '(') { depth++; i++; continue }
+    if (spec[i] === ')' && depth > 0) { depth--; continue }
+    if (spec[i] === ':' && depth === 0) return i
+  }
+  return -1
+}
+
 function pushTarget(tokens) {
   const pos = []
   let tags = false
@@ -503,7 +531,8 @@ function pushTarget(tokens) {
   if (pos.length <= 1) return tags ? null : 'unclear'
   for (const spec of pos.slice(1)) {
     const s = spec.replace(/^\+/, '')
-    const colon = s.indexOf(':')
+    // The colon that splits src:dst is the first one outside a substitution.
+    const colon = firstColonOutside(s)
     const dst = colon === -1 || colon === s.length - 1 ? s.replace(/:$/, '') : s.slice(colon + 1)
     if (MAIN_REF.test(dst)) return 'main'
     if (dst === 'HEAD' || dst === '@' || /[$`*]/.test(dst)) return 'unclear'
@@ -516,7 +545,10 @@ function pushMainRule(cmd) {
   // 不是读写时用；shell 分词只认命令位置上的 git push、heredoc 正文已去掉，每条命令都看（复核 247 的探测：
   // 过去 `git status && git push …`、heredoc 后面一行的 push 整条不看）
   const textual = isRead(cmd) || isFileWrite(cmd) ? [] : gitPushes(cmd)
-  for (const tokens of [...textual, ...tokenizedPushes(cmd)]) {
+  // The shell tokenizer turns a command substitution into a bare `$` word and drops the rest of that word
+  // (`$(git rev-parse HEAD):refs/heads/ready/x` reads `$`); when the text parse saw the push, it decides.
+  const tokenized = tokenizedPushes(cmd).filter(t => !(textual.length > 0 && t.includes('$')))
+  for (const tokens of [...textual, ...tokenized]) {
     const target = pushTarget(tokens)
     if (target === 'main') {
       return '直接 `git push` 到 main 不经过 CI 的 code-health 棘轮 —— 用 `bifrost-trade-infra/scripts/release/push-main.sh <checkout> [<commit>]`'

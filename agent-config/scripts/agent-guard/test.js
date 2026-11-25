@@ -322,6 +322,11 @@ const cases = [
 
   // ── 推 main 只经 push-main.sh（TD-341）──
   ['push', 'DENY', '窗口检查后直接推 main', bash('bifrost-trade-infra/scripts/release/release.sh window && git push origin abc123:refs/heads/main')],
+  // walls review 2026-11-25 [17] (LAW-17 two): a rev-parse sha pushed to a named non-main branch is clear; the main and
+  // substitution-in-destination rows are the controls.
+  ['push', 'ALLOW', 'rev-parse 的 sha 推到 ready/ 分支', bash('git push origin $(git rev-parse HEAD):refs/heads/ready/x')],
+  ['push', 'DENY', 'rev-parse 的 sha 推到 main', bash('git push origin $(git rev-parse HEAD):refs/heads/main')],
+  ['push', 'DENY', '目标里有命令替换', bash('git push origin HEAD:$(git branch --show-current)')],
   ['push', 'DENY', 'HEAD:main', bash('git push origin HEAD:main')],
   ['push', 'DENY', 'git -C 推 main', bash('git -C ~/agent-work/x/bifrost-platform push origin main')],
   ['push', 'DENY', '强推 +HEAD:refs/heads/main', bash('git push origin +HEAD:refs/heads/main')],
