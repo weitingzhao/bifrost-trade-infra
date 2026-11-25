@@ -60,11 +60,14 @@ class MonitoringHookTests(unittest.TestCase):
         self.stage("k8s/overlays/platform-stg/x.patch.yaml")
         self.assertTrue(self.ran("routing"))
 
-    def test_a_red_check_blocks_the_commit(self) -> None:
+    # walls [31] 2026-11-25 (LAW-8 five): CI statics refuses; the hook only warns.
+    def test_a_red_check_warns_and_lets_the_commit_through(self) -> None:
         self.checks(coverage_rc=1)
-        self.assertEqual(self.stage("k8s/monitoring/x.yaml").returncode, 1)
+        r = self.stage("k8s/monitoring/x.yaml")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("CI statics decides", r.stderr)
         self.checks(routing_rc=1)
-        self.assertEqual(self.stage("k8s/overlays/platform-prod/y.yaml").returncode, 1)
+        self.assertEqual(self.stage("k8s/overlays/platform-prod/y.yaml").returncode, 0)
 
     def test_unrelated_change_runs_nothing(self) -> None:
         self.checks(coverage_rc=1, routing_rc=1)
@@ -115,9 +118,9 @@ class InterpreterTests(unittest.TestCase):
         self.assertTrue((self.repo / "ran-uv").exists())
         self.assertTrue((self.repo / "ran-coverage").exists() and (self.repo / "ran-routing").exists())
 
-    def test_no_yaml_and_no_uv_refuses_with_the_reason(self) -> None:
+    def test_no_yaml_and_no_uv_skips_with_the_reason(self) -> None:
         r = self.hook()
-        self.assertEqual(r.returncode, 1)
+        self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("PyYAML", r.stderr)
         self.assertFalse((self.repo / "ran-coverage").exists())
 

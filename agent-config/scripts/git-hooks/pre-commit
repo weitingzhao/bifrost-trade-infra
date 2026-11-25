@@ -16,8 +16,9 @@ fi
 
 # W-31 10-10: the static monitoring checks went red on main twice without anyone
 # running them (a PodMonitor component nobody classified, a retired overlay patch
-# left behind). Run them when a commit touches what they read. They check the
-# working tree, not the staged copies.
+# left behind). Run them when a commit touches what they read, as a warning only:
+# CI statics runs the same checks and decides (walls [31], LAW-8 five: one check,
+# one place that refuses). They check the working tree, not the staged copies.
 if [ -f "$top/scripts/check_http_metrics_coverage.py" ] && [ -f "$top/scripts/check_alert_routing.py" ] \
   && printf '%s\n' "$staged" | grep -qE '^k8s/(monitoring|overlays/platform-(stg|prod))/|^scripts/check_(http_metrics_coverage|alert_routing)\.py$'; then
   # Interpreter: the first python3 on PATH that imports yaml, else `uv run --with
@@ -35,10 +36,13 @@ if [ -f "$top/scripts/check_http_metrics_coverage.py" ] && [ -f "$top/scripts/ch
   elif command -v uv >/dev/null 2>&1; then
     set -- uv run --quiet --no-project --with pyyaml python
   else
-    echo "pre-commit: monitoring checks need PyYAML: no python3 with it and no uv (pip install pyyaml, or install uv)" >&2
-    exit 1
+    echo "pre-commit: monitoring checks skipped, need PyYAML (pip install pyyaml, or install uv); CI statics runs them" >&2
+    set --
   fi
-  (cd "$top" && "$@" scripts/check_http_metrics_coverage.py && "$@" scripts/check_alert_routing.py) || exit 1
+  if [ $# -gt 0 ]; then
+    (cd "$top" && "$@" scripts/check_http_metrics_coverage.py && "$@" scripts/check_alert_routing.py) \
+      || echo "pre-commit: monitoring checks failed (warning; CI statics decides)" >&2
+  fi
 fi
 # TD-396: the chief exam's grading keys never enter infra, which Agent hosts
 # check out and GitHub publishes. Checks the staged copies; prints the file and
