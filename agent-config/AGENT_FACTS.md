@@ -71,7 +71,7 @@ Trade 页面经 Ask Copilot 读 Research 后端（Positions / Instances / Live 3
 
 ---
 
-## 2. 活跃 Repo 清单（12 个）
+## 2. 活跃 Repo 清单（15 个，另列 1 个已归档；唯一名单是 infra `k8s/cicd/repositories.yaml`，本表由 `scripts/check_repo_registry.py` 对齐）
 
 | Repo | 包名 / 语言 | 域 | 备注 |
 |------|------------|----|------|
@@ -86,6 +86,10 @@ Trade 页面经 Ask Copilot 读 Research 后端（Positions / Instances / Live 3
 | `bifrost-platform-plugin-market-data` | `bifrost_market_data` (py) | Ops | Polygon → `raw_market.*` / `ops_jobs.*` |
 | `bifrost-platform-plugin-flex-query` | `bifrost_flex_query` (py) | Ops | IB Flex → `raw_broker.*` |
 | `bifrost-ui` | `@bifrost/ui` (ts) | 共享 | shadcn 原语、Dense Data Table、Shell 导航 |
+| `bifrost-engine` | TypeScript (node) | 共享 | UI 引擎后端，所有视图只经它读平台；私有，不跟随 GitHub（R0C，#723，2026-11-24） |
+| `bifrost-finance` | — | 载荷 | Finance 应用（finance-stg / finance-prod）；私有，不跟随 GitHub |
+| `primary-probe` | — | 地基 | 探测 Gitea 分支保护（Gitea primary 第 1 步）；私有 |
+| `repo-template` | — | 地基 | 新仓库从它生成（main 规则、CI 钩子）；改它算改裁判；私有 |
 | `bifrost-analytics` | — | **已归档** | 见 §4 |
 
 非 repo 目录：`Research-workspace/`（分析案例草稿）。PG dump 不放工作区，在 `~/bifrost-backups/`（10-06 起）。
