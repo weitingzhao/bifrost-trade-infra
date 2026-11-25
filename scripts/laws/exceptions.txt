@@ -1,8 +1,15 @@
 # Citations of a law by number that are right as they are. One per line:
-# repo:path:law  # why. Read by residual_scan.py; they count as 例外, not as
+# repo:path:law  # why; path and law may be shell patterns (* for every law). Read by residual_scan.py; they count as 例外, not as
 # a citation of material, a repealed law or no law. Adding one is a commit.
 bifrost-platform:console/src/pages/shell/owner/__tests__/lawFramework.test.tsx:11  # asserts the repealed law 11 is not shown
 bifrost-platform:console/src/pages/shell/owner/__tests__/lawFramework.test.tsx:90  # a test register's number
 bifrost-trade-infra:agent-config/claude/auto-mode/project.autoMode.json:46  # the auto mode rules are the Owner's; he changes them
 bifrost-trade-infra:k8s/cicd/tekton/pipeline-ci-platform.yaml:49  # inside an inline task script: its text is part of the task's digest, pinned in the freeze chain's effects registry; changes with the next real edit of that script
 bifrost-trade-infra:k8s/cicd/tekton/task-ci-platform-reuse.yaml:49  # inside the task's script: same digest as above
+bifrost-platform:api/internal/agentrt/migrations/*.sql:*  # applied migrations: their checksums are recorded, the text cannot change
+bifrost-platform:api/internal/agentrt/planstore/*_test.go:*  # the register's tests build their own register; its numbers are not the real laws
+bifrost-platform:api/internal/instruments/*:*  # the citation parser and its tests: the numbers are its inputs and examples
+bifrost-platform:console/src/pages/shell/owner/__tests__/lawFramework.test.tsx:*  # the Laws page's tests use their own register
+bifrost-platform:console/src/pages/shell/owner/__tests__/auditConclusionsModel.test.ts:*  # a fixture law 12 and the history of law 85 moving to law 91
+bifrost-platform:console/src/pages/shell/owner/auditConclusionsModel.ts:85  # history: says law 85's standard moved to law 91 (2026-11-24, #749)
+bifrost-trade-infra:agent-config/claude/auto-mode/project.autoMode.json:*  # the auto mode rules are the Owner's; he changes them

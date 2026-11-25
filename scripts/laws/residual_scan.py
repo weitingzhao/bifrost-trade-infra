@@ -77,6 +77,18 @@ def exceptions(path=EXCEPTIONS):
     return out
 
 
+def excepted(c, allowed):
+    """Whether citation c is on the exception list. A line is repo:path:law;
+    path and law may be shell patterns (a whole class of files, every law),
+    so a class with one reason is one line, not one line per citation."""
+    import fnmatch
+    for key in allowed:
+        repo, path, law = (key.split(":", 2) + ["", ""])[:3]
+        if repo == c["repo"] and fnmatch.fnmatch(c["path"], path) and fnmatch.fnmatch(c["law"], law):
+            return True
+    return False
+
+
 def repos():
     return sorted(p for p in ROOT.iterdir() if p.name.startswith("bifrost-") and (p / ".git").exists() and not p.name.endswith("-archived"))
 
@@ -118,7 +130,7 @@ def main():
     allowed = exceptions()
     for c in cited:
         c["state"] = state(laws[c["law"]]) if c["law"] in laws else "无"
-        if f'{c["repo"]}:{c["path"]}:{c["law"]}' in allowed:
+        if excepted(c, allowed):
             c["state"] = "例外"
     if a.law:
         for c in cited:

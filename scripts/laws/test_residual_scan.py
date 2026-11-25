@@ -39,3 +39,17 @@ def test_exceptions_are_read_from_the_file(tmp_path):
     f.write_text("# comment\nbifrost-platform:a/b.go:46  # why\n\n")
     assert scan.exceptions(f) == {"bifrost-platform:a/b.go:46"}
     assert scan.exceptions(tmp_path / "missing.txt") == set()
+
+
+def test_exceptions_may_name_a_class(tmp_path):
+    # 2026-11-25, round 1's last scan: 51 citations of repealed laws were all
+    # in applied migrations, tests with their own registers and the parser's
+    # examples; one line per class, with its reason, instead of 51.
+    allowed = {"bifrost-platform:api/x/migrations/*.sql:*", "bifrost-platform:a.go:85"}
+    hit = lambda repo, path, law: scan.excepted({"repo": repo, "path": path, "law": law}, allowed)
+    assert hit("bifrost-platform", "api/x/migrations/0029_a.sql", "28")
+    assert hit("bifrost-platform", "a.go", "85")
+    # The positive control's other side: another law, path or repo is not excepted.
+    assert not hit("bifrost-platform", "a.go", "86")
+    assert not hit("bifrost-platform", "api/x/other.go", "28")
+    assert not hit("bifrost-trade-infra", "api/x/migrations/0029_a.sql", "28")
