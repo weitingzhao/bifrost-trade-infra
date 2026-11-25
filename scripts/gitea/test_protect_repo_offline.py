@@ -607,3 +607,17 @@ def test_review773_snapshot_save_io_failure_refuses_writes(fake, tmp_path):
     assert result.returncode != 0
     assert all(line.startswith("GET ") for line in calls.read_text().splitlines())
     assert json.loads(state.read_text()) == initial
+
+
+def test_engine_main_takes_the_lander_and_keeps_its_team_push():
+    """2026-11-25 (CI line): engine joins the landing repositories while push-main.sh still pushes
+    its main; its baseline adds the lander and keeps the maintainers team, with no land/prod/** rule.
+    Positive control: infra drops the team and gets the land/prod/** rule."""
+    import importlib, sys, pathlib
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+    policy = importlib.import_module("protection_policy")
+    (main,) = policy.baseline("bifrost-engine", "owner")
+    assert main["rule_name"] == "main" and main["push_whitelist_teams"] == ["maintainers"]
+    assert main["push_whitelist_usernames"] == ["owner", "agentrt-lander"]
+    infra = policy.baseline("bifrost-trade-infra", "owner")
+    assert [r["rule_name"] for r in infra] == ["land/prod/**", "main"] and infra[1]["push_whitelist_teams"] == []

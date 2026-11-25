@@ -193,10 +193,14 @@ def clash(rule):
 # bifrost-engine since 2026-11-25 (CI line): its main took only push-main.sh pushes, which do not wait
 # for ci-engine; it lands through ready/ like the other two (pipeline-land.yaml LANDING_REPOS).
 LANDING_REPOS = {"bifrost-platform", "bifrost-trade-infra", "bifrost-engine"}
+# Landing repositories whose main keeps its team's push beside the lander's, so push-main.sh still
+# works there while the line moves to ready/ (engine, 2026-11-25); no land/prod/** rule (no PROD lane).
+KEEPS_TEAM_PUSH = {"bifrost-engine"}
 
 
 def baseline(repo, owner):
-    teams = [] if repo in LANDING_REPOS else ["maintainers"]
+    lane = repo in LANDING_REPOS and repo not in KEEPS_TEAM_PUSH
+    teams = [] if lane else ["maintainers"]
     main = {
         "rule_name": "main",
         "enable_push": True,
@@ -210,7 +214,7 @@ def baseline(repo, owner):
         "merge_whitelist_usernames": [owner],
     }
     rules = [main]
-    if repo in LANDING_REPOS:
+    if lane:
         rules.insert(0, {**main, "rule_name": "land/prod/**",
                       "push_whitelist_usernames": ["agentrt-lander"],
                       "merge_whitelist_usernames": []})
