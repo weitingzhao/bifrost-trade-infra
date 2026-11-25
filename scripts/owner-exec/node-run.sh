@@ -10,6 +10,9 @@
 #   node-run.sh render --tier device --node <node> --recipe nvme-smart
 #   node-run.sh render --tier host   --node <node> --cmd '<fixed command text>' --pods-file <listing>
 #        <listing> = the output of: kubectl get pods -A --field-selector spec.nodeName=<node>,status.phase!=Succeeded,status.phase!=Failed --no-headers -o custom-columns=NS:.metadata.namespace,NAME:.metadata.name
+#   node-run.sh render --tier host   --node gpu-server --recipe <name> [--param K=V ...] --pods-file <listing>
+#        named host recipes (law 85, 2026-11-24): the card says recipe=<name> class=<read-only|reversible> and the
+#        recipe file's sha256, so the executor can run a read-only one without an Owner code once it trusts the name+hash.
 #   node-run.sh hash                       sha256 of the runtime part (cite it on the card)
 #   node-run.sh selftest                   renders every case, parses the YAML, runs the refusal tests (no cluster needed)
 #
@@ -115,10 +118,25 @@ recipe_script() { case "$1" in
   *) return 1 ;;
 esac; }
 
+# Host-tier named recipes (law 85). name -> file, node it may run on, class, allowed parameters.
+host_recipe_file() { case "$1" in
+  gpu-strata-status)  echo "$HERE/recipes/gpu_strata_status.sh" ;;
+  gpu-models)         echo "$HERE/recipes/gpu_models.sh" ;;
+  gpu-strata-profile) echo "$HERE/recipes/gpu_strata_profile.sh" ;;
+  *) return 1 ;;
+esac; }
+host_recipe_class() { case "$1" in gpu-strata-status|gpu-models) echo read-only ;; gpu-strata-profile) echo reversible ;; esac; }
+host_recipe_node()  { case "$1" in gpu-*) echo gpu-server ;; esac; }
+# one line per allowed parameter: NAME regex-of-values
+host_recipe_params() { case "$1" in
+  gpu-strata-profile) printf 'MODEL ^(iq3|q4)$\nCTX ^(32768|65536|131072|262144)$\n' ;;
+esac; }
+
 render() {
-  local tier="" node="" recipe="" cmd="" podsfile=""
+  local tier="" node="" recipe="" cmd="" podsfile="" params="" rclass=""
   while [ $# -gt 0 ]; do case "$1" in
     --tier) tier="$2"; shift 2;; --node) node="$2"; shift 2;; --recipe) recipe="$2"; shift 2;; --cmd) cmd="$2"; shift 2;; --pods-file) podsfile="$2"; shift 2;;
+    --param) params="$params$2"$'\n'; shift 2;;
     *) die "unknown option $1";; esac; done
   case "$node" in ubt-k3s-0[1-9]|gpu-server) ;; *) die "node must be a cluster node (ubt-k3s-0N or gpu-server): '$node'";; esac
   case "$tier" in
@@ -126,7 +144,23 @@ render() {
       [ -z "$cmd" ] || die "tier device takes a recipe, not a free command"
       recipe_script "$recipe" >/dev/null || die "unknown recipe '$recipe' (known: nvme-smart)" ;;
     host)
-      [ -n "$cmd" ] || die "tier host needs --cmd"
+      if [ -n "$recipe" ]; then
+        [ -z "$cmd" ] || die "a host recipe takes no --cmd"
+        host_recipe_file "$recipe" >/dev/null || die "unknown host recipe '$recipe' (known: gpu-strata-status, gpu-models, gpu-strata-profile)"
+        [ "$(host_recipe_node "$recipe")" = "$node" ] || die "recipe $recipe runs only on $(host_recipe_node "$recipe")"
+        rclass=$(host_recipe_class "$recipe")
+        local want got k v line
+        want=$(host_recipe_params "$recipe" | awk 'NF{print $1}' | sort | paste -sd' ' -)
+        got=$(printf '%s' "$params" | awk -F= 'NF{print $1}' | sort | paste -sd' ' -)
+        [ "$want" = "$got" ] || die "recipe $recipe needs exactly these parameters: ${want:-none} (got: ${got:-none})"
+        while IFS= read -r line; do [ -n "$line" ] || continue
+          k=${line%%=*}; v=${line#*=}
+          printf '%s' "$v" | grep -Eq "$(host_recipe_params "$recipe" | awk -v k="$k" '$1==k{print $2}')" || die "parameter $k=$v is not allowed for $recipe"
+        done <<< "$params"
+        cmd="$(printf '%s' "$params" | awk -F= 'NF{printf "%s=%s\n",$1,$2}')
+$(cat "$(host_recipe_file "$recipe")")"
+      fi
+      [ -n "$cmd" ] || die "tier host needs --cmd or --recipe"
       hit=$(tripwire_hit "$cmd"); [ -z "$hit" ] || die "refused: the command text mentions '$hit' (Trade / IB / Secret directories are not for this path; this check is a tripwire, not a barrier)"
       [ -n "$podsfile" ] && [ -r "$podsfile" ] || die "tier host needs --pods-file (the card must list the Trade / IB pods on the node)" ;;
     *) die "tier must be device or host" ;;
@@ -151,7 +185,11 @@ render() {
   else
     echo "# DEVICE TIER (privileged to open a device node; no host namespaces, no host paths, no token). Recipe $recipe, fixed and read-only."
   fi
-  echo "# owner-exec node-run v$VERSION tier=$tier node=$node runtime_sha256=$(runtime | sha256)"
+  if [ "$tier" = host ] && [ -n "$recipe" ]; then
+    echo "# owner-exec node-run v$VERSION tier=$tier node=$node runtime_sha256=$(runtime | sha256) recipe=$recipe class=$rclass recipe_sha256=$(sha256 < "$(host_recipe_file "$recipe")")"
+  else
+    echo "# owner-exec node-run v$VERSION tier=$tier node=$node runtime_sha256=$(runtime | sha256)"
+  fi
   echo "TIER=$tier"; echo "NODE=$node"; echo "DEADLINE=${DEADLINE:-300}"
   echo "IMG='$IMG'"   # 2026-11-19 card #626: the card had no IMG, so the Pod's image was empty
   if [ "$tier" = device ]; then
@@ -203,6 +241,17 @@ else: assert c["command"][0] == "nsenter"
 PY
     then ok "pod shape: $spec"; else bad "pod shape: $spec"; fi
   done
+  # 1b. host recipes (law 85, 2026-11-24: 15 of 18 cards on gpu-server that day were reads or reversible profile changes)
+  for spec in "gpu-strata-status" "gpu-models" "gpu-strata-profile --param MODEL=iq3 --param CTX=131072"; do
+    set -- $spec; local r="$1"; shift
+    out=$("$0" render --tier host --node gpu-server --pods-file "$t/pods.txt" --recipe $r "$@" 2>&1) || { bad "host recipe $r: $(echo "$out" | head -1)"; continue; }
+    printf '%s\n' "$out" | bash -n && ok "host recipe renders: $r" || bad "host recipe bash -n: $r"
+    printf '%s\n' "$out" | grep -q "recipe=$r class=$(host_recipe_class $r) recipe_sha256=" && ok "host recipe header names it: $r" || bad "host recipe header: $r"
+  done
+  refuse "recipe on the wrong node"   "runs only on"         --tier host --node ubt-k3s-01 --pods-file "$t/pods.txt" --recipe gpu-models
+  refuse "recipe param out of list"   "not allowed"          --tier host --node gpu-server --pods-file "$t/pods.txt" --recipe gpu-strata-profile --param MODEL=iq3 --param CTX=1048576
+  refuse "recipe param missing"       "needs exactly"        --tier host --node gpu-server --pods-file "$t/pods.txt" --recipe gpu-strata-profile --param MODEL=q4
+  refuse "recipe plus a free command" "takes no --cmd"       --tier host --node gpu-server --pods-file "$t/pods.txt" --recipe gpu-models --cmd ls
   # 2. refusals at render time
   refuse "free command on device tier" "takes a recipe"      --tier device --node ubt-k3s-05 --recipe nvme-smart --cmd 'ls'
   refuse "unknown recipe"             "unknown recipe"       --tier device --node ubt-k3s-05 --recipe format-disk
@@ -211,7 +260,7 @@ PY
   refuse "host: redis-ib"             "redis-ib"             --tier host --node ubt-k3s-01 --pods-file "$t/pods.txt" --cmd 'ls /var/lib/redis-ib'
   refuse "host: daemon"               "daemon"               --tier host --node ubt-k3s-01 --pods-file "$t/pods.txt" --cmd 'systemctl stop daemon'
   refuse "host: kubelet Secret dirs"  "not for this path" --tier host --node ubt-k3s-01 --pods-file "$t/pods.txt" --cmd 'ls /var/lib/kubelet/pods/x/volumes/kubernetes.io~secret'
-  refuse "host: no command"           "needs --cmd"          --tier host --node ubt-k3s-01 --pods-file "$t/pods.txt"
+  refuse "host: no command"           "needs --cmd or --recipe"          --tier host --node ubt-k3s-01 --pods-file "$t/pods.txt"
   refuse "host: no pods listing"      "needs --pods-file"    --tier host --node ubt-k3s-05 --cmd lsblk
   # 3. things that must NOT be refused
   out=$("$0" render --tier host --node ubt-k3s-01 --pods-file "$t/pods.txt" --cmd 'df -h /; lsblk' 2>&1) && ok "host: an ordinary read passes" || bad "host: ordinary read refused: $out"
