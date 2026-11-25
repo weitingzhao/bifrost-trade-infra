@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # install-test-db-tools.sh — the programs agentd needs on ubt-k3s-06 to give
 # each bifrost-platform attempt a throwaway Postgres and Redis of its own
-# (TD-403; the Owner 2026-10-20 20:4x: 「每次尝试临时起一个 Postgres：在尝试自己的
-# 临时目录里 initdb，写墙里、不联网，用完即删，没有共享状态；06 上要装 Postgres 的程序」).
+# (TD-403, 决定 2026-10-20): every attempt initdb's its own Postgres in its temp
+# directory, inside the wall, offline, deleted after use, nothing shared.
 #
 # Run on 06 as root, by agent-06-owner.sh `test-db-tools`, which sends it on
 # stdin:

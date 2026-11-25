@@ -1,4 +1,4 @@
-"""Host steps of the sweep (R13; Owner 2026-10-21): Docker, the default Go build cache,
+"""Host steps of the sweep (R13; ISSUE-23): Docker, the default Go build cache,
 SysV shared memory a killed test Postgres left, Cursor's state DB, Time Machine local
 snapshots. Each acts only with --apply; a report-only run says what it would do.
 """

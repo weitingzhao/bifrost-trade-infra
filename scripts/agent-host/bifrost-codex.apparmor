@@ -16,7 +16,7 @@
 # not writable by the agent users, so no agent can put another program under
 # this rule. Everything else about these processes stays as it was
 # (unconfined). Installed by prepare-agent-06.sh as
-# /etc/apparmor.d/bifrost-codex; Owner 2026-10-17 chose this over turning the
+# /etc/apparmor.d/bifrost-codex; chosen (决定 2026-10-17) over turning the
 # restriction off for the whole host.
 abi <abi/4.0>,
 include <tunables/global>

@@ -1,4 +1,4 @@
-# The STG agentd on the agent host (Owner 2026-10-17). It polls the STG platform
+# The STG agentd on the agent host (ISSUE-60). It polls the STG platform
 # as host agent-06-stg and runs codex and the deterministic checks only, as its
 # own user (not the PROD agentd's), behind the egress rules of
 # bifrost-agent-egress.service. It cannot see the PROD agentd's home: every

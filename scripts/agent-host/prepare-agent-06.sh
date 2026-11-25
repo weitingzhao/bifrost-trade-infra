@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # prepare-agent-06.sh — make ubt-k3s-06 (192.168.10.79), once it has left the
 # cluster, the agent host: the PROD and the STG agentd, each as its own system
-# user, behind per-user egress rules (Owner 2026-10-17;
+# user, behind per-user egress rules (决定 2026-10-17;
 # agent-config/work/multi-agent/CUT-agent-host-06-2026-10-17.md).
 #
 # Run on 06 with sudo, by agent-06-owner.sh `prepare`, from the directory scp
@@ -11,13 +11,13 @@
 #
 # It downloads: Ubuntu packages (apt), Go 1.25 from go.dev and Node 22 from
 # nodejs.org (each checked against the publisher's SHA-256), codex and claude
-# from npm, cursor-agent from cursor.com's installer (Owner 2026-10-17: agreed).
+# from npm, cursor-agent from cursor.com's installer (决定 2026-10-17).
 # claude and cursor-agent are installed as the agent users after the egress
 # rules are on, so they come through the rules the agents will run under.
 # codex is installed once, by root, under /opt/bifrost/codex, at a pinned
 # version, because its sandbox needs user namespaces and the AppArmor rule
 # that allows them (bifrost-codex.apparmor) must name a directory the agents
-# cannot write (Owner 2026-10-17, option A).
+# cannot write (决定 2026-10-17, option A).
 #
 # A second run installs only what is missing: it does not upgrade Go, Node or
 # a CLI, and it keeps the platform tokens. It reloads the egress rules in
@@ -185,7 +185,7 @@ npm_cli() { # npm_cli <user> <binary> <package>
   as "$1" "[ -x .local/bin/$2 ] || npm install -g --prefix \"\$HOME/.local\" --no-audit --no-fund $3"
 }
 # Both users have claude and cursor-agent: STG runs the same executors as
-# PROD, so routing between vendors is tried on STG first (Owner 2026-10-18,
+# PROD, so routing between vendors is tried on STG first (决定 2026-10-18,
 # W-31 2.4: "STG 装 Claude 和 Cursor").
 for u in "$prod" "$stg"; do
   npm_cli "$u" claude @anthropic-ai/claude-code

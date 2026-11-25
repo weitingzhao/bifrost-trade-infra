@@ -282,7 +282,7 @@ def unit_lines(name: str) -> list[str]:
 class ClaudeModelPinned(unittest.TestCase):
     """Routing matches a candidate's model_pattern against the model a host offers for its tool (platform
     store/route.go fits). job:chief_of_staff v2 pins its candidate to the model the chief's exam was sat with
-    (W-31 2.4 chief exam S5, the Owner 2026-10-20), so every agentd unit on 06 offers exec:claude as that full
+    (W-31 2.4 chief exam S5, 决定 2026-10-20), so every agentd unit on 06 offers exec:claude as that full
     model id, never an alias such as opus that may move to another model, and all of them offer the same tools."""
 
     UNITS = ("bifrost-agentd.service", "bifrost-agentd-stg.service", "bifrost-agentd-exam@.service", "bifrost-agentd-bench@.service")

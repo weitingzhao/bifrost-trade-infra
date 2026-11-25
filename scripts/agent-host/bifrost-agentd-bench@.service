@@ -1,4 +1,4 @@
-# A benchmark run on the agent host (W-31 2.4 slice ⑤; the Owner 2026-10-18:
+# A benchmark run on the agent host (W-31 2.4 slice ⑤; 决定 2026-10-18:
 # run on 06, judge by each fix's own tests, the host hands the result in). The
 # instance is the executor: bifrost-agentd-bench@codex runs the question set
 # with exec:codex. It runs as the STG agentd's user, with that service's

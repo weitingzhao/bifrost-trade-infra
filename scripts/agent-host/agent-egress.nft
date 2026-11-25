@@ -1,5 +1,5 @@
 #!/usr/sbin/nft -f
-# Egress for the two agentd users on the agent host (Owner 2026-10-17: ubt-k3s-06
+# Egress for the two agentd users on the agent host (ISSUE-60: ubt-k3s-06
 # leaves the cluster and runs the PROD and the STG agentd; ADR §10 「Agent 区」;
 # agent-config/work/multi-agent/CUT-agent-host-06-2026-10-17.md).
 #

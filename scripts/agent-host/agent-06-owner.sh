@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # agent-06-owner.sh — the Owner's steps, from his Mac, to take ubt-k3s-06 out
-# of the cluster and make it the agent host (Owner 2026-10-17;
+# of the cluster and make it the agent host (ISSUE-60;
 # agent-config/work/multi-agent/OWNER-STEPS-agent-host-06.md). It uses the
 # admin kubeconfig and the node key, so only the Owner runs it.
 #
@@ -66,7 +66,7 @@ EVENT_RADAR_DIR=pvc-6bf6eca6-5968-4874-ae93-22b8a2a23fab_research_event-radar-in
 LOG_DIR=$HOME/agent-work/agent-06-logs
 # The only volumes leave deletes (read 2026-10-17 01:20): "<namespace>
 # <claim> <claim uid>"; the volume of each is pvc-<claim uid>. The event-radar
-# claim (Owner 2026-10-17: back up, then delete) and the workspaces of four
+# claim (决定 2026-10-17: back up, then delete) and the workspaces of four
 # CI runs that had finished. One that is gone already is fine; any other
 # volume bound to 06 stops leave before it deletes anything.
 VOLUMES='research event-radar-input-pvc 6bf6eca6-5968-4874-ae93-22b8a2a23fab
@@ -654,7 +654,7 @@ step_stg_vendors() {
 }
 
 # bench <executor>: the benchmark question set with that executor on 06 (W-31
-# 2.4 slice ⑤; the Owner 2026-10-18). The agentd build (checked against
+# 2.4 slice ⑤; 决定 2026-10-18). The agentd build (checked against
 # agentd.sha256 here, and again there), the bench unit, bench-on-06.sh and the
 # question set go over one connection; bench-on-06.sh installs the build as
 # agentd-bench and starts the run. Nothing is stopped first: the PROD agentd

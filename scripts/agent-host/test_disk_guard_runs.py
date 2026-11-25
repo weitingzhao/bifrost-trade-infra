@@ -73,7 +73,7 @@ class Runs(SweepCase):
         self.sweep("--apply")
         self.assertKept("codex-review-1/go-cache", "open-files-unknown")
 
-    # The one stderr form a sweep tolerates (Owner 2026-10-24, after review 543 A3): lsof's
+    # The one stderr form a sweep tolerates (决定 2026-10-24, after review 543 A3): lsof's
     # three-line can't-stat warning for a mount point in the mount table, outside AGENT_WORK.
     # The path holds a UUID on a real Mac, so it is matched against the mount table, not set
     # in a configuration.

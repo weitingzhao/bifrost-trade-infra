@@ -1,4 +1,4 @@
-# The PROD agentd on the agent host (Owner 2026-10-17; design v5 §5.2). It
+# The PROD agentd on the agent host (ISSUE-60; design v5 §5.2). It
 # polls the PROD platform as host agent-06 and runs codex, cursor, claude and
 # the deterministic checks as its own user, who has no MCP server, no sudo and
 # no SSH key, behind the egress rules of bifrost-agent-egress.service.
