@@ -16,6 +16,7 @@ Instructions for **Claude Code, Codex**, and other coding agents working in this
 - **活从哪来、交到哪**：`bifrost-trade-infra/docs/AGENT_WORK.md`。活由请你的主人席位用任务书 `BRIEF.md` 给，做完交回给它；计划树不是领活入口。
 - **要办一件事，找谁、怎么办**：能力目录 `bifrost-trade-infra/agent-config/CAPABILITIES.md`，按事查 `python3 bifrost-trade-infra/scripts/station/howto.py find <关键词>`（例：`find 叫醒 4090`、`find 发信`）。查不到的找工坊（`roster:11-station`）。
 - **办一件事要带什么**（合入 main 等）：`python3 bifrost-trade-infra/scripts/station/howto.py`；推之前跑同目录的 `precheck.py <检出目录>`。
+- **Owner 的吐槽、痛点、需求**：在一个领域开工前先读自己领域的议题（MCP `get_owner_issues`，`to` 填领域 id）；收集是自动的，不用手抄。见 `CLAUDE.md` §5「Owner 的吐槽、痛点、需求」。
 - **你坐哪个席位**：`bifrost-trade-infra/agent-config/charters/seats.yaml` 按会话号对；不在表里，就是被某个主人席位请来的临时 Agent，照它的任务书做。
 
 ## 硬边界在哪里
