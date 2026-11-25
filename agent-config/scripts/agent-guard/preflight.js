@@ -892,11 +892,16 @@ function foreignKubeconfig(cmd) {
   const text = String(cmd || '')
   // An unquoted value ends at a shell separator: `KUBECONFIG=~/.kube/bifrost-k3s.yaml;`
   // is the allowed file followed by `;`.
-  const re = /(?:^|[\s;&|`(])(?:export\s+)?KUBECONFIG=("[^"]*"|'[^']*'|[^\s;&|`()<>]+)|--kubeconfig(?:=|\s+)("[^"]*"|'[^']*'|[^\s;&|`()<>]+)/g
+  // A value is one shell word, and a word can mix quoted and bare parts:
+  // `"$HOME"/.kube/bifrost-k3s.yaml` is the allowed file. Quotes are removed
+  // before the allow-list is checked; the allow-list itself is unchanged.
+  // Origin: walls review 2026-11-25 (LAW-17 two): the earlier pattern took
+  // `"$HOME"` alone as the value and refused the allowed file.
+  const re = /(?:^|[\s;&|`(])(?:export\s+)?KUBECONFIG=((?:"[^"]*"|'[^']*'|[^\s;&|`()<>"'])+|"[^"]*"|'[^']*')|--kubeconfig(?:=|\s+)((?:"[^"]*"|'[^']*'|[^\s;&|`()<>"'])+|"[^"]*"|'[^']*')/g
   let match
   while ((match = re.exec(text))) {
     const value = match[1] || match[2]
-    if (!kubeconfigValueAllowed(value)) return value
+    if (!kubeconfigValueAllowed(value.replace(/["']/g, ''))) return value
   }
   return null
 }

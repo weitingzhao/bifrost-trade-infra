@@ -266,6 +266,11 @@ const cases = [
   ['own', 'ALLOW', '变量里的 --kubeconfig $HOME 只读 kubeconfig', bash('K="--kubeconfig $HOME/' + KUBE_OK + '"; $K get pods')],
   ['own', 'ALLOW', '变量里的 kubectl --kubeconfig ~ 只读 kubeconfig', bash('K="kubectl --kubeconfig ~/' + KUBE_OK + '"; $K -n cicd get pvc')],
   ['own', 'ALLOW', '单引号变量里的 --kubeconfig 绝对路径', bash("K='--kubeconfig /Users/x/" + KUBE_OK + "'; $K get pods")],
+  // walls review 2026-11-25 (LAW-17 two): a word that mixes quoted and bare parts is one value; the DENY rows are the controls.
+  ['own', 'ALLOW', 'KUBECONFIG="$HOME"/ 拼接写法只读 kubeconfig', bash('KUBECONFIG="$HOME"/' + KUBE_OK + ' kubectl get pods')],
+  ['own', 'ALLOW', '--kubeconfig "${HOME}"/ 拼接写法只读 kubeconfig', bash('kubectl --kubeconfig "${HOME}"/' + KUBE_OK + ' get pods')],
+  ['own', 'DENY', 'KUBECONFIG="$HOME"/ 拼接写法指向别的文件', bash('KUBECONFIG="$HOME"/.kube/admin.yaml kubectl get pods')],
+  ['own', 'DENY', '--kubeconfig 拼接写法指向别的文件', bash('kubectl --kubeconfig "$HOME"/.kube/admin.yaml get pods')],
   ['own', 'DENY', '变量里的 --kubeconfig 指向别的文件', bash('K="--kubeconfig ~/.kube/admin.yaml"; $K get pods')],
   ['own', 'DENY', '变量里的 --kubeconfig 是副本', bash('K="--kubeconfig /tmp/x/' + KUBE_OK + '"; $K get pods')],
   ['own', 'DENY', '变量里的 --kubeconfig 合并列表', bash('K="--kubeconfig ~/' + KUBE_OK + ':/tmp/a.yaml"; $K get pods')],
