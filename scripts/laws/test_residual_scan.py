@@ -60,3 +60,15 @@ def test_law_codes():
     assert scan.code("86") == "LAW-1" and scan.code("98") == "LAW-13" and scan.code("85") == ""
     assert scan.number_of("LAW-1") == "86" and scan.number_of("LAW-13") == "98" and scan.number_of("90") == "90"
     assert re.findall(scan.CODE, "see LAW-10 and LAW-1, not LAW-0 or law-1") == ["10", "1"]
+
+
+def test_a_dated_rule_anchored_to_a_law_is_not_a_shadow(monkeypatch):
+    # Origin: 2026-11-25, round 2: an Owner-dated line that names its LAW-k
+    # (a restatement, or a RULE naming the LAW it executes) has a home; one
+    # without is a shadow (the positive control).
+    class P:
+        stdout = ("origin/main:agent-config/CLAUDE.md:10:- **交单要短（Owner 2026-11-12，LAW-7）**\n"
+                  "origin/main:agent-config/CLAUDE.md:11:- **业务优先（Owner 2026-09-26）**\n")
+    monkeypatch.setattr(scan.subprocess, "run", lambda *a, **k: P())
+    got = scan.shadow()
+    assert [x["line"] for x in got] == [11]

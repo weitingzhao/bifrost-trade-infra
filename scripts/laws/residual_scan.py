@@ -57,7 +57,9 @@ def number_of(ref):
 
 
 SKIP = (":!**/node_modules/**", ":!*.lock", ":!**/OWNER_LAW.md", ":!scripts/laws/**")  # the scan's own examples are not citations
-SHADOW_FILES = ("agent-config/CLAUDE.md", "agent-config/OWNER_EXEC.md", "agent-config/claude/skills", "agent-config/charters")
+SHADOW_FILES = ("agent-config/CLAUDE.md", "agent-config/OWNER_EXEC.md", "agent-config/claude/skills", "agent-config/charters",
+                # Round 2 (2026-11-25): the design contracts, the facts and the release doc carry Owner-dated rules too.
+                "agent-config/DESIGN_CONTRACTS.md", "agent-config/AGENT_FACTS.md", "docs/RELEASE.md")
 OWNER_DATE = re.compile(r"Owner[ ,，（(]*20[0-9]{2}-[0-9]{2}-[0-9]{2}|（Owner [0-9]{2}-[0-9]{2}")
 
 
@@ -130,6 +132,11 @@ def shadow():
                        capture_output=True, text=True)
     for line in p.stdout.splitlines():
         _, path, num, text = line.split(":", 3)
+        # A dated rule anchored to a law in the same line (LAW-k, or RULE
+        # naming the LAW it executes) has a home in the framework (LAW-1 九):
+        # it is not a shadow.
+        if re.search(CODE, text):
+            continue
         out.append({"repo": infra.name, "path": path, "line": int(num), "text": text.strip()[:200]})
     return out
 
