@@ -122,7 +122,7 @@ bash scripts/owner-exec/node-run.sh selftest   # 不需要集群
 **说清楚的边界**
 
 1. **设备档是特权 Pod。** 它能看到该节点的全部设备、带 CAP_SYS_ADMIN，原则上能挂载宿主盘（可读可写）、借盘上的节点凭证以节点身份读调度到该节点的 Pod 引用的 Secret。限制它只读的是配方文本，不是内核。控制靠「命令写死 + 全文在卡上 + Owner 读卡再输码」。不要写「它读不了任何 Secret」。
-2. **主机档就是该节点的 root。** Owner 2026-11-18 决定它可以用在有 Trade 或 IB 服务的节点（逐卡由他读卡输码；RULE，执行 LAW-4、LAW-6），所以工具不再因节点上有这些 Pod 而拒绝，只把它们列在卡面前几行。D10 不解除：不下单、不改交易服务、不动这些 Pod 及其卷和 Secret。
+2. **主机档就是该节点的 root。** Owner 2026-11-18 决定它可以用在有 Trade 或 IB 服务的节点（逐卡由他读卡输码；RULE，执行 CONSTITUTION-1、LAW-6），所以工具不再因节点上有这些 Pod 而拒绝，只把它们列在卡面前几行。D10 不解除：不下单、不改交易服务、不动这些 Pod 及其卷和 Secret。
 3. **命令文本的字面关卡是绊线，不是栅栏。** 它拦 `bifrost-prod/stg/dev`、`redis-ib`、`ib-gateway`、`ib:operator`、`daemon`、`kubernetes.io~secret`、`/var/lib/kubelet/pods`、`/run/secrets`、`serviceaccount/token` 这些字面，拦的是手滑。root 命令可以把同样的意思拼成任何正则看不出来的写法。真正的控制是 Owner 读卡；卡要短到手机上读得完。
 4. **不在范围内：** 集群外的机器（Mac mini、NAS、ubt-k3s-06）。这条路是集群里的 Pod，够不着它们。
 5. **验过什么：** 设备档在 ubt-k3s-05 上真跑过一次（卡 #602，2026-11-18，exit 0，执行结果的 `command_sha256` 与卡面一致）。主机档**从未在集群上跑过**。`selftest`（24 个用例，不需要集群）还没进 CI：quick 清单由 platform 的 `api/cmd/infracheck` 生成，加进去要改 platform，见 TD-585。

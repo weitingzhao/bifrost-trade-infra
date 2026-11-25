@@ -38,5 +38,6 @@ def test_laws_in_force_are_written_as_their_code():
     # Origin: 2026-11-25, Owner: 「以后法条统一叫LAW 开始，不用简写」. A citation
     # of a law in force by number becomes LAW-k, prefix and all; material and
     # other numbers stay (the positive control's other side).
-    text, n = rr.to_codes("law 95 and 法 91; OWNER_LAW #86; Law 98 s1; law 28; 法 99", {"86", "91", "95", "98"})
-    assert (text, n) == ("LAW-10 and LAW-6; LAW-1; LAW-13 s1; law 28; 法 99", 4)
+    codes = {"86": "LAW-1", "89": "CONSTITUTION-1", "91": "LAW-6", "95": "LAW-10", "98": "LAW-13", "99": "DAO-1"}
+    text, n = rr.to_codes("law 95 and 法 91; OWNER_LAW #86; Law 98 s1; law 28; 法 89; law 99", codes)
+    assert (text, n) == ("LAW-10 and LAW-6; LAW-1; LAW-13 s1; law 28; CONSTITUTION-1; DAO-1", 6)

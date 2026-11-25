@@ -73,17 +73,18 @@ def rewrite(text, amap, material):
     return re.sub(FORMS, sub, text), count
 
 
-def to_codes(text, in_force):
+def to_codes(text, codes):
     """Rewrite citations of laws in force by number (law 95, 法 95, OWNER_LAW
-    #95) as their code (LAW-10), the form and its prefix replaced."""
+    #95) as their code (LAW-10), the form and its prefix replaced. codes maps
+    a law in force's number to its code."""
     count = 0
 
     def sub(mt):
         nonlocal count
         n = mt.group(2)
-        if n in in_force and residual_scan.code(n):
+        if codes.get(n):
             count += 1
-            return residual_scan.code(n)
+            return codes[n]
         return mt.group(0)
 
     return re.sub(FORMS, sub, text), count
@@ -112,7 +113,7 @@ def main():
         except (UnicodeDecodeError, IsADirectoryError, FileNotFoundError):
             continue
         if a.to_codes:
-            new, n = to_codes(text, in_force)
+            new, n = to_codes(text, {k: residual_scan.law_code(b) for b in laws if (k := str(b["law"])) in in_force})
         else:
             new, n = rewrite(text, amap, material)
         if n:

@@ -38,22 +38,31 @@ QUERY = """SELECT json_agg(b ORDER BY (b->>'law')::int) FROM (
 # 法 N, but not a word ending in 法 followed by a number (合法 0, 读法 0, 算法 2:
 # round 1 counted twelve 「合法 0」 as citations of a law 0).
 CITE = r"(?:(?<![合方算办做写用语手说想看读解打玩立执修宪司违守依无设])法 ?|[Ll]aw |OWNER_LAW ?#)([0-9]{1,3})(?![0-9])"
-# A law is written LAW-k (Owner 2026-11-25: 「以后法条统一叫LAW 开始，不用简写」):
-# k counts from the first law the framework holds, number 86 (the platform's
-# planstore lawcode.go). Rows 1 to 85 were material and have no code.
-CODE = r"LAW-([1-9][0-9]*)(?![0-9])"
+# A law is written by its level's word and its number in that level (Owner
+# 2026-11-25: 「以后法条统一叫LAW 开始，不用简写」, then 「每一层都用特定的单词
+# 表示，同时采用特定的编号体系」): DAO-k, CONSTITUTION-k, LAW-k, BYLAW-k (the
+# platform's planstore lawcode.go). A law added from round 2 on carries its
+# code in its record; the laws before had LAW-k = number 85+k, and 89 is
+# CONSTITUTION-1. Rows 1 to 85 were material and have no code.
+CODE = r"((?:DAO|CONSTITUTION|LAW|BYLAW)-[1-9][0-9]*)(?![0-9])"
 CODE_BASE = 85
 
 
 def code(n):
-    """Law n's code, or "" for material (n at most 85)."""
-    return f"LAW-{int(n) - CODE_BASE}" if str(n).isdigit() and int(n) > CODE_BASE else ""
+    """Law n's code as the laws before round 2 had it, or "" for material."""
+    if not (str(n).isdigit() and int(n) > CODE_BASE):
+        return ""
+    return "CONSTITUTION-1" if int(n) == CODE_BASE + 4 else f"LAW-{int(n) - CODE_BASE}"
 
 
-def number_of(ref):
-    """A reference (LAW-k or a number) as the register's number."""
-    m = re.fullmatch(CODE, ref.strip())
-    return str(CODE_BASE + int(m.group(1))) if m else ref.strip()
+def law_code(law):
+    """A law's code: the one its record carries, else as before round 2."""
+    return law.get("code") or code(law.get("law", ""))
+
+
+def code_map(laws):
+    """code -> number for every law with a code."""
+    return {law_code(l): str(l["law"]) for l in laws if law_code(l)}
 
 
 SKIP = (":!**/node_modules/**", ":!*.lock", ":!**/OWNER_LAW.md", ":!scripts/laws/**")  # the scan's own examples are not citations
@@ -119,7 +128,7 @@ def refs():
         p = subprocess.run(["git", "-C", str(r), "grep", "-nP", f"{CITE}|{CODE}", "origin/main", "--", *SKIP], capture_output=True, text=True)
         for line in p.stdout.splitlines():
             _, path, num, text = line.split(":", 3)
-            found = [(n, "number") for n in re.findall(CITE, text)] + [(str(CODE_BASE + int(k)), "code") for k in re.findall(CODE, text)]
+            found = [(n, "number") for n in re.findall(CITE, text)] + [(c, "code") for c in re.findall(CODE, text)]
             for n, form in found:
                 out.append({"repo": r.name, "path": path, "line": int(num), "law": n, "form": form, "text": text.strip()[:200]})
     return out
@@ -137,6 +146,10 @@ def shadow():
         # it is not a shadow.
         if re.search(CODE, text):
             continue
+        # Marked as no rule (a one-off decision, a seat arrangement, a source
+        # note; round 2, 2026-11-25): not a shadow either.
+        if "不是规矩" in text:
+            continue
         out.append({"repo": infra.name, "path": path, "line": int(num), "text": text.strip()[:200]})
     return out
 
@@ -151,10 +164,15 @@ def main():
     global ROOT
     if a.root:
         ROOT = pathlib.Path(a.root).resolve()
-    laws = {str(l["law"]): l for l in read_laws(a.laws)}
+    all_laws = read_laws(a.laws)
+    laws = {str(l["law"]): l for l in all_laws}
+    codes = code_map(all_laws)
     cited = refs()
     allowed = exceptions()
     for c in cited:
+        if c.get("form") == "code":
+            c["code"] = c["law"]
+            c["law"] = codes.get(c["law"], c["law"])
         c["state"] = state(laws[c["law"]]) if c["law"] in laws else "无"
         # A law in force cited by its number, not its code: written the old
         # way, to be rewritten (rewrite_refs.py --to-codes).

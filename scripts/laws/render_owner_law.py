@@ -27,15 +27,26 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 FILE = ROOT / "agent-config" / "OWNER_LAW.md"
-ROW = re.compile(r"^\|\s*(\d+|LAW-\d+)\s*\|")
+ROW = re.compile(r"^\|\s*(\d+|(?:DAO|CONSTITUTION|LAW|BYLAW)-\d+)\s*\|")
 CODE_BASE = 85  # LAW-k is number 85+k (Owner 2026-11-25; platform planstore lawcode.go)
 
 
-def code(n):
-    return f"LAW-{int(n) - CODE_BASE}" if str(n).isdigit() and int(n) > CODE_BASE else str(n)
+def code(law):
+    """A law's code: the one its record carries (from round 2 on), else LAW-k
+    = number 85+k, and CONSTITUTION-1 for 89; the number for material."""
+    if law.get("code"):
+        return law["code"]
+    n = str(law["law"])
+    if not (n.isdigit() and int(n) > CODE_BASE):
+        return n
+    return "CONSTITUTION-1" if int(n) == CODE_BASE + 4 else f"LAW-{int(n) - CODE_BASE}"
 
 
-def number_of(ref):
+def number_of(ref, laws=()):
+    """A row's first cell as the register's number."""
+    for l in laws:
+        if code(l) == ref:
+            return str(l["law"])
     m = re.fullmatch(r"LAW-(\d+)", ref)
     return str(CODE_BASE + int(m.group(1))) if m else ref
 PSQL = os.environ.get("PSQL", "/opt/homebrew/opt/libpq/bin/psql")
@@ -63,7 +74,7 @@ def row(law):
     if law.get("op") != "transcribed":
         # A card changed it: the card is the law; say which, and which version.
         status = f"{status}（第 {law.get('version')} 版）"
-    return "| " + " | ".join([code(law["law"]), cell(law.get("said_on")), cell(law.get("text")), cell(law.get("where")),
+    return "| " + " | ".join([code(law), cell(law.get("said_on")), cell(law.get("text")), cell(law.get("where")),
                               cell(law.get("enforced_by")), cell(status), cell(law.get("old_wording"))]) + " |"
 
 
@@ -76,7 +87,7 @@ def render(text, laws):
         m = ROW.match(lines[i])
         if not m:
             continue
-        n = number_of(m.group(1))
+        n = number_of(m.group(1), laws)
         seen.add(n)
         last = i
         law = by.get(n)
