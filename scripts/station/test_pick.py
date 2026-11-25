@@ -25,7 +25,7 @@ TABLE = {
 
 class PickTest(unittest.TestCase):
     def test_starts_on_a_mini_and_finds_the_resident(self):
-        # Agents live on the minis (Owner 2026-11-23): a Mac Pro account must not be the first pick.
+        # Agents live on the minis (ISSUE-60): a Mac Pro account must not be the first pick.
         acct, resident = pick.pick(TABLE, 'codex')
         self.assertEqual(acct['id'], 'codex@mini-01')
         self.assertEqual(resident['id'], 'desk')

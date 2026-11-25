@@ -5,7 +5,7 @@ Usage: pick.py <harness> [--skip <account label> ...]
 
 A seat names only the harness it wants (claude, codex, opencode). This walks the accounts table in
 agent-config/charters/seats.yaml: start at the first account of that harness that lives on a Mac mini
-(agents live on the minis, Owner 2026-11-23), follow `fallback`, and stop at the first label not in --skip
+(agents live on the minis, ISSUE-60), follow `fallback`, and stop at the first label not in --skip
 (the ones whose quota ran out), preferring one whose host already has a resident thread. It prints the label, the host, and the resident thread on that host to
 send the brief to, if one is registered (a temporary row with that account, ended: null, a session).
 Exit 1 when every account of that harness is skipped.

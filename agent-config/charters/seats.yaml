@@ -1,5 +1,5 @@
 # 席位表（机器读）。Crew 块（9 号，原 Harness 接入 / Labor）起草，2026-11-21。
-# 出处：Owner 2026-11-21 在参谋长线程定的（LAW-5，经主统筹转述）：ownership 在 Agent；有主人席位、有临时席位（干完就走）；
+# 出处（LAW-5）：ownership 在 Agent；有主人席位、有临时席位（干完就走）；
 # 人和 Agent 都是 labor。本表回答「谁在干活」：不管工具，不评结果。
 # 对账：每页 charters/*.md（README 除外）恰有一个 seat 行（charter 字段）；domain_id 必须是平台领域表里的 id 或 null；
 # kind=temporary 的行必须有 invited_by（指向一个 kind=owner 的席位或一个人）；kind=human 的行 harness 写 human。
@@ -11,7 +11,7 @@ domain_ids: [foundation, plan, lineage, verification, delivery, approvals, compu
 
 # 参谋长不是席位：它独立于所有席位之外，不握任何领域的 ownership，没有领域身份卡（Owner 更正，主统筹 11-21 转述）。
 # 但它发信、收信，信箱要认得出它：记在最后的 outside_seats，只有会话和收信，没有领域、没有卡（11-22 沟通线读数发现缺它）。
-# name = Owner 11-21 定的新叫法；id 仍是章程文件名。Audit（12）章程页 11-21 进了 main（3f4163d6），由 2-lineage 的会话兼坐：两行同一个 session。
+# name = 新叫法（决定 2026-11-21）；id 仍是章程文件名。Audit（12）章程页 11-21 进了 main（3f4163d6），由 2-lineage 的会话兼坐：两行同一个 session。
 # mailbox = 这个会话在平台信箱里是不是收件人（thread:<session>）。平台判的是 writer 表里有没有这个 actor：会话第一次用平台工具写入时登记。
 # 量法（2026-11-21 15:10 Chicago，临时读数）：Crew 给它发过 send_message，成功 = registered，HTTP 422「not a registered actor」= not_registered；
 # 没发过 = unmeasured。none = 没有自己的会话（6-compute 是 Codex 每轮新起，信走 liaison，liaison 已登记）。
@@ -20,16 +20,16 @@ seats:
   - {id: company-coordinator, charter: company-coordinator.md, domain: company, domain_id: null,        kind: owner, harness: claude, session: local_accccb4e-410c-4b5f-9f1b-b54c6915dc9a, mailbox: registered, account: claude@macpro}
   - {id: 0-foundation-decouple, charter: 0-foundation-decouple.md, domain: "0", domain_id: foundation,   kind: owner, harness: claude, session: local_c00f7b95-4c6d-4324-a833-cc9b6f389b9a, mailbox: registered, account: claude@macpro}
   - {id: 0-2-catalog,     charter: 0-2-catalog.md,     domain: "0.2", domain_id: foundation,            kind: owner, harness: claude, session: local_76b564a0-a591-4091-859b-6166a3b37d7f, mailbox: registered, account: claude@macpro}
-  - {id: 1-plan,          charter: 1-plan.md,          domain: "1", domain_id: plan,                    kind: owner, harness: claude, session: local_6ab1ad67-09a8-4522-9b4a-a03125b10b2c, note: "立法（Owner 2026-11-23；组织安排，不是规矩）：法的名录、修法票内容规则、闭环、计划树；会话标题「0 立法」", mailbox: registered, account: claude@macpro}
+  - {id: 1-plan,          charter: 1-plan.md,          domain: "1", domain_id: plan,                    kind: owner, harness: claude, session: local_6ab1ad67-09a8-4522-9b4a-a03125b10b2c, note: "立法（决定 2026-11-23；组织安排，不是规矩）：法的名录、修法票内容规则、闭环、计划树；会话标题「0 立法」", mailbox: registered, account: claude@macpro}
   - {id: 2-lineage,       charter: 2-lineage.md,       domain: "2", domain_id: lineage,                 kind: owner, harness: claude, session: null, note: "占位席位，眼下没有活；原会话 local_7666e574 11-24 已归档（Audit 并走），席位空着【量，工坊 11-24 对 list_sessions】", mailbox: registered, account: claude@macpro}
   - {id: 3-4-verify-release-ci, charter: 3-4-verify-release-ci.md, domain: "3,4", domain_id: verification, kind: owner, harness: claude, session: local_7de640c4-4b19-4a71-a0ac-ced2ce5fc7ff, also_domain_ids: [delivery], mailbox: registered, account: claude@macpro}
   - {id: 5-approvals, name: approvals,     charter: 5-approvals.md,         domain: "5", domain_id: approvals,                   kind: owner, harness: claude, session: local_360734e0-481d-48e1-86c9-1866b3707707, mailbox: registered, account: claude@macpro}
   - {id: 6-compute,       charter: 6-compute.md,       domain: "6", domain_id: compute,                 kind: owner, harness: claude, session: local_7dd39a39-1e0e-4878-b829-2e3f44d5589e, note: "算力线 11-22 答：做这条线的是这个 Claude 会话；Codex 按轮由它经 dispatch.sh 请来，算临时来访，来时记在 temporary", mailbox: registered, account: claude@macpro}
   - {id: 7-payload, name: payload,       charter: 7-payload.md,       domain: "7", domain_id: payload,                  kind: owner, harness: claude, session: local_04484692-66ee-4517-b162-9c1440be14b1, note: 占位席位, mailbox: not_registered, account: claude@macpro}
-  - {id: 8-1-duty,        charter: 8-1-duty.md,        domain: "8.1", domain_id: coordination,          kind: owner, harness: claude, session: local_accccb4e-410c-4b5f-9f1b-b54c6915dc9a, mailbox: registered, note: "Owner 11-19：值班由主统筹兼，原会话 local_98ab5bcb 不再用（platform bus/registry/subscriptions/rocket.yaml）", account: claude@macpro}
+  - {id: 8-1-duty,        charter: 8-1-duty.md,        domain: "8.1", domain_id: coordination,          kind: owner, harness: claude, session: local_accccb4e-410c-4b5f-9f1b-b54c6915dc9a, mailbox: registered, note: "值班由主统筹兼（决定 2026-11-19），原会话 local_98ab5bcb 不再用（platform bus/registry/subscriptions/rocket.yaml）", account: claude@macpro}
   - {id: 8-2-comm-desk,   charter: 8-2-comm-desk.md,   domain: "8.2", domain_id: coordination,          kind: owner, harness: claude, session: local_ab850773-fe26-40fa-ac01-b3b590b73164, mailbox: registered, account: claude@macpro}
   - {id: 8-3-metrics,     charter: 8-3-metrics.md,     domain: "8.3", domain_id: coordination,          kind: owner, harness: claude, session: local_3361afbd-43fb-4539-a934-406b9a00b09f, mailbox: registered, account: claude@macpro}
-  - {id: 12-audit, name: audit,         charter: 12-audit.md,        domain: "12", domain_id: audit,                    kind: owner, harness: claude, session: local_dd4f492f-ffe9-4c22-a166-ab4d0fd855c0, note: 11-24 起由原 13 Triage 席位坐（审计与诊断合并，Owner 11-23）；原 Audit 会话只坐 2-lineage, mailbox: registered, account: claude@macpro}
+  - {id: 12-audit, name: audit,         charter: 12-audit.md,        domain: "12", domain_id: audit,                    kind: owner, harness: claude, session: local_dd4f492f-ffe9-4c22-a166-ab4d0fd855c0, note: 11-24 起由原 13 Triage 席位坐（审计与诊断合并，决定 2026-11-23）；原 Audit 会话只坐 2-lineage, mailbox: registered, account: claude@macpro}
   - {id: 10-cockpit,      charter: 10-cockpit.md,      domain: "10", domain_id: null,                    kind: owner, harness: claude, session: local_d303ae46-113a-4d47-90e4-c8942f5fbbe5, mailbox: registered, account: claude@macpro}
   - {id: 11-station, name: station,      charter: 11-station.md,      domain: "11", domain_id: station,                    kind: owner, harness: claude, session: local_f6f0f02b-092c-4c76-b68d-57f5b4c1a7f0, mailbox: registered, account: claude@macpro}
 
@@ -58,7 +58,7 @@ temporary:
 
 # 人：同样是 labor。Owner 有两个身份，批法时是立法者，签名、输口令时是一个 labor（那几步也要登记、也被量）。
 # 账号（工坊 11-24 起，C5 定的格式）：每行 account 只写标签，不写口令和令牌。标签 = 外壳 + 登录所在的机器，
-# 因为 Agent 用的是 Owner 自己的账号（Owner 11-23 定；RULE，执行 LAW-12），同一台机器上同一家外壳就是同一个登录。买不买账号、哪台登哪个由 Owner 定。
+# 因为 Agent 用的是 Owner 自己的账号（RULE，执行 LAW-12），同一台机器上同一家外壳就是同一个登录。买不买账号、哪台登哪个由 Owner 定。
 # 额度用完：同一家外壳按 fallback 换下一台机器的登录接着干（派活时挑，D13）。【量】= 11-24 登录过、真跑过活的。
 accounts:
   - {id: claude@macpro, harness: claude, host: Mac Pro .40, holder: owner, fallback: claude@mini-01, note: "【量】全部主人席位今天都在这里跑"}
@@ -74,4 +74,4 @@ humans:
 
 # 不是席位、但收发信的线程（见文件头）。
 outside_seats:
-  - {id: chief-of-staff, name: 参谋长, kind: outside, harness: claude, session: local_3172e958-47d7-4138-9de2-2eb474e4d49c, domain_id: null, mailbox: registered, note: "写方案、最后验收；不握领域（Owner 11-20、11-21；组织安排，不是规矩）"}
+  - {id: chief-of-staff, name: 参谋长, kind: outside, harness: claude, session: local_3172e958-47d7-4138-9de2-2eb474e4d49c, domain_id: null, mailbox: registered, note: "写方案、最后验收；不握领域（决定 2026-11-20、2026-11-21；组织安排，不是规矩）"}
