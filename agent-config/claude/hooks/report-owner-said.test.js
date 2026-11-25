@@ -75,6 +75,10 @@ async function main() {
   const { redact } = require('./report-owner-said.js')
   assert.equal(redact('token: abcdefgh12345'), 'token: [redacted]')
   assert.equal(redact('密码 password=hunter2hunter2 好'), '密码 password=[redacted] 好')
+  // 2026-11-25: a prefixed name kept its value in the first backfill
+  assert.equal(redact('PGPASSWORD: abcd_efg'), 'PGPASSWORD: [redacted]')
+  assert.equal(redact('export DB_PASSWORD="s3cret!"'), 'export DB_PASSWORD=[redacted]')
+  assert.equal(redact('{"api_key": "abcd1234"}'), '{"api_key": [redacted]')
   assert.equal(redact('curl -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5"'), 'curl -H "Authorization: Bearer [redacted]"')
   assert.equal(redact('key sk-proj-ABCDEFGHIJKLMNOPQRSTUV end'), 'key [redacted: token] end')
   assert.equal(redact('a ghp_ABCDEFGHIJKLMNOPQRSTUVWX b'), 'a [redacted: token] b')

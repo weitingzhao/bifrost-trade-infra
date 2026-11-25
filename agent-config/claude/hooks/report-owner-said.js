@@ -65,7 +65,9 @@ const SECRETS = [
   [/\b(sk|rk|pk)-[A-Za-z0-9_-]{16,}/g, '[redacted: token]'],
   [/\bgh[pousr]_[A-Za-z0-9]{16,}/g, '[redacted: token]'],
   [/\b(Bearer)\s+[A-Za-z0-9._~+/-]{16,}=*/gi, '$1 [redacted]'],
-  [/\b(password|passwd|pwd|token|secret|api[_-]?key)(\s*[:=：]\s*)\S{6,}/gi, '$1$2[redacted]'],
+  // no \b before the word: PGPASSWORD, DB_PASSWORD and GITEA_TOKEN carry it after a prefix (2026-11-25: the first
+  // backfill kept a database password written as PGPASSWORD: …)
+  [/(password|passwd|pwd|token|secret|api[_-]?key|credential)(["']?\s*[:=：]\s*)\S{4,}/gi, '$1$2[redacted]'],
   [/(^|[^A-Za-z0-9+/:])([A-Za-z0-9+/]{40,}={0,2})(?![A-Za-z0-9+/])/g, (m, pre, run) => (keyLike(run) ? `${pre}[redacted: long string]` : m)],
 ]
 
