@@ -50,7 +50,7 @@
 
 ## 6. Owner 补充：借鉴 Home 的多维度视角（2026-10-29）
 
-Owner：「这个编号同时还可以部分借鉴 UI 里 Home 页面的多维度视角来考量……好的编号体系就是可以让人通过不同的维度了解到目前项目的状态。」任务先记下，过渡期结束后安排落地。
+编号设计另借鉴 UI 的 Home 页多维视角：好的编号体系应能让人从多个维度看出项目现状（决定 2026-10-29）。任务先记下，过渡期结束后安排落地。
 
 Home（Design v3.6，`design/ops/DATA-MAP-v3.6.md`）的看法：一句结论 → Only you → Since you last looked → 六个维度：**Projects、Team、Tokens、System、Data、Audit**。
 

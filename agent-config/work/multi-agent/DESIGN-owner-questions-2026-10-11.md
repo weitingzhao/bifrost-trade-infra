@@ -1,6 +1,6 @@
 # W-65 Owner 问题记录：Agent 提问，Owner 在 Console 和手机上回答，答案送回提问的线程
 
-状态：设计第三稿，2026-10-11。并入了复核 26 和就绪核对 29（`change first`，没有 P1）的意见，逐条去向见第 15 节。**第 13 节的十项 Owner 已定：全部按最右一列（2026-10-11 02:51，「十个点按照你推荐的来」）。** 没有代码；实现前再让 Codex 核对一次本稿。
+状态：设计第三稿，2026-10-11。并入了复核 26 和就绪核对 29（`change first`，没有 P1）的意见，逐条去向见第 15 节。**第 13 节的十项已定：全部按最右一列（决定 2026-10-11 02:51，按推荐）。** 没有代码；实现前再让 Codex 核对一次本稿。
 输入：`WORK.md` 的 W-65 和 W-61；`ADR-ops-architecture.md` §5、§12.2；复核 19（`work/multi-agent/reviews/codex-2026-10-11-review19-w62-slice3.md`）；复核 26 和核对 29（`~/agent-work/codex-review-26/REPORT.md`、`~/agent-work/codex-review-29/REPORT.md`，它们引用的代码行本文逐条核对过）；代码读的是 `bifrost-platform` main `eb49c19`。Progress 待办卡当时读的是 `w31/w62-slice3` 的工作树，它已在 2026-10-11 合并，`origin/main` 是 `8b3259a`（第 14 节第 6 条）。
 路径约定：`api/`、`console/`、`mcp/`、`config/` 开头的相对 `bifrost-platform/`；`agent-config/` 开头的相对 `bifrost-trade-infra/`。
 已定、本文不重新讨论：答案不是批准；只有 Owner 能答；问题文字不可信；没人答就过期，过期不选任何选项；平台不含交易概念；Console 的标签、状态、通知动词用英文，问题和答案按原文显示。

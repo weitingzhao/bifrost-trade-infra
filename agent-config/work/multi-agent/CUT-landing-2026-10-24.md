@@ -1630,7 +1630,7 @@ B1 + B6 → B3 → B5 → B4，每块：设计细节 → Codex 设计复核 → 
 **结论**：统筹的 platform 提交从此走 `handin.sh`；Owner 只在 Console 批 D 级 / 核心级单，不再手推 platform main（`hard_absolute`、紧急修复、混合来源照旧）。infra 仍由 Owner 推，直到 S6 第一版规则签署。
 
 **卡点与后续**
-- 每张单都多一轮「批了」的对话往返：结论没有回到建单线程。Owner：「我在 Ops 上批了，不应该在对话框里还说一句……这条不是写进记忆，而是通过代码实现的系统规则。」→ TD-457（在做）。
+- 每张单都多一轮「批了」的对话往返：结论没有回到建单线程。要求（决定 2026-10-29）：在 Ops 上批过的单，对话里不再要一句确认；由代码落成系统规则，不靠记忆 → TD-457（在做）。
 - 任务刚提出时 `handin.sh run` 会 409「proposed, not ready」，要等几秒；`handin.sh` 应自己等就绪（并入下次 handin 修改）。
 - `release.sh hold` 结束时须连同其 `sleep` 一起结束（13:27 的 hold 空占 77 分钟，已清）。
 - 派活目录 clone 本机检出时 `origin/main` 是本机陈旧的 main，不是 Gitea 的；基线一律从 Gitea 取（725 第一次派错已重派）。

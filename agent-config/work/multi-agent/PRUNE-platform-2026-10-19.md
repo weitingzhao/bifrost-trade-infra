@@ -100,7 +100,7 @@
 bash /Users/vision-mac-trader/Desktop/stocks/bifrost-trade-infra/scripts/prune-merged-branches.sh --repos bifrost-platform --apply
 ```
 
-## 10-20 14:5x 全工作区旧施工分支（Owner「旧施工分支逐条核对后给我一条命令一次删」）
+## 10-20 14:5x 全工作区旧施工分支（决定 2026-10-20：逐条核对后合成一条删除命令一次执行）
 
 - 范围：platform、infra、research、frontend、core、api 六个仓库的 38 条 `cursor/*`、`w31/*`、`fix/*`（platform 10 条统筹线程核对，其余 28 条只读子代理核对）。
 - 可删 27 条（platform 8、infra 6、research 2、frontend 5、core 4、api 2），清单带核对时的提交号：`~/agent-work/branch-cleanup-2026-10-20.txt`；`prune-merged-branches.sh --reviewed`（infra `d195ff0`）只在分支仍指向那个提交时删，删前照常打 bundle 备份。

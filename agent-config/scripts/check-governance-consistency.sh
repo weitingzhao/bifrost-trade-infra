@@ -109,7 +109,7 @@ if spine.exists():
 
 # ─────────── 8. Owner 定的法落进了规则文件 ───────────
 # 出处：2026-11-14 夜，各线照仓库里的旧文字递了十来张收得回的卡；Owner 定过的方向只在统筹的记忆里，
-# 规则文件没改（Owner：「仓库里的规则文件没改，那就是 bug」）。登记表的写法见 OWNER_LAW.md 开头。
+# 规则文件没改。法定了而规则文件没跟着改，按 bug 处理（决定 2026-11-14）。登记表的写法见 OWNER_LAW.md 开头。
 infra = ROOT / 'bifrost-trade-infra'
 law = infra / 'agent-config/OWNER_LAW.md'
 if law.exists():
