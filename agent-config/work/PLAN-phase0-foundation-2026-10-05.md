@@ -1,6 +1,6 @@
 # 阶段 0 · 地基 — 可分派工作项（2026-10-05）
 
-> 依据：`REVIEW-architecture-discussion-round1-2026-10-05.md`（Owner 10-05 采纳方向）。
+> 依据：`REVIEW-architecture-discussion-round1-2026-10-05.md`（方向按决定 2026-10-05）。
 > 每一项 = 一个线程、一条分支、一个 repo 为主。「风险道」沿用第一轮的定义：
 > - **快道**：只读、可再生、加字段或加表、可回滚；
 > - **慢道**：GS 或 PROD 的 DDL、删数据、写 raw_broker、跨载荷契约。

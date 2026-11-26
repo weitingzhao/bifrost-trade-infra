@@ -2,7 +2,7 @@
 
 标记：【量】= 读仓库或自己做过、有提交号或文件可查；【推】= 推断或还没定。
 一句话：Agent 这个员工的一切归这一条线：谁坐哪个岗位、岗位的身份卡、手边的工具和能力、住在哪台机器上、用哪个账号、怎么领活交活。任何一个成员上来，不靠口头交代，一个人把一块活从写代码走到上线交出来，中间不被卡住。工坊给能力，不管流程。
-出处：Owner 11-14 的验收句；11-21 Owner 定名 Station；11-23 Owner 在参谋长线程定工坊和 Crew 合成一条线、算力单独留（任务书在共享笔记 `domains/11-station/from-chief-of-staff-merge-station-and-crew-2026-11-23.md`）。原 Crew 章程 `9-crew.md` 的内容并进本页，那页改成指针。
+出处：决定 2026-11-14（验收标准）；决定 2026-11-21（定名 Station）；决定 2026-11-23（工坊和 Crew 合成一条线、算力单独留）（任务书在共享笔记 `domains/11-station/from-chief-of-staff-merge-station-and-crew-2026-11-23.md`）。原 Crew 章程 `9-crew.md` 的内容并进本页，那页改成指针。
 台账：Artifact https://claude.ai/artifact/MpzwpxG8Hqn26VdvFZjG5R （源文件在共享笔记 `domains/11-station/ledger.html`）。原 Crew 台账 SSzE4XUUEwHVWnw8bWiKye 保留为历史。
 
 ## 1. 管哪块（坏了叫它）
@@ -17,7 +17,7 @@
 - **领活和交活的口子**【量】：`docs/AGENT_WORK.md`、`scripts/agent-host/BRIEF.template.md`、`scripts/agent-host/admission.yaml`。
 - **工具到手和能力目录**【量】：Codex 席位配置和钩子（`agent-config/codex/`）；派活脚本 `scripts/agent-host/dispatch.sh`、`dispatch-codex.py`；进门卡 `codex-card.py`；合入自查 `scripts/station/`。能力目录（每条线能替别人做什么、怎么开口、要带什么，按「要办的事」排）v0 在共享笔记 `domains/11-station/capability-directory-v0.md`，各线核对中。
 - **递卡**【量】：`agent-config/claude/hooks/seat-card.py`，在会话刚开、压缩之后、要问人之前把身份卡递到面前。
-- **Agent 住在哪**【量】：Agent 的岗位住两台 Mac mini（.52 mini-01、.50 mini-02，Owner 自己的用户和账号，Owner 11-23 定），照 Mac Pro 上 Claude 外壳今天的干活方式布置；Mac Pro 只留 Owner 开发。机器本身（开着、网络、4090 推理）归算力线，见 §3 的合约。
+- **Agent 住在哪**【量】：Agent 的岗位住两台 Mac mini（.52 mini-01、.50 mini-02，Owner 自己的用户和账号，决定 2026-11-23），照 Mac Pro 上 Claude 外壳今天的干活方式布置；Mac Pro 只留 Owner 开发。机器本身（开着、网络、4090 推理）归算力线，见 §3 的合约。
 - **记忆的架子**【推】：共享记忆和共享笔记要让每台机器上的 Agent 都读得到；搬第一条线到 mini 时再定办法。
 
 **不归它**【量】：`preflight.js` 和签名规则、auto mode 的 payload、令牌和 Secret；信和叫醒的通道（沟通线 8.2）；量得好不好（Audit）；法的原文、墙、该不该换人（Triage）；批卡、问题、执行口的代码（Approvals）和页面代码（Console）；机器、节点、4090（算力 6）；每条线派什么活、自己做还是请临时 Agent（那条线的主人）。

@@ -1,6 +1,6 @@
 # LANE-W33C — 发版链去掉管理员 kubeconfig（W-33 第 2 步的第二道）
 
-登记：`agent-config/WORK.md` 的 W-33（匹配 LANE-W33C）。依据：`LANE-W33B.md`「〇」第 4 条（Owner 2026-10-09 定）。本道是第 3 步（Mac 上的 Agent 换只读 kubeconfig）的前提：今天的发版链有好几处用管理员 kubeconfig 直接写集群，换只读以后都会断。
+登记：`agent-config/WORK.md` 的 W-33（匹配 LANE-W33C）。依据：`LANE-W33B.md`「〇」第 4 条（决定 2026-10-09）。本道是第 3 步（Mac 上的 Agent 换只读 kubeconfig）的前提：今天的发版链有好几处用管理员 kubeconfig 直接写集群，换只读以后都会断。
 
 仓库与分支（都从最新 origin/main 开独立 worktree）：
 

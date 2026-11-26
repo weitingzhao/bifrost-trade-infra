@@ -1,7 +1,7 @@
 # Screening 档案与授权最小版：方案（W-31 第 3 轮 3.1）
 
-> **状态：已定（Owner 2026-10-22 19:1x CDT「S1–S10 照推荐走。S4 我另外打字告诉你」）。** 定稿写进 `PROFILE-screening.md` 第 1 版；S2 待 Owner 执行，S4 待 Owner 告知。下文保留调查时的原样。
-> 2026-10-22 凌晨（CDT 10-21 23:xx）写。起因：Owner 10-21 23:2x 定「D1 A」，第 3 轮主线是 Screening 最小业务闭环，先做本文这一步。
+> **状态：已定（决定 2026-10-22：S1–S10 照推荐；S4 另行说明）。** 定稿写进 `PROFILE-screening.md` 第 1 版；S2 待 Owner 执行，S4 待 Owner 告知。下文保留调查时的原样。
+> 2026-10-22 凌晨（CDT 10-21 23:xx）写。起因：决定 2026-10-21，D1 选 A，第 3 轮主线是 Screening 最小业务闭环，先做本文这一步。
 > 依据：
 > - `agent-config/work/multi-agent/PLAN-round3-draft-2026-10-22.md` 第三节；
 > - 共享记忆 `project_crew_business_issue_handoff`（「当前收敛顺序 2026-10-19」、后续设计顺序表第 1 行、Screening 授权样例）和 `project_crew_product_takeover_design`；
@@ -46,7 +46,7 @@
   - Research 只读 `raw_market.*`，只写 `dw_stock.*`、`features.*`、`research.*`。
   - Trade 前端经 Research API 读（trade-api 那边也只是 HTTP 转发），不碰 Golden Source 的库。
   - **没有发现越过 D13 的写入。**
-- **谁能决定什么**：沿用 Owner 10-19 已定的授权方向（第四节）。
+- **谁能决定什么**：沿用决定 2026-10-19 的授权方向（第四节）。
   - 太太：提问题、给事实、确认自己用得好不好。
   - 业务参谋：调查、解释、提议、组织试用、据实结束。
   - 建设负责人：在常备授权内接单、开发、验证、交付到分支和 STG。
@@ -54,7 +54,7 @@
   - Owner：改选股方法、加数据、读账户内容、超预算、架构和 PROD 发布。
   - **运行时里现在还没有「太太」「业务参谋」「建设负责人」这三种身份**，最小版先用兼任和代录（第五节 S3、S6）。
 - **要 Owner 定的 10 件**：第五节。每件都有推荐，推荐里没有架构级改动。
-  - 没回的照推荐走，事后审计（Owner 10-11 的规矩）。
+  - 没回的照推荐走，事后审计（决定 2026-10-11 的规矩）。
   - 例外：**S2 要 Owner 自己动手**（改 Secret）；**S4 要 Owner 告诉我们一个事实**（太太平时从哪里找我们）。
 
 ---
@@ -319,7 +319,7 @@
 ## 四、角色与授权
 
 **已定、不再问**：
-- 授权方向是 Owner 10-19 定的（记忆 `project_crew_business_issue_handoff`「Owner 确认的授权方向与常备授权最小内容」）。
+- 授权方向按决定 2026-10-19（记忆 `project_crew_business_issue_handoff`「Owner 确认的授权方向与常备授权最小内容」）。
 - Screening 常备授权样例也已记下，预算只定原则、不定数。
 - 下表把它落到 Screening 上，并对照现在系统里实际有什么。
 
@@ -328,7 +328,7 @@
 | **太太**（使用者） | 提出问题或建议、补充事实；**确认自己用的功能好不好用**（体验验收，不用 Owner 再确认一次）；撤回自己还没被接单的建议；在页面上为自己调视图（股票池、条件、权重滑块、存 screen），这是使用，不是改方法 | 发布；资金操作；改服务器端选股方法或阈值；看所有产品资料；其他决定权要 Owner 明确授权。试用通过不等于批准发布 | Research 按令牌区分用户（`RESEARCH_USERS`，`RS/auth/bearer.py:24-33`）；**她有没有自己的用户待确认**（名单在 Secret 里，没读）。Trade 写操作只有一把共用的 operator 令牌（`FE/components/auth/TradeOperatorDialog.tsx`）。运行时没有家庭成员身份（`actor_kind` 只有 host / executor / controller / owner / seat / thread，platform `migrations/0001_core.sql:9`） |
 | **Owner** | 目标、规则、权限外事项；**选股方法的实质变化**（清单见 S1）；新数据源、采购、扩大采集；Agent 读账户内容；超预算；降低关键验收；架构级改动（新路由、表、列、外部依赖）；PROD 发布与 Research 发版；签规则 | —（不必替太太确认体验，也不必每个普通改善都签） | Console 审批、签规则、签收 |
 | **业务参谋** | 在获准资料内调查、解释已有能力、**主动提议**（标明是参谋提议）、请求评估、核对范围、组织太太试用；工程验证满足且太太明确确认解决时据实结束；已有功能指导一下就解决的，不开发直接结束 | 伪造满意或批准；把沉默算通过；把自己的提议记成太太的要求或 Owner 的批准；派工（接单是建设负责人的事）；改方法 | **没有这个岗位**。运行时只有 `job:chief_of_staff`、`planner`、`implementer`、`reviewer`、`verifier`（infra `agentrt-rules/prod/job-*.yaml`） |
-| **建设负责人** | 评估、接单（写清接什么、做到哪、怎么验、什么时候反馈）、开发、验证、交付到分支和 STG（STG 发版 Agent 自己做，Owner 10-14）；超授权的先接调查 | 承诺没授权的完整交付；借修 Bug 改规则；PROD 发布（走审批单）；**Research 发版**（不在 Agent 可自主的 STG 范围内，要 Owner 点头，工作区 CLAUDE.md §5）；超出常备授权 | 没有专门岗位；最接近的是 planner 拆活加 implementer / verifier / reviewer。常备授权 `standing-envelope:dev` v4（PROD）：dev 租户、最高到推分支、每 mission 40 次尝试或 48 小时、执行者 claude / codex / cursor / deterministic、主机 agent-06 |
+| **建设负责人** | 评估、接单（写清接什么、做到哪、怎么验、什么时候反馈）、开发、验证、交付到分支和 STG（STG 发版 Agent 自己做，决定 2026-10-14）；超授权的先接调查 | 承诺没授权的完整交付；借修 Bug 改规则；PROD 发布（走审批单）；**Research 发版**（不在 Agent 可自主的 STG 范围内，要 Owner 点头，工作区 CLAUDE.md §5）；超出常备授权 | 没有专门岗位；最接近的是 planner 拆活加 implementer / verifier / reviewer。常备授权 `standing-envelope:dev` v4（PROD）：dev 租户、最高到推分支、每 mission 40 次尝试或 48 小时、执行者 claude / codex / cursor / deterministic、主机 agent-06 |
 | **总参谋长** | 跨产品资源与优先级、无人承接、责任争议；看全局；写 mission、出决策卡 | 替 Owner 批权限外动作；改规则；冒充 Owner。任务复杂本身不是升级理由 | 席位在 PROD（`job:chief_of_staff`，资格考试已过） |
 
 **两条接口上的事实**（会影响授权怎么落地）：
@@ -447,7 +447,7 @@ B：新建 `job:business_advisor`、`job:build_lead` 两条岗位规则。要 Ow
 B：现在定一个累计数，并在 3.2 做程序检查。要 Owner 给数。
 
 注：
-- Owner 10-19 说「预算不定数值」，所以推荐 A。
+- 决定 2026-10-19：预算不定数值，所以推荐 A。
 - 墙钟预算从 mission 创建时起算，等待试用的时间也算在内（platform `api/internal/agentrt/store/missionbudget.go:60, 88-102`）。不能说「等待时预算会自动暂停」。
 - 超时后 mission 卡住，由 Owner 在卡上加时（`owner_granted_wall_hours`，同文件 `:194-202`）。
 

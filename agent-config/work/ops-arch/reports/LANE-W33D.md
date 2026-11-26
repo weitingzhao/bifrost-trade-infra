@@ -1,6 +1,6 @@
 # LANE-W33D 报告
 
-W-33 第 3 步。Mac 上的 Agent 不再持有管理员凭证。〇节四件按 Owner 2026-10-09 的决定落地（A、A、推荐那一组、A），没有另起方案。代码只在分支上，已推 origin，没有合 main。没有 apply，没有改 `~/.kube`、`~/.ssh`、`.env`，没有连节点，没有生成密钥，没有发版，没有写数据库。D10 仍是 BLOCKED。没有改 `api/internal/approvals/` 的审批语义，也没有改 `scripts/agent-guard/`（只提交补丁）。
+W-33 第 3 步。Mac 上的 Agent 不再持有管理员凭证。〇节四件按决定 2026-10-09 落地（A、A、推荐那一组、A），没有另起方案。代码只在分支上，已推 origin，没有合 main。没有 apply，没有改 `~/.kube`、`~/.ssh`、`.env`，没有连节点，没有生成密钥，没有发版，没有写数据库。D10 仍是 BLOCKED。没有改 `api/internal/approvals/` 的审批语义，也没有改 `scripts/agent-guard/`（只提交补丁）。
 
 ## 改动
 

@@ -1,6 +1,6 @@
 # Screening 最小业务闭环：设计（W-31 第 3 轮 3.2-1）
 
-> **状态：已定（Owner 2026-10-22 20:0x CDT「3.2-1 设计的 D1–D5 照推荐走」）**：D1 B（正文是运行时产物，索引在档案第九节）、D2 A、D3 A、D4 A（只在第一条问题要改前端时做 P1）、D5 A（72 小时）。2026-10-22 约 20:00 CDT 由统筹线程派的子代理只读调查写成，统筹线程复核后落地（复核意见见第九节）。
+> **状态：已定（决定 2026-10-22：3.2-1 设计的 D1–D5 照推荐）**：D1 B（正文是运行时产物，索引在档案第九节）、D2 A、D3 A、D4 A（只在第一条问题要改前端时做 P1）、D5 A（72 小时）。2026-10-22 约 20:00 CDT 由统筹线程派的子代理只读调查写成，统筹线程复核后落地（复核意见见第九节）。
 > **2026-10-23 补**：接业务（BI-1）落地后，Screening 问题的分级与分拣见第十节；其余各节没改。
 > **输入**：`work/crew/PROFILE-screening.md` 第 1 版（infra `2770c94`）第五、六、九节；`work/crew/PROPOSAL-screening-profile-2026-10-22.md`；
 > 记忆 `project_crew_business_issue_handoff`、`project_crew_product_takeover_design`；`WORKMODE-owner-chief-of-staff-2026-10-15.md`；

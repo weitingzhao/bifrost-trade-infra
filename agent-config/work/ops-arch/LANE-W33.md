@@ -1,6 +1,6 @@
 # LANE-W33 — 第 5 阶段收口，第一批（mini 清场 · patrol 回 PROD · 待重启信号 · ⑤ 版本 · Grafana）
 
-登记：`agent-config/WORK.md` 的 W-33。依据：同目录 `W33-credentials-2026-10-08.md`。Owner 2026-10-08 定了「〇」节的七件，全部按推荐。
+登记：`agent-config/WORK.md` 的 W-33。依据：同目录 `W33-credentials-2026-10-08.md`。决定 2026-10-08：「〇」节的七件全部按推荐。
 
 本道只做方案 A 的**第 1 步**，外加 ③④⑤。第 2 步（通用动作）和第 3 步（Agent 换只读）依赖本道，之后另派，见文末「不在本道」。
 

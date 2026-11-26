@@ -14,7 +14,7 @@ ib-gateway 三个健康 hash 已经带 `updated_at`（实测 6.5 秒前）与 `g
 2. 查清 `process_active` / `redis_control_updated_at` 为什么读不到：trade-api 读健康 hash 用的是哪个 Redis（Trade 的 redis-live 还是 redis-ib）、哪个账号；redis-ib 的 ACL 是否允许它读 `bifrost:health:ws_ib_*`。只读排查（`kubectl auth can-i`、读代码、只读 redis 命令用 trade-api 自己的连接方式），不改 ACL；需要改 ACL 的写成「要 Owner 批」。
 3. 防线：一条测试或检查，保证 IB 三行在「hash 新鲜 + Deployment ready」时判为 active，并且 RBAC 清单里有这条只读权限（可扩展 infra 已有的 check 脚本）。
 
-## TD-240 方案 A（Owner 10-07 选定）
+## TD-240 方案 A（决定 2026-10-07）
 
 `contract_quote_live` 仍有读取方（见 `cursor-tasks/reports/LANE-T.md` 的 TD-240 节），不能删。改为：给只做观测的 STK 报价镜像单独一个开关 `daemon.quote_mirror`，**不再挂在 `mock_hedging` 下**。
 - 只读/观测路径：镜像只写 `contract_quote_live`，**不得**新增或触碰任何下单、改单、对冲、`ib:operator:cmd`、`POST /control/*` 路径（D10）。

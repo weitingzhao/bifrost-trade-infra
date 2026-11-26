@@ -26,6 +26,6 @@ LANE-X 落地 TD-260 时顺带查出三条，当时没做：
 
 ## 不做
 
-- **不要给 `contract_quote_live` 加写入方**（Owner 10-08 定了删镜像）。期权 mid 取不到就是取不到，页面说清楚即可。
+- **不要给 `contract_quote_live` 加写入方**（决定 2026-10-08：删镜像）。期权 mid 取不到就是取不到，页面说清楚即可。
 - 不删表、不写 DDL、不推 main、不发版。
 - core 若改了公开接口，按 `.cursor/rules/versioning.mdc` bump；**删公开函数不是 patch**（上两轮因此定在 0.59.0 / 0.60.0）。

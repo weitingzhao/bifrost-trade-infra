@@ -1,4 +1,4 @@
-# LANE-G — 治理文档更正落地（TD-241，Owner 10-07 选 A）
+# LANE-G — 治理文档更正落地（TD-241，决定 2026-10-07 选 A）
 
 先读 `cursor-tasks/README.md`。报告写到 `cursor-tasks/reports/LANE-G.md`。
 更正表：`cursor-tasks/reports/LANE-D.md` 的 TD-241 一节（第 1–10d 行）。本道**例外地允许**改 `RATCHETS.md` / `TECH_DEBT.md`，但只改表里列的那些行。

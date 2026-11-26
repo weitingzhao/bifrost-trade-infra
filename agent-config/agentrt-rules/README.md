@@ -1,6 +1,6 @@
 # 运行时规则（agentrt rules）
 
-Owner 2026-10-14 20:10 「规则 A」：规则正文是 YAML，Owner 用 `ssh-keygen -Y sign -n bifrost-agentrt-rule` 签名，平台用闭合解析器读（不认识的字段、锚点、别名、合并键、显式标签、第二个文档、类型不对，一律拒）。依据：`work/multi-agent/PROPOSAL-agentrt-rules-2026-10-14.md`、设计 v5 §5.2「规则」。
+决定 2026-10-14（规则 = A）：规则正文是 YAML，Owner 用 `ssh-keygen -Y sign -n bifrost-agentrt-rule` 签名，平台用闭合解析器读（不认识的字段、锚点、别名、合并键、显式标签、第二个文档、类型不对，一律拒）。依据：`work/multi-agent/PROPOSAL-agentrt-rules-2026-10-14.md`、设计 v5 §5.2「规则」。
 
 **线上规则只在平台库里**（`agentrt.rule`，只追加）。仓库不再放规则副本（清理第 2 波，2026-11-12 删掉 `prod/`、`stg/`）：副本和线上版本会悄悄分叉，而平台只认库里生效的那一版。
 
@@ -59,7 +59,7 @@ expires_at: 2027-01-15T00:00:00Z   # 过期后回到最严默认值，不会退�
 | `capability-facts` | `facts`（`executor`、可选 `provider`、`kind`：cannot / must_not / only / prefer、`subject`、可选 `scope`：值是字符串或 true / false） | 不额外排除（种子里 Owner 类的事实只当提议） |
 | `routing:<租户>` | `tenant`、`order`（固定 `[capability, quota]`）、`quota_stop_percent`；可选 `min_score_percent`（0–100）+ `min_samples`，两个一起写 | 领活时不看额度线（没有读数的池照常派）；不按成绩刷人 |
 | `plan-standing` | `done_rules`、`active_on_lease`（true / false）；可选 `done_rules_readings`（true / false，没写就是 false）：第一条完成规则也可以用读数原子，仍须写下时不成立（2026-11-25） | 计划的常备授权只有两种内置情形 |
-| `card-auto-answer` | `after_seconds`（0–604800；第 1 版写的 `after_minutes`（5–10080）照读）、`kinds`（`blocked` 卡住卡、`plan_question` 计划者的问题、`plan_change` 计划变更、`plan_import` 计划导入、`recorder_import` 记录导入、`mission` 授权外 mission 的决定卡，至少一个）。**只在 STG 放**（Owner 2026-10-20「STG 用 A」，TD-390；PROD 平台不接这个循环）：运行时问的、种类在列、所属 mission 没标 `needs_owner`、开着超过等待时间的卡，由平台回答，记成这条规则的回答，不是 Owner 的：卡有推荐时答推荐项，除非已到的 AI 评估推荐别的项；卡没推荐时，答已到的 AI 评估推荐的项；其余情况答「不改变任何东西」的那项（不做这件、不应用、不启动；计划者问题答它自己的推荐）。答的不是卡推荐的项时写明原因（TD-393）。可选的 `assessment: veto`（唯一取值；第 4 版起，复核 489 A1 / T12，统筹线程 2026-10-22 代 Owner 定 A1）：AI 评估只能把规则从推荐项拦回「不改变任何东西」，不能替它选项；卡没推荐时一律答「不改变任何东西」；卡上没有这一项（没给推荐的计划者问题）就不答、留给 Owner。「不改变任何东西」按选项的 key 认、不按文字：五种决定卡（`blocked`、`plan_change`、`plan_import`、`recorder_import`、`mission`）是平台建的、这一项固定在第二个，key `b`；计划者问题是它自己推荐的那项 | 没有卡被自动回答 |
+| `card-auto-answer` | `after_seconds`（0–604800；第 1 版写的 `after_minutes`（5–10080）照读）、`kinds`（`blocked` 卡住卡、`plan_question` 计划者的问题、`plan_change` 计划变更、`plan_import` 计划导入、`recorder_import` 记录导入、`mission` 授权外 mission 的决定卡，至少一个）。**只在 STG 放**（决定 2026-10-20：STG 用 A，TD-390；PROD 平台不接这个循环）：运行时问的、种类在列、所属 mission 没标 `needs_owner`、开着超过等待时间的卡，由平台回答，记成这条规则的回答，不是 Owner 的：卡有推荐时答推荐项，除非已到的 AI 评估推荐别的项；卡没推荐时，答已到的 AI 评估推荐的项；其余情况答「不改变任何东西」的那项（不做这件、不应用、不启动；计划者问题答它自己的推荐）。答的不是卡推荐的项时写明原因（TD-393）。可选的 `assessment: veto`（唯一取值；第 4 版起，复核 489 A1 / T12，统筹线程 2026-10-22 代 Owner 定 A1）：AI 评估只能把规则从推荐项拦回「不改变任何东西」，不能替它选项；卡没推荐时一律答「不改变任何东西」；卡上没有这一项（没给推荐的计划者问题）就不答、留给 Owner。「不改变任何东西」按选项的 key 认、不按文字：五种决定卡（`blocked`、`plan_change`、`plan_import`、`recorder_import`、`mission`）是平台建的、这一项固定在第二个，key `b`；计划者问题是它自己推荐的那项 | 没有卡被自动回答 |
 
 ### 收紧怎么判断（不带签名也能立即生效）
 

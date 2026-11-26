@@ -3,7 +3,7 @@
 先读 `cursor-tasks/README.md`（第 2 轮规则：只推分支，不推 main，不发版、不写库、不做 DDL）。报告写到 `cursor-tasks/reports/LANE-T3.md`。
 分支：`cursor/t3-worker`、`cursor/t3-api`、`cursor/t3-core`、`cursor/t3-frontend`（各从 `origin/main` 新开）。
 
-## 背景（Owner 10-08 定：按 B 收尾，表先不删）
+## 背景（决定 2026-10-08：按 B 收尾，表先不删）
 
 LANE-T2 给报价镜像加了开关 `daemon.quote_mirror`（默认关，已上 PROD）。之后核实：
 

@@ -21,7 +21,7 @@
   - parity 版本号：agent-modes 升到 v3，research-release 升到 v3。
   - LANE-C 报告已拿进 main（`dbbbd33`、`2885d4d`）。
 
-## 二、STG 验收（Owner 10-08 回「STG 通过」）
+## 二、STG 验收（2026-10-08 Owner 验收：STG 通过）
 
 - STG run `bifrost-deliver-platform-1791489152` Succeeded，clone 的是 platform `f9f696f`、ui `9b635b2`。
 - 已删接口，11 条抽查都返回 404：

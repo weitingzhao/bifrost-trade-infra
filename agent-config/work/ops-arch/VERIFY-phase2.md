@@ -33,7 +33,7 @@ PASS。platform `cursor/phase2-platform` `e6b825b9`（在 `816a8039` 之后，�
 
 **第 2 阶段可以上线**：步骤见上文「上线顺序」。
 
-## 第 1、2 步上线（Owner 2026-10-07 批）
+## 第 1、2 步上线（决定 2026-10-07）
 
 - platform main `4646441 → e6b825b9`；STG `bifrost-deliver-platform-1791414404`、PROD `bifrost-deliver-platform-prod-1791414636` Succeeded。PROD `/api/v1/actions` 31 条（B10 / C10 / D11）；operator 令牌直调 C 级（uncordon）→ `403 approval required`。
 - infra `289ec03`（b2-infra + b4-infra）：Argo 已给 PROD 加 `APPROVAL_NOTIFY_*` / `UNIFI_*`；STG workers 日志 `data-clone scheduler not started`、`patrol loop not started`。

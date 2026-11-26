@@ -1,6 +1,6 @@
 # LANE-W32 — 第 3 阶段之后的清理道（删留复核落地）
 
-登记：`agent-config/WORK.md` 的 W-32。Owner 2026-10-08 确认：`PHASE3-review-2026-10-08.md` 第四节 A 全部删除，四件待定事按推荐。
+登记：`agent-config/WORK.md` 的 W-32。决定 2026-10-08：`PHASE3-review-2026-10-08.md` 第四节 A 全部删除，四件待定事按推荐。
 
 仓库与分支（都从最新 origin/main 开独立 worktree）：
 

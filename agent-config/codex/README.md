@@ -80,7 +80,7 @@ trusted_hash = "sha256:54ead03e5d5092a3d63f264a99879a710eb716396910dee4542061b0b
 |------|------|------------|
 | 沙箱 | `workspace-write` | 只能写当前目录、`/tmp` 和启动时另加的目录。Codex 自己的默认是不联网；本机的配置把网络打开了（2026-11-14 的运行日志头：`network access enabled`），所以它能推 `ready/` 分支、能只读看集群。平台工具由 MCP 进程调，不经沙箱 |
 | 审批 | `on-request` | 越过沙箱的命令要问人（交互式）；`codex exec` 非交互，越界的命令直接失败 |
-| 受信任目录 | `/stocks`（Owner 10-10 定）、`~/agent-work` | 受信任才加载项目级配置。Codex 在 `/stocks` 下启动时，沙箱可写的范围是整个共享 checkout |
+| 受信任目录 | `/stocks`（决定 2026-10-10）、`~/agent-work` | 受信任才加载项目级配置。Codex 在 `/stocks` 下启动时，沙箱可写的范围是整个共享 checkout |
 | 闸门 | 全部工具都过 `codex-pretooluse.js` | 与 Claude、Cursor 同一份 `preflight.js` |
 
 ## Codex 自己的规矩

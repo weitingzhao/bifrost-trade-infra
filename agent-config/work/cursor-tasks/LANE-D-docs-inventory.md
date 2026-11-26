@@ -8,7 +8,7 @@
 做法：逐条实测（读代码 / 只读 GET / `kubectl get` 只读），在报告里给出「原文 → 应改为 → 证据」表。
 其中 D-IB-Heal 的规则措辞要 Owner 定，写进「要 Owner 批」。
 
-## TD-243 — 42 个前端孤儿模块（Owner 10-07 已批准删，但**按目录分批、每批先给 Owner 过目**）
+## TD-243 — 42 个前端孤儿模块（决定 2026-10-07 批准删，但**按目录分批、每批先给 Owner 过目**）
 
 在 `bifrost-trade-frontend` 的干净 worktree（起点 origin/main，分支 `cursor/td-orphans`）里：
 1. 用仓库现有的孤儿检测（`KNOWN_ORPHANS`，`grep -rn KNOWN_ORPHANS src`）重新算一遍当前孤儿名单；

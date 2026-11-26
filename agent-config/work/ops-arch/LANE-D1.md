@@ -2,7 +2,7 @@
 
 ADR §8。仓库：bifrost-trade-infra（分支 `cursor/d1-infra`）、bifrost-platform（分支 `cursor/d1-platform`，从最新 origin/main 开）。**本道不做 Console 页面**——⑦ Progress 页面等第 3 阶段（`cursor/phase3-platform`）合并后另开一道；本道只提供接口。
 
-## 已定的规则（Owner 2026-10-07）
+## 已定的规则（决定 2026-10-07）
 
 - 进度是**算出来的**，不人工维护。
 - 工作项登记覆盖全部工作线：债（`agent-config/TECH_DEBT.md`，已有）+ 计划与 Cursor 任务（新）。五种状态、验收命令、待你签收沿用 TECH_DEBT 的格式。

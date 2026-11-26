@@ -1,6 +1,6 @@
 # Ops 架构落地（ops-arch）— 计划与 Cursor 规则
 
-依据：`agent-config/ADR-ops-architecture.md`（Owner 2026-10-07 采纳）。本目录是它的落地计划与任务。
+依据：`agent-config/ADR-ops-architecture.md`（决定 2026-10-07）。本目录是它的落地计划与任务。
 **分工**：Cursor 每个会话做一条道（`LANE-*.md`），只推分支、写报告；Claude Code 照报告验收、合并、按 Owner 审批发布、管台账。
 
 ## 阶段
@@ -9,30 +9,30 @@
 |---|---|---|---|
 | 1 地基与止血（**已验收**，见 VERIFY-phase1.md） | 告警送对地方；集群状态有第二份；维护者有清单；计划文件进版本控制；停掉 .50 夜间 LLM；第一次时间点恢复演练；查清节点补丁 | A1–A7（本目录） | 各道验收 PASS，Owner 批准的 apply 已执行 |
 | 2 PROD 成为唯一控制面（**已上线**；退出条件 10-08 实测未满足，**Owner 当天移交 W-31**，本阶段在 ops-arch 内关闭） | 申请单 + 审批（聊天 / 手机 / Console）；动作目录；MCP 改连 PROD（先读后写）；PROD RBAC 补齐；UniFi 凭证进 PROD | B1–B4（见下） | 当天的发布与同步全部出现在 PROD 审计里 |
-| **3 Console 按 7 个问题重组**（**已完成**：10-08 上 PROD `f9f696f`，清理道 W-32 10-09 上 PROD `3d3ea8a`） | 去向表 `PHASE3-pages.md`（Owner 10-08 批准）；任务 `LANE-C.md`（一条集成分支 `cursor/phase3-platform`）；并入 TD-208 剩余一半 | LANE-C | STG 上 Owner 过目通过后发 PROD |
+| **3 Console 按 7 个问题重组**（**已完成**：10-08 上 PROD `f9f696f`，清理道 W-32 10-09 上 PROD `3d3ea8a`） | 去向表 `PHASE3-pages.md`（决定 2026-10-08 批准）；任务 `LANE-C.md`（一条集成分支 `cursor/phase3-platform`）；并入 TD-208 剩余一半 | LANE-C | STG 上 Owner 过目通过后发 PROD |
 | 4 工作项与进度（infra 部分已合；**剩余部分 2026-10-08 移交多 Agent 线程 W-31**） | 工作项登记覆盖全部工作线；`Work:` 尾注 + 防线。进度视图不在本计划：D1 的 platform 部分（`cursor/d1-platform`）本线程不合，Console ⑦ 保持第 3 阶段之后的样子 | `LANE-D1` 的 infra 部分 | 移交 W-31 |
 | **5 维护者治理与凭证收口**（**退出条件 10-09 已满足**：对账 0 漂移；Agent 侧无集群管理员、节点 root、子系统管理员凭证，见 STATUS「10-09 晚」） | 平台后台循环导出上次成功时间；每晚集群内对账；滚动重启动作；Agent 交出管理员 kubeconfig | `LANE-E1`（workers 进监控、存活指标、补告警、每晚对账）；凭证收口先与 Owner 讨论分步 | 对账 0 漂移；Agent 侧无管理员凭证 |
-| 6 Mac mini A 方案与网络分区（**2026-10-08 移交多 Agent 线程 W-31**；其中**网络分区** Owner 10-08 晚定为暂缓，不在瘦身范围） | 带外服务用独立账户；Agent 进虚拟机与 Agent 区；集群与存储区、运维区；UniFi VPN | 由 W-31 写 | 移交 W-31 |
-| 7 TWS 与交易区（**暂缓，不在瘦身范围**，Owner 10-08 晚） | TWS 自动重启；交易区迁移（换 IP、IB Gateway 配置） | 时机成熟再单独立项 | — |
+| 6 Mac mini A 方案与网络分区（**2026-10-08 移交多 Agent 线程 W-31**；其中**网络分区**按决定 2026-10-08 暂缓，不在瘦身范围） | 带外服务用独立账户；Agent 进虚拟机与 Agent 区；集群与存储区、运维区；UniFi VPN | 由 W-31 写 | 移交 W-31 |
+| 7 TWS 与交易区（**暂缓，不在瘦身范围**，决定 2026-10-08） | TWS 自动重启；交易区迁移（换 IP、IB Gateway 配置） | 时机成熟再单独立项 | — |
 
-### 剩下的两波（Owner 2026-10-08 晚定）
+### 剩下的两波（决定 2026-10-08）
 
 剩余工作合并成两波，做完即结束本计划。移交 W-31 的和暂缓的见上面「范围」。
 
 | 波次 | 内容 | 时间 |
 |---|---|---|
-| **第一波：收尾上线** | W-32 验收 → STG（Owner 过目）→ PROD → 重部署两台 mini（operator-plane 删了路由）→ 删旧信任覆盖 ConfigMap，Grafana 修法 Owner 定；**滚动重启带 `--upgrade`**（Owner 10-10 改定：自动更新保持只装安全更新，积压的 56 个普通更新在滚动重启里逐台装，一次重启带上新内核；周六、周日都可以跑）；确认定时对账 0 漂移；Owner 本机看 Time Machine 最近一次成功 | 到 10-11 |
+| **第一波：收尾上线** | W-32 验收 → STG（Owner 过目）→ PROD → 重部署两台 mini（operator-plane 删了路由）→ 删旧信任覆盖 ConfigMap，Grafana 修法 Owner 定；**滚动重启带 `--upgrade`**（决定 2026-10-10 改定：自动更新保持只装安全更新，积压的 56 个普通更新在滚动重启里逐台装，一次重启带上新内核；周六、周日都可以跑）；确认定时对账 0 漂移；Owner 本机看 Time Machine 最近一次成功 | 到 10-11 |
 | **第二波：第 5 阶段收口（W-33）** | 先讨论一次，再派一条道，合并四件：① 凭证收口——mini 不再持有管理员 kubeconfig 与 admin 令牌，部署脚本不再同步它们，remediation runner 与 .52 hermes-gateway 定去留；② PROD 经代理转到 mini 的 operator 级路由认 PROD 令牌；③ Console 显示待重启节点，滚动重启做成审批动作；④ ⑤ 页给 Research 与插件显示 STG / PROD 两列版本（③④ 补上第 3 阶段去向表的两行「部分」）。后来加了第 2 步（通用动作、只读数据库账号、平台发版链）和第 3 步（Mac 上的 Agent 换只读） | **10-09 完成**（退出条件已满足） |
 
 **现状盘点**：`STATUS-2026-10-08.md`（计划 vs 实际落地、恢复后的顺序）。10-08 傍晚暂停过一次，Owner 当天把恢复条件改为「ADR §1 改写定稿」；§1 已定稿（infra `bf27c80`），本计划已恢复。
 
-## 范围（Owner 2026-10-08）
+## 范围（决定 2026-10-08）
 
 本计划的线程叫「Ops Platform 瘦身」，只做瘦身。范围移交记在 ADR §12 顶部「范围移交」一段，WORK.md 的 W-4、W-6、W-10 同步改过。
 
 - **删留判据**（ADR §1 末尾）：对 platform 的每项功能问三个问题——Agent 经 API / MCP 用它吗？Owner 用它来批、签、看吗？有维护循环依赖它吗？三个都答「否」就删，删之前请 Owner 过目。
-- **移交多 Agent 线程（W-31）**：第 4 阶段剩下的部分（D1 的 platform 部分、⑦ 进度视图）；第 6 阶段里的带外独立账户与 Agent 虚拟机；第 2 阶段的退出条件（当天发布与同步全进 PROD 审计 = W-31 发布队列的验收，Owner 10-08）。
-- **暂缓，不在瘦身范围**（Owner 2026-10-08 晚，时机成熟再单独立项）：TWS 自动重启、交易区迁移（换 IP、IB Gateway 配置）、网络分区（Server 区一分为四、UniFi 规则）。
+- **移交多 Agent 线程（W-31）**：第 4 阶段剩下的部分（D1 的 platform 部分、⑦ 进度视图）；第 6 阶段里的带外独立账户与 Agent 虚拟机；第 2 阶段的退出条件（当天发布与同步全进 PROD 审计 = W-31 发布队列的验收，决定 2026-10-08）。
+- **暂缓，不在瘦身范围**（决定 2026-10-08，ISSUE-56，时机成熟再单独立项）：TWS 自动重启、交易区迁移（换 IP、IB Gateway 配置）、网络分区（Server 区一分为四、UniFi 规则）。
 - **明确不做**——不设计、不实现，也不预留接口或挂载点：
   - 多 Agent 运行时：任务与租约、Agent 主机守护进程、交互总线、推理网关、额度账本；
   - 发布队列；
@@ -59,7 +59,7 @@
 | A1 | 告警改道：warning 送 PROD，STG 退出告警链路 | infra · `cursor/a1-infra` | helm upgrade |
 | A2 | 集群状态第二份：etcd 快照 + Secret 加密件每天到 NAS | infra · `cursor/a2-infra` | kubectl apply |
 | A3 | 维护者清单 v1 + 对账检查 | infra · `cursor/a3-infra` | 无 |
-| A4 | 工作区根的计划 / 评审 / 任务文件进版本控制 | infra · main（纯文档） | 无（Owner 10-07 已确认可公开） |
+| A4 | 工作区根的计划 / 评审 / 任务文件进版本控制 | infra · main（纯文档） | 无（决定 2026-10-07：可公开） |
 | A5 | 停掉 .50 夜间 LLM；PROD 不再依赖笔记本 git-bridge | platform · `cursor/a5-platform`，infra · `cursor/a5-infra` | 在 .50 卸载两个 launchd 任务 |
 | A6 | 第一次时间点恢复演练的清单、核对脚本与手册 | infra · `cursor/a6-infra` | 建临时恢复库、删除 |
 | A7 | 节点补丁调查（只读）+ 滚动重启脚本（不执行） | infra · `cursor/a7-infra` | 周末滚动重启 |
@@ -70,7 +70,7 @@
 
 1. **生成加密密钥给 A2**：Mac Pro 上 `brew install age && age-keygen -o ~/bifrost-cluster-state.agekey`；私钥另存一份到 NAS 与离线介质，**不要发给任何 Agent**；把输出里 `age1…` 开头的公钥贴给 Claude Code。
 2. **Mac Pro 备份到 NAS**：系统设置 → 时间机器，目标选 NAS 的 SMB 共享（绿联 NAS 支持）。覆盖 Claude 记忆、`~/bifrost-backups`、本机 `.env` 等只在这台机器上的东西。
-3. ~~A4 开工前确认可公开~~：Owner 10-07 已确认。
+3. ~~A4 开工前确认可公开~~：决定 2026-10-07 已确认。
 
 ## Cursor 共用规则
 

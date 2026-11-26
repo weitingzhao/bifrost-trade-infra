@@ -42,7 +42,7 @@ Owner 把 Trade 技术债的**实现**交给 Cursor，Claude Code 只做**验收
 
 - **所有代码一律只推分支** `cursor/<道名小写>-<仓库简称>`（例如 `cursor/r2-research`），**任何仓库都不推 main**（包括 Trade 仓库）。Claude Code 验收后负责 rebase 和合并。
   例外：bifrost-trade-infra 的**纯文档**改动仍可推 main（`push-main.sh <checkout> <sha>`）。
-- Owner 10-07 批准的是「实现」：改公开接口（TD-91、TD-102、TD-123）已获批，照常 bump 版本并列出受影响的下游。
+- 决定 2026-10-07 批准的是「实现」：改公开接口（TD-91、TD-102、TD-123）已获批，照常 bump 版本并列出受影响的下游。
 - 数据库：可以**只读**查询 DEV / GS / PROD（`PGOPTIONS=-cdefault_transaction_read_only=on`）来列范围、做 dry-run 统计；**任何写入（包括 DEV）、DDL、kubectl apply / delete、发版都不做**，准备好 SQL / 清单 / 脚本写进报告「要 Owner 批」。
 - 跨道依赖写在各道文件里；碰到别的道正在改的文件，停下写进报告，不要去改。
 

@@ -1,5 +1,5 @@
 # 身份卡 10-cockpit（City / Ops 游戏化，坐席的是 Claude）。第 1 栏从 seats.yaml 取。
-# 出处：charters/10-cockpit.md §3、§8、§9、§10，platform console/src/domains/owner/city/gen2/RULES.md，Owner 11-19 至 11-21 在本线定的方向。
+# 出处：charters/10-cockpit.md §3、§8、§9、§10，platform console/src/domains/owner/city/gen2/RULES.md，决定 2026-11-19 至 11-21 的方向。
 as_of: 2026-11-21
 laws: [OWNER_LAW 29 改裁判规则交 Owner, 47 数只认系统产的, 49 先执行再感知, 50 一张地图, 51 街区=领域, 66 改名, 67 身份卡, D10 交易冻结]
 owns:

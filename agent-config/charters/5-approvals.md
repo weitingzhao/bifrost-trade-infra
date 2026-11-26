@@ -2,7 +2,7 @@
 
 ## 现行（2026-11-24 起，这一节为准；下面 11-14、11-15 的旧文留作历史，与本节冲突处以本节为准）
 
-**定位**：Owner 11-23 定立法和行政分开。本线是行政：只守闸门，不管法的内容。法的内容、法的名录、修法票的格式和校验归立法线（1 Plan，`charters/1-plan.md`）；`api/internal/actions/law_amend.go` 文件头写明定义归 plan，plan 以后把它搬进自己的包。
+**定位**：决定 2026-11-23：立法和行政分开。本线是行政：只守闸门，不管法的内容。法的内容、法的名录、修法票的格式和校验归立法线（1 Plan，`charters/1-plan.md`）；`api/internal/actions/law_amend.go` 文件头写明定义归 plan，plan 以后把它搬进自己的包。
 
 **管**：卡的通用能力（建卡、存储、手机推送、过期、审计、修法和日常分通道 `track=law|daily`）；执行口 `owner-exec` 和验证码 ticket（LAW-6）；动作目录 `actions/catalog.go` 的级别（改级别是改裁判，按LAW-9 提给 Owner）；问题通道 `questions`、提醒 `approvalnotify`。
 

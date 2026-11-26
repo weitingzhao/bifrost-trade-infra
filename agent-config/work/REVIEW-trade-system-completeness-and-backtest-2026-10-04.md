@@ -127,7 +127,7 @@
 | Greeks 归因（Δ/Γ/vega/θ/残差） | ❌ | `/portfolio/pnl-explain` 只有框架，`pnlExplainModel.ts:1-12` 写明缺每日快照（已核实） | **卖方复盘最核心的问题「这周赚的是 theta 还是方向」答不了** |
 | 胜率 / 平均盈亏 / MaxDD | ✅ | trade-api `executions.py:1122-1351`；core `strategy_win_rate.py` | 没有 expectancy、R 倍数，也不能按 regime/DTE/delta 分桶 |
 | Journal | ✅ | `/research/journal`（5 个 store 在前端 join）；`journal.*` 表 | 没有结构化的交易前后记录模板 |
-| 每日持仓快照 | ❌ | `brokerage.positions` 主键是 `(account_id, contract_key)`，只存当前态；worker 的 greeks_snapshot 只在内存里 | Owner 09-30 已批准建表，但还没建 |
+| 每日持仓快照 | ❌ | `brokerage.positions` 主键是 `(account_id, contract_key)`，只存当前态；worker 的 greeks_snapshot 只在内存里 | 决定 2026-09-30 批准建表，但还没建 |
 
 ---
 

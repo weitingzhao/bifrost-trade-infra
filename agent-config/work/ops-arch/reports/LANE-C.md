@@ -235,7 +235,7 @@ S6 从仍会在运行时打到这些名字的调用方拿掉了：
 | remediation | 做到（保留） |
 | argo-apps 忽略已回收的 `db-init-*` Job | 做到。`onlyReclaimedJobDrift`：仅当 OutOfSync、Health 为 Healthy/Progressing/空、且全部非 Synced 资源都是 Kind=Job 且名前缀 `db-init-` 时忽略 |
 
-Owner 2026-10-08：Code Health 并入 ⑦、Trust 退场、Guides 连关卡删除，其余照表。做到。
+决定 2026-10-08：Code Health 并入 ⑦、Trust 退场、Guides 连关卡删除，其余照表。做到。
 
 ## 写不进去的数据源
 

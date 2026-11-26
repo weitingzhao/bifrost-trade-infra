@@ -1,4 +1,4 @@
-# 发版策略草稿（Owner 10-08 选 §3）。签发后变成 ConfigMap cicd/bifrost-release-policy 里的 policy.yaml + policy.sig。
+# 发版策略草稿（决定 2026-10-08 选 §3）。签发后变成 ConfigMap cicd/bifrost-release-policy 里的 policy.yaml + policy.sig。
 # 这是草稿：未签名、未 apply。签发命令在 LANE-RP 落地后是 `release.sh policy sign`。
 version: 1
 policy_id: rp-YYYYMMDD-N          # sign 时生成
@@ -32,10 +32,10 @@ conditions:
   no_trust_anchor_change: true        # diff 不碰本策略的信任根：签名公钥、approvals 代码、release.sh 的策略校验、preflight.js
 
 limits:
-  rolling_24h: none                   # Owner 10-08：不设次数上限
+  rolling_24h: none                   # 决定 2026-10-08：不设次数上限
   concurrency: 1                      # 发布窗口保证
 
-# 到期提醒（Owner 10-08：不能默默卡住）
+# 到期提醒（决定 2026-10-08：不能默默卡住）
 reminders:
   before_expiry_hours: [48, 24, 2]    # 手机推送 + Console 横幅，消息里带签发命令
   on_blocked_after_expiry: true       # 过期后有发布在等 → 立即再推一次

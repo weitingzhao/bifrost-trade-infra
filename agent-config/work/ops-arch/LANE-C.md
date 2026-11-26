@@ -2,7 +2,7 @@
 
 仓库：bifrost-platform，集成分支 **`cursor/phase3-platform`**（从最新 origin/main 开）。可以在各自的 worktree 里并行做子步骤，最后都合进这一条分支；**只有一条分支、一次全量门禁、一次发版**。
 
-必读：`agent-config/work/ops-arch/PHASE3-pages.md`（逐页去向表，Owner 2026-10-08 已批准——**表里没有的改动不要做，表里写「退场」的才删**）、`agent-config/ADR-ops-architecture.md` §1、§4、§5、§6。
+必读：`agent-config/work/ops-arch/PHASE3-pages.md`（逐页去向表，决定 2026-10-08 已批准——**表里没有的改动不要做，表里写「退场」的才删**）、`agent-config/ADR-ops-architecture.md` §1、§4、§5、§6。
 
 ## 原则
 

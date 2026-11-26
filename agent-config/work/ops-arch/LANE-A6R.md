@@ -1,6 +1,6 @@
 # LANE-A6R — 恢复演练合成一套 + 核对脚本三处修复 + 演练过期告警（含 TD-258）
 
-仓库：bifrost-trade-infra，分支 `cursor/a6r-infra`（从最新 origin/main 开）。ADR §9：时间点恢复每季度手工演练一次（Owner 10-07）。
+仓库：bifrost-trade-infra，分支 `cursor/a6r-infra`（从最新 origin/main 开）。ADR §9：时间点恢复每季度手工演练一次（决定 2026-10-07）。
 
 ## 事实（2026-10-07）
 
