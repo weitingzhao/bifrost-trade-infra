@@ -1,8 +1,9 @@
 #!/bin/sh
 # sync.sh <primaries-file> [<ref>] — copies main and the tags of each
 # repository Gitea holds as its primary to GitHub: fast-forward only, never
-# forced, never deleting (CUT-gitea-primary-2026-10-17 step 0e; the Owner chose
-# 9.1 A: GitHub gets main and tags only, agent and work branches stay on Gitea).
+# forced, never deleting (CUT-gitea-primary-2026-10-17 step 0e; 决定
+# 2026-10-17: 9.1 A: GitHub gets main and tags only, agent and work branches
+# stay on Gitea).
 #
 # With <ref> (the TaskRun a Gitea push starts) only that ref is copied;
 # without it (the reconcile CronJob) main and every tag. A main GitHub has

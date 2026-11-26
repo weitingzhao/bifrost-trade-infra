@@ -1,7 +1,7 @@
 """The command of the card that signs a staged release policy (TD-576).
 
-Origin: 2026-11-15. The Owner said re-signing must not need the computer that
-holds the key. The first design put the policy text in the card's command; the
+Origin: 决定 2026-11-15: re-signing must not need the computer that holds
+the key. The first design put the policy text in the card's command; the
 text lists the D10 paths, and platform-api classifies an owner_run_command
 whose text names one as tier X (actions/ownerrun_d10.go). So the command names
 the text only by its sha256 and reads it from the cluster.

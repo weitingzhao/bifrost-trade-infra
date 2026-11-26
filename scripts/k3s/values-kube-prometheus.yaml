@@ -41,7 +41,7 @@ prometheus:
     retention: 10d
     # TD-289: without storageSpec the operator gives Prometheus an emptyDir. A
     # node reboot keeps it (same pod); an eviction does not. The drain of
-    # ubt-k3s-01 on 2026-10-10 erased 10 days of history. Owner chose the NAS.
+    # ubt-k3s-01 on 2026-10-10 erased 10 days of history. 决定 2026-10-10: the NAS.
     # nfs-hot is the export for live data (MinIO, logical-backup-hot). The claim
     # size is not enforced on NFS (docs/STORAGE_CEILINGS.md); retentionSize is
     # the real cap. Measured 2026-10-10: 5.75k samples/s, about 10 GB for 10 days.

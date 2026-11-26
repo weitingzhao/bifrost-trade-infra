@@ -76,7 +76,7 @@
 | ingestor | 250 | 50 | 150 |
 | account_agent | 260 | 60 | 160 |
 
-Host: `192.168.10.30` / Secondary: `192.168.10.33` · `port_type: tws_live`（Owner 拍板）
+Host: `192.168.10.30` / Secondary: `192.168.10.33` · `port_type: tws_live`（决定 2026-06-18）
 
 ### 4.2 镜像
 
@@ -166,5 +166,5 @@ STG v2 全绿后：
 
 | 日期 | 变更 |
 |------|------|
-| 2026-06-18 | 初版：Owner 拍板 Tier A+B · Live TWS + Massive · P5a 暂缓 |
+| 2026-06-18 | 初版：决定 Tier A+B · Live TWS + Massive · P5a 暂缓 |
 | 2026-06-18 | G2–G3 placement：Tekton `taskRunTemplate` amd64 · stg overlay `kubernetes.io/arch=amd64` · `make k3s-verify-placement` |

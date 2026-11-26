@@ -1,7 +1,7 @@
-# W-31 2.2b: the agent runtime on PROD (design v5 §5.2), the first slice the
-# Owner chose to run on PROD (2026-10-15 evening: 「直接按 5 步上 PROD」 and the
-# checklist he agreed). The platform connects as the environment's runtime
-# role to its own database; the password is the Secret the Owner made in 2.1
+# W-31 2.2b: the agent runtime on PROD (design v5 §5.2), the first slice
+# run on PROD (决定 2026-10-15: the five steps, with the agreed checklist).
+# The platform connects as the environment's runtime role to its own database;
+# the password is the Secret the Owner made in 2.1
 # (OWNER-STEPS-agentrt-21, step 1). Without the Secret the variable is empty,
 # the connection fails and the runtime's routes answer 503; the rest of the
 # platform is untouched. platform-workers runs the controller loops,
