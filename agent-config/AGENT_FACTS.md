@@ -157,7 +157,7 @@ Service 名 `api-monitor|account|market|research`。没配路由的 `/api/<x>/�
 | Trade Celery runtime + Celery workers + Flower `:5555` | 退役 | Wave 5（runtime）· **D-Wave-6.1**（代码）· **D-Wave-6.2**（文档/配置），2026-08-24 |
 | massive API `:8766` + Polygon Massive WS | 退役 | P7 → Market Data Plugin `:8790` |
 | Plugin `polygon-ws-ingestor` + `redis-massive`（含 `REDIS_MASSIVE_*`、`redis_massive:`） | 退役，无任何 Polygon WS ingest | 决定 2026-09-27（Options Starter 无实时 WS） |
-| `bifrost-analytics` | 并入 `bifrost-research/src/bifrost_research/dbt/` | spine **D13**，2026-08-21。目录保留但 README 标 ARCHIVED，**勿再改** |
+| `bifrost-analytics` | 并入 `bifrost-research/src/bifrost_research/dbt/` | spine **D13**，2026-08-21。**已移出工作区**（墙清理，2026-11-26），原样存在本机 `~/agent-work/archive/bifrost-analytics`（含当时未提交的改动），要撤就搬回；**勿再改** |
 | 裸机 PostgreSQL `.80` | 退役 → CloudNativePG @ `data` NS | spine **D2-prime**，2026-06-20；节点重装为 `ubt-k3s-06` |
 | `features_daily` / `features_option` 等 legacy schema | DROP | **D-Wave-6.6**，2026-08-24；canonical 为 `features.*` |
 | Trade `public.job_*` Celery 表 | 退役（core 0.10.6） | → `ops_jobs.job_ingest` |
