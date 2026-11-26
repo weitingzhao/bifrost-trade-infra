@@ -90,11 +90,29 @@ def test_owner_asks_pattern():
 # at nothing.
 def test_owner_words_pattern():
     hit = ["// Owner 2026-11-25: keep them apart", "# (Owner 11-25) phone first", 'the Owner said: "do it"', "the Owner：「删」"]
-    miss = ["owner_said is a type", "the Owner decides (LAW-9 三)", "Owner-facing page", "ISSUE-104"]
+    miss = ["owner_said is a type", "the Owner decides (LAW-9 三)", "Owner-facing page", "ISSUE-104",
+            # 2026-11-26: code naming the Owner, not quoting him
+            'answerer{who: "the Owner", actor: "owner"}', 'reversibleWhy = "is not a new file (ask the Owner): "',
+            "claims the Owner's approval: \"${phrase}\""]
     for line in hit:
         assert scan.OWNER_WORDS.search(line), line
     for line in miss:
         assert not scan.OWNER_WORDS.search(line), line
+
+
+# 2026-11-26, owner-words sweep of infra: git grep -E on macOS does not know \b,
+# so the scan counted 367 lines where git grep -P counted 585. The scan greps
+# with the same engine as the pattern (PCRE); this runs the real git grep.
+def test_owner_words_git_grep_matches_like_python(tmp_path):
+    import subprocess
+    lines = ["// Owner 11-25 said so", "# (Owner 2026-11-25) phone first", "owner_said is a type"]
+    (tmp_path / "a.go").write_text("\n".join(lines) + "\n")
+    git = lambda *a: subprocess.run(["git", "-C", str(tmp_path), *a], capture_output=True, text=True, check=False)
+    git("init", "-q"); git("add", "a.go")
+    got = git("grep", "--cached", "-nP", scan.OWNER_WORDS.pattern).stdout.splitlines()
+    want = [l for l in lines if scan.OWNER_WORDS.search(l)]
+    # positive control: Python finds two; git grep must find the same two, the \b one included
+    assert len(want) == 2 and len(got) == 2, got
 
 
 def test_issue_refs_are_classified(monkeypatch):
@@ -107,6 +125,11 @@ def test_issue_refs_are_classified(monkeypatch):
 
 
 def test_kind_of():
+    # 2026-11-26: applied migrations and DDL steps that ran are history, apart from the target
+    assert scan.kind_of("api/internal/agentrt/migrations/0001_core.sql") == "history"
+    assert scan.kind_of("scripts/release/db-steps.d/sql/x.sql") == "history"
+    assert scan.kind_of("scripts/release/db-steps.d/2026-10-04-a.md") == "history"
+    assert scan.kind_of("api/internal/agentrt/migrate/migrate.go") == "code"  # positive control
     assert [scan.kind_of(p) for p in ("api/x_test.go", "src/__tests__/a.ts", "scripts/laws/test_x.py", "docs/A.md", "k8s/a.yaml", "api/x.go")] == \
         ["test", "test", "test", "doc", "config", "code"]
 

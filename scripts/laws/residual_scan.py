@@ -49,8 +49,10 @@ ISSUE_QUERY = """SELECT COALESCE(json_object_agg(b->>'issue', b->>'status'), '{}
 ISSUE = r"\b(ISSUE-[1-9][0-9]*)\b"
 # The Owner's words or an Owner date on a line (round 3, 2026-11-25: 1,436
 # lines in 624 files of 9 repositories): "Owner 2026-11-25", "Owner 11-25",
-# "(Owner 11-25", or "the Owner …: 「" / "the Owner …: \"".
-OWNER_WORDS = re.compile(r"Owner[ ,(（]{0,3}(20[0-9]{2}-[0-9]{2}-[0-9]{2}|[0-9]{1,2}-[0-9]{2}\b)|the Owner[^\n]{0,20}[:：] *[「\"“]")
+# "(Owner 11-25", or "the Owner …: 「" / "the Owner …: \"". Between "the Owner"
+# and the colon no quote or closing parenthesis (2026-11-26: code such as
+# who: "the Owner", actor: "owner" and "(ask the Owner): " was counted).
+OWNER_WORDS = re.compile(r"Owner[ ,(（]{0,3}(20[0-9]{2}-[0-9]{2}-[0-9]{2}|[0-9]{1,2}-[0-9]{2}\b)|the Owner[^\n\"')]{0,20}[:：] *[「\"“]")
 ISSUE_FINE = {"open", "drafted", "in_force", "closed"}
 # 法 N, but not a word ending in 法 followed by a number (合法 0, 读法 0, 算法 2:
 # round 1 counted twelve 「合法 0」 as citations of a law 0).
@@ -125,8 +127,16 @@ def issue_refs(statuses):
     return out
 
 
+# Applied migrations and DDL steps that ran are the record of what ran: they are
+# counted apart ("history") and not toward the target (2026-11-26: 26 lines,
+# a migration that already ran is not edited).
+HISTORY = re.compile(r"(/migrations/[^/]*\.sql$|(^|/)db-steps\.d/)")
+
+
 def kind_of(path):
-    """code, test, doc or config, by the file's name."""
+    """history, code, test, doc or config, by the file's name."""
+    if HISTORY.search(path):
+        return "history"
     if re.search(r"(_test\.go|\.test\.tsx?|(^|/)test_[^/]*\.py|/tests?/|__tests__)", path):
         return "test"
     ext = path.rsplit(".", 1)[-1] if "." in path else ""
@@ -141,7 +151,7 @@ def owner_words():
     """Every line in every repository's main carrying the Owner's words or an Owner date."""
     out = []
     for r in repos():
-        p = subprocess.run(["git", "-C", str(r), "grep", "-nE", OWNER_WORDS.pattern, "origin/main", "--", *SKIP, ":!**/package-lock.json"],
+        p = subprocess.run(["git", "-C", str(r), "grep", "-nP", OWNER_WORDS.pattern, "origin/main", "--", *SKIP, ":!**/package-lock.json"],
                            capture_output=True, text=True)
         for line in p.stdout.splitlines():
             _, path, num, text = line.split(":", 3)
@@ -223,7 +233,7 @@ def refs():
 def shadow():
     infra = ROOT / "bifrost-trade-infra"
     out = []
-    p = subprocess.run(["git", "-C", str(infra), "grep", "-nE", OWNER_DATE.pattern, "origin/main", "--", *SHADOW_FILES],
+    p = subprocess.run(["git", "-C", str(infra), "grep", "-nP", OWNER_DATE.pattern, "origin/main", "--", *SHADOW_FILES],
                        capture_output=True, text=True)
     for line in p.stdout.splitlines():
         _, path, num, text = line.split(":", 3)
@@ -243,7 +253,7 @@ def shadow():
 def owner_asks():
     infra = ROOT / "bifrost-trade-infra"
     out = []
-    p = subprocess.run(["git", "-C", str(infra), "grep", "-nE", OWNER_ASK.pattern, "origin/main", "--", *SHADOW_FILES],
+    p = subprocess.run(["git", "-C", str(infra), "grep", "-nP", OWNER_ASK.pattern, "origin/main", "--", *SHADOW_FILES],
                        capture_output=True, text=True)
     for line in p.stdout.splitlines():
         _, path, num, text = line.split(":", 3)
@@ -295,8 +305,9 @@ def main():
         for w in words:
             w.update(who_added(w["repo"], w["path"], w["line"]))
         words_new = [w for w in words if w["date"] >= a.since]
+    target = [w for w in words if w["kind"] != "history"]
     words_by = {}
-    for w in words:
+    for w in target:
         words_by.setdefault(w["repo"], {}).setdefault(w["kind"], 0)
         words_by[w["repo"]][w["kind"]] += 1
     by_state, by_law = {}, {}
@@ -309,7 +320,8 @@ def main():
               # Not part of LAW-1 s1: undated lines that ask the Owner, for review.
               "owner_asks": {"total": len(asks)},
               "issues": {"total": len(irefs), "stale": sum(1 for i in irefs if i["stale"])},
-              "words": {"total": len(words), "files": len({(w["repo"], w["path"]) for w in words}), "by_repo": words_by}}
+              "words": {"total": len(target), "files": len({(w["repo"], w["path"]) for w in target}), "by_repo": words_by,
+                        "history": len(words) - len(target)}}
     if a.since:
         by_session = {}
         for w in words_new:
@@ -325,7 +337,8 @@ def main():
     print(f'shadow: {len(sh)} dated Owner rules in governance files outside the framework')
     print(f'owner asks: {len(asks)} undated lines asking the Owner, not tied to a law (for review; not part of LAW-1 s1)')
     print(f'issues: {len(irefs)} citations of an Owner issue; stale (dropped or no such issue): {report["issues"]["stale"]}')
-    print(f'words: {len(words)} lines in {report["words"]["files"]} files carry the Owner\'s words or an Owner date (target 0): {words_by}')
+    print(f'words: {len(target)} lines in {report["words"]["files"]} files carry the Owner\'s words or an Owner date (target 0): {words_by}')
+    print(f'history: {report["words"]["history"]} lines in applied migrations and DDL steps that ran (kept as the record; not counted)')
     if a.since:
         s = report["words"]["since"]
         print(f'words added on or after {s["date"]}: {s["lines"]} lines, by session: {s["by_session"]}')
