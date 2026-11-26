@@ -354,6 +354,22 @@
 - **防线**：console 加测试：给 due_at 时两种情形分别出 fail / boundary；不给时 warn。插件一侧在 status 合约测试里钉住 due_at 字段。
 - **验收**：收盘前打开 Owner Console，没跑的 feed 显示 boundary 和 due 时间；过了 due_at 仍没有的显示 fail（系统读数）。
 
+### TD-591
+
+**P2 · 数据层 · NAS 上的物理备份（WAL 归档和每晚基础备份）只有 SSD 一份，没有经过校验的 HDD 副本**
+
+- **状态**：判为暂不开（Foundation，2026-11-26）。TD-444 第 5 步登回来，就是这一条。
+- **证据**：
+  - CNPG 的备份写到 NAS 上的 MinIO，数据目录是 `/volume2/minio-backup/data`（SSD RAID1；`k8s/data/minio/nas/compose.yaml:41`）。
+  - 每周汇总到 RAID5 HDD 并校验的 `scripts/nas/backup-rollup`（NAS systemd 定时器）从没上线：Prometheus 自 11-15 起没有 `bifrost_nas_backup_rollup_*`，NAS textfile 目录里也没有 .prom 文件（算力线核，临时读数 11-26）。
+  - 市场数据归档的每晚副本 `k8s/storage/nfs-fast/arc`（CronJob market-archive-replica、PVC、静态 PV）也从没应用（同上）。
+  - 逻辑备份另有 HDD 副本：`logical-backup` 每周把最新一次成功的 dump 带 SHA256SUMS 拷到 `logical-backup-cold`（nfs-cold，/volume1；ConfigMap logical-backup-scripts 的 backup.sh 第 164 行起）。
+- **影响**：SSD 那个卷整卷坏掉时，按时间点恢复（PITR）就没了，只能退到 HDD 上最新的每周逻辑备份，最多丢 7 天。单块 SSD 坏，RAID1 兜得住。
+- **为什么暂不开**：要装到 NAS 上，得有人以 root 进 NAS。这一步现在只有 Owner 在电脑前能做（集群外主机没有执行口，CAPABILITIES §4 第 1 条），而现有的每周逻辑冷备已经兜住了「SSD 整卷坏」这个最坏情况。
+- **修法**：集群外主机有了执行口之后，把 backup-rollup 装上 NAS（定时器加 textfile 读数），并应用 arc 那份清单（插件线）；告警在 infra 704da8df（`k8s/monitoring/bifrost-nas-rollup-rules.yaml`，指标线），跟着一起上线。
+- **什么时候重开**：①集群外主机的执行口建成；②12-01 / 12-02 的恢复演练显示每周逻辑冷备不够用；③SSD 出现 SMART 告警或掉盘。三条满足任一条。
+- **防线**：上线后用告警 `bifrost_nas_backup_rollup_*` 判新鲜度；上线之前不设防线（没有机器读得到它）。
+
 ### TD-589
 
 **P3 · platform `action_record`（regret / regret_state 字段）· 只记了「能不能撤」，没记「撤没撤、撤了多久」**
