@@ -1,4 +1,4 @@
-"""W-31 3.4 ② (Owner 2026-10-21 「D3 A」): CI runs on every branch push, so a lane's commit is
+"""W-31 3.4 ② (决定 2026-10-21, D3 = A): CI runs on every branch push, so a lane's commit is
 green before push-main.sh lets it reach main. The EventListener's CEL filters are evaluated
 here on Gitea push bodies (a small translation of the operators these filters use)."""
 

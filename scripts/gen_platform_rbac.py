@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Generate k8s/platform-rbac/{10-stg,20-prod}.yaml (TD-204) from one namespace list.
 
-STG observes, PROD maintains (Owner 2026-10-07). The ClusterRoles live in
+STG observes, PROD maintains (LAW-16 一). The ClusterRoles live in
 00-clusterroles.yaml; this writes the ServiceAccount and bindings per env.
 Usage: python3 scripts/gen_platform_rbac.py   (then kubectl apply -k k8s/platform-rbac)
 """

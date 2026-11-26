@@ -297,7 +297,7 @@ Monitor：`socket.platform_ib_gateway` / `transport=platform_gateway`；Critical
 ### Phase 3 部分完成（2026-08-31）
 
 - [x] `bifrost-trade-socket/ARCHIVED.md`
-- [x] **CI/CD + Gitea 清除（Owner 2026-08-31）**
+- [x] **CI/CD + Gitea 清除（决定 2026-08-31）**
   - mirror / webhook / trigger CEL / deliver `MIRROR_REPOS` 去掉 `bifrost-trade-socket`
   - 删除 `k8s/cicd/docker/Dockerfile.socket-stg`；deliver 脚本不再创建 `bifrost-socket-stg-dockerfile` CM
   - 集群：Gitea `bifrost/bifrost-trade-socket` 仓库与 webhook 已 DELETE（404）

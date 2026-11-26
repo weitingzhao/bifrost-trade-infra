@@ -5,7 +5,7 @@
 # lander (S6) writes platform and infra, pushes both main branches, administers
 # neither, and cannot write any third repository. Existing reader identities
 # already cover infra through gitea-primary.txt; no new identity is needed.
-# merger (Owner 2026-11-12) writes platform only, administers nothing and cannot
+# merger (LAW-7 三, 2026-11-12) writes platform only, administers nothing and cannot
 # push main; it is on main's merge whitelist, and its token is mounted in the one
 # finally task of bifrost-ci-platform that merges a green ready/ branch.
 # --check performs GET-only permission checks and never calls kubectl. Use it

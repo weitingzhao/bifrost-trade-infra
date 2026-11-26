@@ -1,5 +1,5 @@
 # promtool test for the metric-coverage records (LANE-metrics, 2026-11-20).
-# Origin: Owner 2026-11-20 "see the whole elephant"; the first coverage count was by hand
+# Origin: ISSUE-29 (2026-11-20, one place for all metrics); the first coverage count was by hand
 # (84 workloads, 36 with own metrics, 05:29Z) and the same expressions run live on PROD gave
 # 46/26 (bifrost) and 38/10 (infra) - that live run is the positive control for these cases.
 # Run: make check-alert-rules.

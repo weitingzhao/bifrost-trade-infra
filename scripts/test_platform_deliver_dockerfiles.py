@@ -92,7 +92,7 @@ class PlatformDockerfiles(unittest.TestCase):
         self.assertEqual(params.get("infraRevision"), "main")
         self.assertEqual(clone["workspaces"], [{"name": "output", "workspace": "build-context"}])
 
-    # Owner 2026-11-15, five-step method (question, delete, simplify, then accelerate): of 172 s
+    # LAW-3 二 (2026-11-15; question, delete, simplify, then accelerate): of 172 s
     # on the critical path of the STG delivery 54 s were pod starts of tasks doing 0–2 s of work.
     # The stage-*-dockerfile tasks became the first step of the build Tasks; the property TD-448
     # asked for is unchanged: the Dockerfile is the one in this run's infra clone.

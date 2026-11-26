@@ -1,5 +1,5 @@
 # api-ops reads workload state in its namespace. Read-only since api 0.8.0 (TD-40): the only writer,
-# POST /ops/market-ingest/control (scale / restart / delete worker pods), was deleted; Owner 2026-10-04.
+# POST /ops/market-ingest/control (scale / restart / delete worker pods), was deleted (决定 2026-10-04).
 ---
 apiVersion: v1
 kind: ServiceAccount

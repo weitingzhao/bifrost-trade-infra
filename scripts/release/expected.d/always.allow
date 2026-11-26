@@ -1,5 +1,5 @@
 # always.allow — read by release-check.sh on EVERY after-check and diff (dev, stg, prod), no --allow needed.
-# Owner 2026-10-06: live-mark drift is not a release difference. During market hours the snapshots read live
+# LAW-6 (RULE; 决定 2026-10-06): live-mark drift is not a release difference. During market hours the snapshots read live
 # equity, so these move between the before and after snapshot of any release, whatever it ships.
 # Only fields measured to move with live equity belong here; a release's own expected changes go in a dated
 # file passed with --allow. Was 2026-10-06g-live-mark-drift.allow (infra 1c0bb85).

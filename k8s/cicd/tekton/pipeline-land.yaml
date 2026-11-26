@@ -1,6 +1,6 @@
-# Owner 2026-11-12 / 2026-11-13: main takes a change through this pipeline, and nobody clicks
-# merge. (2026-11-12 it was "only through a pull request"; since 2026-11-13, with the Owner's
-# word, the pull request is still opened but the last step is the merging account's
+# LAW-7 三 (2026-11-12 / 2026-11-13): main takes a change through this pipeline, and nobody clicks
+# merge. (2026-11-12 it was "only through a pull request"; since 2026-11-13 (决定 2026-11-13),
+# the pull request is still opened but the last step is the merging account's
 # fast-forward push of the tested commit.) A push to refs/heads/ready/<name> of a repository listed in LANDING_REPOS below
 # starts that repository's CI gate and this pipeline beside it (trigger-trade-ci.yaml `land`).
 # It opens the pull request, brings a branch that is behind main up to date (a rebase by
@@ -141,7 +141,7 @@ spec:
               #                   judged against a commit (every test ran, or the console scope,
               #                   which is measured from main by its own task). Without it a run
               #                   must name its base.
-              # Owner 2026-11-15: a backend-only landing's CI is 67-128 s and 49-111 s of it is the
+              # ISSUE-22 (2026-11-15): a backend-only landing's CI is 67-128 s and 49-111 s of it is the
               # whole Go suite; the landing gate takes main as its base like the infra gate. So an
               # incremental run of bifrost-ci-platform counts, when the base it names is main's head.
               #   merger          the Secret in cicd that holds the merging account's token
@@ -911,7 +911,7 @@ spec:
                               # Only this change's own thread moved main (its earlier ready/ branch landed
                               # first): it wrote both and knows their order; main's CI run after the landing
                               # is the check. Said in the result (rerun=own), so the thread can see it pays
-                              # a rebase for every branch it splits a change into (Owner 2026-11-24).
+                              # a rebase for every branch it splits a change into (ISSUE-86, 2026-11-24).
                               own = theirs is not None and bool(by) and '' not in by and '' not in mine and by <= mine
                               if own:
                                   skip = commit

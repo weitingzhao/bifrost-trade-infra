@@ -30,14 +30,14 @@ kubectl create -f k8s/agentrt-migrate/prod/job.yaml
 
 A PROD migration that only adds (new file, every statement in the no-row-loss allow-list,
 already released to STG) needs no Owner step: request `run_agentrt_migration` with the commit and
-the platform creates the Job under the signed policy (Owner 2026-11-18). Anything else
+the platform creates the Job under the signed policy (LAW-6 二). Anything else
 requires prior approval of its DDL. `generateName` creates a fresh
 name on each invocation; do not apply these manifests. Watch the generated Job
 through completion before enabling runtime use. Jobs have no retry, a 900-second
 deadline and a seven-day TTL; their wait-pg init container handles policy propagation.
 DEV migration runs locally using the DEV owner identity; there is no DEV cluster Job.
 
-## Since TD-411 (Owner 2026-10-21: 「STG 的迁移由发布流水线先跑、PROD 照旧由我建 Job」)
+## Since TD-411 (决定 2026-10-21: the deliver pipeline runs STG's migrations first; a PROD migration Job is still created by the Owner)
 
 - **Both deliver pipelines** build to a candidate tag (`:stg-candidate`, `:prod-candidate`)
   that no Deployment runs; `:stg` / `:prod` move to the run's digests only after the migration

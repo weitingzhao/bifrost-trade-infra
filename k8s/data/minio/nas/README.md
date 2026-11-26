@@ -70,7 +70,7 @@ At no point may both MinIO servers run on this directory.
 ## Operating it
 
 - `k8s_admin` may run exactly these without a password (`/etc/sudoers.d/k8s_admin-minio`,
-  set up by the Owner 2026-10-06); everything else needs the Owner. The directory,
+  set up by the Owner on 2026-10-06); everything else needs the Owner. The directory,
   `compose.yaml` and `.env` are root-owned, so changing the configuration is the Owner's.
 
   ```bash

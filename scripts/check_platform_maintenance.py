@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """PROD patrol skills are mounted on both platform-api and platform-workers (W-33).
 
-Owner 2026-10-07: autopilot and data maintenance run only in PROD; local and STG run none.
+LAW-16 一 (2026-10-07): autopilot and data maintenance run only in PROD; local and STG run none.
 W-33 moved /patrol onto platform-api, so the api pod must see the same skill files and
 the same dispatch/mode as workers. The patrol loop and the checklist prober stay on
 platform-workers. This check renders every k8s/overlays/platform-* kustomization and holds:

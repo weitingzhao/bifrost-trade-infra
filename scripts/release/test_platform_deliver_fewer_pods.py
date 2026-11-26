@@ -1,6 +1,6 @@
 """The STG platform delivery starts fewer pods and loses no check.
 
-Owner 2026-11-15, five-step method (question, delete, simplify, then accelerate): of 172 s on
+LAW-3 二 (2026-11-15; question, delete, simplify, then accelerate): of 172 s on
 the critical path of the STG delivery 54 s were pod starts of tasks doing 0–2 s of work.
 
 What changed in k8s/cicd/tekton/pipeline-deliver-platform.yaml: mirror-sync is gone (Gitea is

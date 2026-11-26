@@ -43,7 +43,7 @@ spec:
       value: $(tasks.test-api.results.api-store-run)
     - name: api-scope-why
       value: $(tasks.test-api.results.api-scope-why)
-    # Owner 2026-11-15: main's head when test-api took it as the base of a commit
+    # ISSUE-22 (2026-11-15): main's head when test-api took it as the base of a commit
     # that is not on main (a ready/ push); the word none otherwise. The landing counts
     # an incremental run only while main is still this commit (pipeline-land.yaml).
     - name: base-commit
@@ -226,7 +226,7 @@ spec:
       # in two side by side as before: this one is go vet and every package but
       # ./internal/agentrt/store, test-api-store below is that package alone.
       # An incremental landing run hands the whole selection to this one.
-      # Owner 2026-11-15: a backend-only landing's CI is 67-128 s and 49-111 s of
+      # ISSUE-22 (2026-11-15): a backend-only landing's CI is 67-128 s and 49-111 s of
       # it is the whole Go suite; the landing gate takes main as its base like the
       # infra gate. landing-base=main: a run with no base whose commit is not on
       # main (a ready/ push) tests what the commit changes against main's head.

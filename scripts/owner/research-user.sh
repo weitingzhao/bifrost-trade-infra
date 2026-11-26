@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# W-31 3.1 (Screening, S2 A, Owner 2026-10-22): give one person their own Research user.
+# W-31 3.1 (Screening, S2 A, 决定 2026-10-22): give one person their own Research user.
 #
 #   KUBECONFIG=<your admin kubeconfig> bash scripts/owner/research-user.sh add <user>    add <user>, restart research-api and research-mcp, copy the new token
 #   KUBECONFIG=<your admin kubeconfig> bash scripts/owner/research-user.sh copy <user>   copy an existing user's token to the clipboard again

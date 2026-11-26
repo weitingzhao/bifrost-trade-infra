@@ -841,7 +841,7 @@ def test_protected_files_unchanged():
     # R5:5.7-1 (review F1): the embedded source gate's CI check takes only a full run
     # (ci_gate.py classify, require_full), and a malformed api-scope counts for nothing
     # (re-review); rollout/digest semantics stay unchanged.
-    # The Owner, 2026-11-06: the full-run requirement is a switch (requireFullCI,
+    # 决定 2026-11-06 (LAW-13): the full-run requirement is a switch (requireFullCI,
     # default off) and a landing's incremental run counts as a partial green run;
     # rollout/digest semantics stay unchanged.
     # Group 0 I-1 removes the unused full-CI switch; exact-SHA CI still gates PROD.

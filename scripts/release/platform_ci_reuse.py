@@ -32,8 +32,8 @@ def claims_reuse(results):
 
 
 def same_increment(current):
-    # 2026-11-21 (CI line, under LAW-5; replaces Owner 2026-11-16 "an incremental run is
-    # never reused"): a run of the same platform tree, ui commit and infra commit stands on
+    # 2026-11-21 (CI line, under LAW-5; replaces 决定 2026-11-16 that an incremental run is
+    # never reused): a run of the same platform tree, ui commit and infra commit stands on
     # an incremental original, unless it asks for the whole suite. The push to main after a
     # landing is such a run: 58 of them ran every test again on 2026-11-20 and found 0
     # failures. The full pass PROD is released on (ci_gate --require-full, the ledger's

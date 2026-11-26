@@ -1,4 +1,4 @@
-"""Owner 2026-11-12 / 2026-11-13: main takes a change when the commit's CI is green, and nobody
+"""LAW-7 三 (2026-11-12 / 2026-11-13): main takes a change when the commit's CI is green, and nobody
 clicks merge. A push to refs/heads/ready/<name> asks for it: the repository's CI gate runs on
 the whole suite, and bifrost-land beside it passes the release freeze check, opens the pull
 request, has Gitea rebase a branch that is behind main, waits for that gate, and pushes the
@@ -99,7 +99,7 @@ def landing_templates():
 
 def test_one_trigger_and_one_template_start_it_and_the_trigger_names_no_repository():
     """Why: 2026-11-12 the landing trigger, template and binding were written for one repository by name;
-    the Owner, 2026-11-13: reaching more repositories extends what exists and does not copy it."""
+    ISSUE-52 (2026-11-13): reaching more repositories extends what exists and does not copy it."""
     docs, templates = landing_templates()
     assert templates == ["bifrost-land-template"]
     (el,) = [d for d in docs if d["kind"] == "EventListener" and d["metadata"]["name"] == "bifrost-ci"]
@@ -284,7 +284,7 @@ def test_a_green_run_of_another_commit_repository_or_an_increment_does_not_count
 
 
 def test_an_incremental_run_counts_only_when_it_was_judged_against_main_as_it_is_now():
-    """Owner 2026-11-15: a backend-only landing's CI is 67–128 s and 49–111 s of it is the whole Go suite;
+    """ISSUE-22 (2026-11-15): a backend-only landing's CI is 67–128 s and 49–111 s of it is the whole Go suite;
     the landing gate takes main as its base like the infra gate. The backend step names the commit of
     main it took as its base (base-commit), and the run counts while main is still that commit."""
     assert table()[PLATFORM]["ci"] == {
@@ -317,7 +317,7 @@ def test_an_incremental_run_counts_only_when_it_was_judged_against_main_as_it_is
 
 
 def test_no_base_is_the_rows_word_and_a_row_without_it_takes_no_run_that_names_none():
-    """The same origin (Owner 2026-11-15). The infra row has no no_base: its runs are as they were."""
+    """The same origin (ISSUE-22, 2026-11-15). The infra row has no no_base: its runs are as they were."""
     assert "no_base" not in table()[INFRA]["ci"]
     ci = dict(table()[INFRA]["ci"], results={"x": ["y"]})
     judge = module()["verdict"]
@@ -628,7 +628,7 @@ def test_a_branch_moved_since_the_run_is_not_merged():
 
 
 def test_a_change_to_a_trade_execution_guard_path_is_not_taken():
-    """Owner 2026-11-13: trade and money stay out of this lane. The paths are the signed release
+    """CORE-1 一 (2026-11-13): trade and money stay out of this lane. The paths are the signed release
     policy's no_d10_paths group for the repository."""
     assert len(guard_paths(INFRA)) == 5
     for path in guard_paths(INFRA):
@@ -651,7 +651,7 @@ def test_other_paths_and_the_same_paths_in_another_repository_are_taken():
 
 def test_a_commit_without_a_change_id_is_refused_before_anything_is_changed():
     """Why: the agents share one Gitea account, so the trailers are the only record of which change a
-    commit is (Owner 2026-10-06); a fresh clone runs no commit hook, and on 2026-11-13 every commit
+    commit is (ISSUE-66, 2026-10-06); a fresh clone runs no commit hook, and on 2026-11-13 every commit
     of this lane had its trailers added by hand."""
     gitea = Gitea(message="fix: a thing", behind=True)
     outcome, problem = run_land(gitea)
@@ -1308,7 +1308,7 @@ def test_without_rerun_overlap_every_rebase_runs_ci_again():
     assert problem == "" and landed["rerun"] == "ran"
 
 
-# Origin: Owner 2026-11-24, "a thread that keeps causing rebases is misusing the service": 8 of the 38
+# Origin: ISSUE-86 (2026-11-24; a provider guards its service against misuse): 8 of the 38
 # rebases of 11-24 were one thread's later branch pushed behind its own earlier one. When only the
 # change's own thread moved main, the rebased commit lands on the pushed commit's CI (rerun=own), and
 # the result says so, so the thread can be told; the landing is not refused.

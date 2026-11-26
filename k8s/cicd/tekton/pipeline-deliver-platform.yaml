@@ -1,7 +1,7 @@
 # Ops Platform deliver — Gitea clone → Kaniko (api + console) → agentrt-migrate → promote → pin the
 # application to the built digests and sync → rollout check (TD-411, TD-335, TD-419).
 #
-# Owner 2026-11-15, five-step method (question, delete, simplify, then accelerate): of 172 s on
+# LAW-3 二 (2026-11-15; question, delete, simplify, then accelerate): of 172 s on
 # the critical path of the STG delivery 54 s were pod starts of tasks doing 0–2 s of work.
 #   - mirror-sync is gone from this pipeline: Gitea holds the three repositories as its primary
 #     since 2026-10-17, the task printed "nothing to fetch" three times and exited. The run

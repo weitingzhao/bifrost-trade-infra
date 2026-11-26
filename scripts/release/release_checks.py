@@ -23,7 +23,7 @@ GATEWAYS = {
 }
 # One gateway prefix per process (TD-55 option B): the domains whose /health reports
 # core_version / core_sha. api-account answers at /api/account (B1); the /api/trading,
-# /api/strategy and /api/portfolio aliases went in B2 (Owner 2026-10-04), so there is no
+# /api/strategy and /api/portfolio aliases went in B2 (决定 2026-10-04), so there is no
 # fallback any more: an env without the /api/account route fails its account checks.
 CORE_HEALTH_DOMAINS = ("monitor", "account", "market", "research")
 ACCOUNT_PREFIX = "/api/account"

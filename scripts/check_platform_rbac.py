@@ -5,7 +5,7 @@ Asks the API server about a fixed matrix and, per B/C/D action in LANE-B1's tier
 table, that PROD can perform it and STG cannot. Must stay denied: Secrets beyond
 the named ones, pod logs outside Bifrost namespaces, exec outside data,
 creating Namespaces, deleting pods in kube-system, and any actuation from STG
-(Owner 2026-10-07: STG observes, PROD maintains).
+(LAW-16 一: STG observes, PROD maintains).
 
 Each question is a SubjectAccessReview naming the ServiceAccount and the groups
 Kubernetes gives it (TD-277). `kubectl auth can-i --as` needs the impersonate

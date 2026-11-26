@@ -101,7 +101,7 @@ def test_release_and_the_prod_gate_require_a_full_run(tmp_path) -> None:
     assert subprocess.run(args, capture_output=True).returncode == 0
     assert subprocess.run(args + ["--require-full"], capture_output=True).returncode == 2
     release = open(os.path.join(here, "release.sh")).read()
-    # The Owner, 2026-11-06: release.sh asks for a full run only with the switch on.
+    # 决定 2026-11-06 (LAW-13): release.sh asks for a full run only with the switch on.
     assert release.count('ci_gate.py" --runs') == 1
     assert '[[ "${BIFROST_RELEASE_REQUIRE_FULL_CI:-off}" == on ]] && full=(--require-full)' in release
     # push-main counts a console run when no full one has finished (a lane's commit has no other).

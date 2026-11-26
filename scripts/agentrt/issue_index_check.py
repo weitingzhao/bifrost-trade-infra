@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The business issue index of a product profile is well formed (W-31 3.2-1 design, D1 B, Owner 2026-10-22).
+"""The business issue index of a product profile is well formed (W-31 3.2-1 design, D1 B, 决定 2026-10-22).
 
     python3 scripts/agentrt/issue_index_check.py                      check every agent-config/work/crew/PROFILE-*.md
     python3 scripts/agentrt/issue_index_check.py --file <profile.md>  check one profile

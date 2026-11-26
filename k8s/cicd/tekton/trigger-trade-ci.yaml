@@ -35,7 +35,7 @@ spec:
 
 ---
 # --- TriggerBinding: a bifrost-platform push, with the commit the ref moved from ---
-# R5:5.7 CI time (Owner 2026-11-06): a platform push tests what it changed since
+# R5:5.7 CI time (ISSUE-22, 2026-11-06): a platform push tests what it changed since
 # that commit (scripts/ci/test_api_scoped.sh base head); a new branch (before is
 # all zeros), a force push or any unreadable base runs the whole suite.
 apiVersion: triggers.tekton.dev/v1beta1
@@ -416,7 +416,7 @@ spec:
     # filter requires a 40-hex `after`: it becomes the pipelines' `revision`, which Task
     # scripts use as $(params.revision). CI does not take the branch name, so a CI trigger
     # does not narrow it (review 546); github-sync passes the ref on and pins it.
-    # W-31 3.4 ② (Owner 2026-10-21 「D3 A」): CI runs on every branch push, not only main,
+    # W-31 3.4 ② (决定 2026-10-21, D3 = A): CI runs on every branch push, not only main,
     # so a lane's commit has its CI before it is merged; push-main.sh requires a
     # Succeeded ci-* run for the exact commit it pushes. A push that deletes a branch
     # (after = forty zeros) runs nothing. github-sync below stays main and tags only.
@@ -547,7 +547,7 @@ spec:
         - ref: bifrost-ci-node
       template:
         ref: bifrost-ci-platform-template
-    # Owner 2026-11-12: a push to ready/<name> is the request to land that commit. Two runs
+    # LAW-7 三 (2026-11-12): a push to ready/<name> is the request to land that commit. Two runs
     # start: the repository's CI gate on the whole suite, and bifrost-land (trigger `land`
     # below), which waits for that gate and merges. For bifrost-platform the gate is this
     # trigger (no base). The ref is pinned to a plain name: it is passed on as data.

@@ -13,7 +13,7 @@
 #    each one that does not. --no-lineage <reason> pushes them anyway (the
 #    Owner's own commits, say) and prints the reason with them.
 # 4. For a repo with a CI pipeline of its own (CI_REPOS), <commit> must have a
-#    Succeeded ci-* run (W-31 3.4 ②, Owner 2026-10-21 「D3 A」): CI runs on every
+#    Succeeded ci-* run (W-31 3.4 ②, 决定 2026-10-21, D3 = A): CI runs on every
 #    branch push (k8s/cicd/tekton/trigger-trade-ci.yaml), so a lane pushes its
 #    branch to Gitea first and its commit is green before it reaches main. A run
 #    not finished yet is waited for, up to PUSH_MAIN_CI_WAIT seconds (900); a

@@ -99,7 +99,7 @@ def test_test_api_takes_its_scope_from_changes():
     # R5:5.7-5: test-api is the rest of the packages and go vet, test-api-store the store
     # package alone; both take the scope changes chose and run after the same clones.
     api, store = t["test-api"], t["test-api-store"]
-    # Owner 2026-11-15: a backend-only landing's CI is 67–128 s and 49–111 s of it is the whole Go suite;
+    # ISSUE-22 (2026-11-15): a backend-only landing's CI is 67–128 s and 49–111 s of it is the whole Go suite;
     # the landing gate takes main as its base like the infra gate. Both parts are told so (landing-base).
     landing = [{"name": "base", "value": "$(params.base)"}, {"name": "api-scope-request", "value": "$(params.api-scope-request)"},
                {"name": "landing-base", "value": "main"}]  # off 2026-11-15 14:20, on again 2026-11-16: see the pipeline
@@ -705,7 +705,7 @@ def test_auxiliary_the_self_check_passes_on_the_platform_checkout(tmp_path):
 
 # --- test-api takes main as the base of a commit that is not on main ---------
 #
-# Origin of every case below: Owner 2026-11-15: a backend-only landing's CI is 67–128 s and
+# Origin of every case below: ISSUE-22 (2026-11-15): a backend-only landing's CI is 67–128 s and
 # 49–111 s of it is the whole Go suite; the landing gate takes main as its base like the infra
 # gate. They run test-api's own step with real git against a local origin (the checkout is made
 # the way the clone task makes it: a shallow fetch of the pushed commit) and a go that only
@@ -834,7 +834,7 @@ def test_a_ready_commit_behind_main_runs_every_test_and_says_why(tmp_path, landi
     assert (got["base"], got["why"]) == ("none", f"no base: the commit does not sit on main's head ({moved[:12]})")
 
 
-# Owner 2026-11-16: the push to main after an incremental landing is the check on it and what PROD
+# ISSUE-22 (2026-11-16): the push to main after an incremental landing is the check on it and what PROD
 # is released on, so a commit on main runs every test, also when the push names the commit before it
 # as its base (the trigger does). 2026-11-15 that run was incremental against it (and reused the
 # landing run): a landed commit had no full pass at all and STG was not delivered for 1h46m.
@@ -869,7 +869,7 @@ def test_a_run_that_asks_for_everything_or_cannot_read_main_runs_every_test(tmp_
 
 
 def test_with_the_pipelines_word_a_base_from_the_params_does_not_replace_mains_head(tmp_path, landing):
-    # Owner 2026-11-16: with landing-base=main the only base is main's head for a commit that sits on it.
+    # ISSUE-22 (2026-11-16): with landing-base=main the only base is main's head for a commit that sits on it.
     origin, work, main = landing
     sha = branch(work, "ready/lane", write("api/internal/x/x.go", "package x\n// one\n"))
     older = git(work, "rev-parse", "main~1")

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# TD-411 (Owner 2026-10-21: 「STG 的迁移由发布流水线先跑、PROD 照旧由我建 Job」): the
+# TD-411 (决定 2026-10-21: the deliver pipeline runs STG's migrations first; PROD's Job stays the Owner's): the
 # Owner applies the deliver pipelines' agentrt migration steps to the cluster.
 #
 #   bash scripts/release/agentrt-migrate-pipelines.sh check   read only: the commit, who you

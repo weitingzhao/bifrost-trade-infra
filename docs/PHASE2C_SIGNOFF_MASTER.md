@@ -12,7 +12,7 @@
 | **2C-B** | Compose Prod 稳定测试 / 生产切换 | **稳定测试已签**；生产切换待 K3s 后迁移决策 |
 | **K3s 阶段 1** | 集群搭建与试验 | **进行中** — Ops Console → Architecture → K3s Architecture §10 |
 
-**部署主线**（Owner 2026-06-04 修订）：Local Prod Final **CLOSED** → **K3s 阶段 1** → 迁移方案定稿 → Legacy 退役（2C-B Compose 作稳定参照；R-DV3 自动下单暂缓）。
+**部署主线**（决定 2026-06-04 修订）：Local Prod Final **CLOSED** → **K3s 阶段 1** → 迁移方案定稿 → Legacy 退役（2C-B Compose 作稳定参照；R-DV3 自动下单暂缓）。
 
 ---
 

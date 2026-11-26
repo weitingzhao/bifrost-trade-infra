@@ -2,7 +2,7 @@
 """Check the Trade gateway prefix map in the rendered overlays (TD-55, Owner option B).
 
 One gateway prefix per API process. B1 added ``/api/account`` (api-account's own prefix) next
-to the alias prefixes; B2 (Owner 2026-10-04, without the 7-day window: one user) removed the
+to the alias prefixes; B2 (决定 2026-10-04, without the 7-day window: one user) removed the
 aliases, their strip Middlewares and their Services. For every env (dev, stg, prod) this renders ``kubectl kustomize k8s/overlays/<env>``
 and checks, in both Trade IngressRoutes (hostname ``trade-gateway`` and NodePort
 ``trade-gateway-ip``) and for every Host rule of them:
@@ -50,7 +50,7 @@ PREFIXES: dict[str, tuple[str, int, str, str]] = {
     "/api/research": ("api-research", 8773, "api-research", "process"),
 }
 # Prefixes that must have no route, strip Middleware or Service: the aliases B2 removed
-# (Owner 2026-10-04). ops and docs answer at /api/monitor/ops/* and /api/monitor/research/docs/*.
+# (决定 2026-10-04). ops and docs answer at /api/monitor/ops/* and /api/monitor/research/docs/*.
 RETIRED: dict[str, tuple[str, str]] = {
     # prefix -> (strip Middleware, Service) that went with it
     "/api/trading": ("strip-api-trading", "api-trading"),

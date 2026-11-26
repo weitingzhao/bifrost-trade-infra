@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""The command of the card that signs an agent runtime rule (Owner 2026-11-25).
+"""The command of the card that signs an agent runtime rule (LAW-6 四, 2026-11-25).
 
-Owner 2026-11-25: 「任何需要重签的话，可以通过我这个就是 Ops 里面的验证码的那种 ticket
-的形式来去签，不要我非要回到电脑上才能签」. platform-api verifies an agent runtime
+LAW-6 四 and ISSUE-11: a re-sign is done on an Ops card the Owner approves with his one-time
+code, never back at his computer. platform-api verifies an agent runtime
 rule against two keys (bifrost-platform api/internal/releasepolicy RuleAnchors):
 the Owner's Mac key and the cluster key in Secret
 bifrost-owner-exec/release-policy-signer, which only an owner_run_command card

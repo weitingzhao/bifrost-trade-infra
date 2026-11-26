@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# rule.sh — the agent runtime's rules (design v5 §5.2; Owner 2026-10-14 「规则 A」).
+# rule.sh — the agent runtime's rules (design v5 §5.2; 决定 2026-10-14, rules = A).
 #
 #   rule.sh show    <rule_id>       [--env stg|prod]              the rule in force (none: the strictest default holds)
 #   rule.sh check   <file.yaml>     [--env stg|prod]              what the platform reads from it; writes nothing
@@ -135,7 +135,7 @@ case "${cmd}" in
     call POST "/rules/${id}/sign" "$(body "${arg}" "${sig}")" ;;
   install)
     # A text signed elsewhere: the code-approved card that signs with the
-    # cluster key (Owner 2026-11-25, OWNER_EXEC.md 「重签运行时规则」). The
+    # cluster key (LAW-6 四, 2026-11-25; OWNER_EXEC.md 「重签运行时规则」). The
     # platform verifies the signature against its compiled-in keys; the
     # caller adds no authority.
     [[ -f "${arg}" ]] || die "no file ${arg}" 2

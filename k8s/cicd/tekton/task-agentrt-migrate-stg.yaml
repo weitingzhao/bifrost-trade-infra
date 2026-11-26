@@ -1,4 +1,4 @@
-# TD-411 (Owner 2026-10-21: 「STG 的迁移由发布流水线先跑、PROD 照旧由我建 Job」).
+# TD-411 (决定 2026-10-21: the deliver pipeline runs STG's migrations first; a PROD migration Job is still created by the Owner).
 # bifrost-deliver-platform runs this before it rolls STG out: the agentrt
 # migrations of the api image it has just built, pinned by digest, as the STG
 # migration role (agentrt_owner_stg), in the Job k8s/agentrt-migrate/stg/job.yaml

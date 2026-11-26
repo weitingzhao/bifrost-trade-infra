@@ -1,4 +1,4 @@
-# TD-335, TD-419 (W-31 3.4 ①; Owner 2026-10-21 「D3 A」): a platform delivery deploys
+# TD-335, TD-419 (W-31 3.4 ①; 决定 2026-10-21, D3 = A): a platform delivery deploys
 # image digests, not a tag. This Task pins the platform Argo application's kustomize
 # image override to two digests (the run's own build on STG, the pair STG verified on
 # PROD), requests the sync in the same patch, and waits for that sync. The rollout's

@@ -572,7 +572,7 @@ esac
         finally:
             api.close()
 
-    # TD-383 (Owner 10-20 「分支 B 用 agentd」): the cut's agent/** rule is deleted and read back, the
+    # TD-383 (决定 2026-10-20, branches = B, cleaned by agentd): the cut's agent/** rule is deleted and read back, the
     # main rule set as before; a delete Gitea does not carry out is a failure
     def test_protect_repo_removes_the_agent_rule(self) -> None:
         agent = {"rule_name": "agent/**", "enable_push": True, "push_whitelist_teams": ["agentd-write"]}

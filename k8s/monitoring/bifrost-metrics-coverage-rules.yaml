@@ -1,8 +1,8 @@
 # Metrics line (LANE-metrics), 2026-11-20. Metric coverage of every running workload, as an
 # archived reading instead of a hand count.
 #
-# Origin: Owner 2026-11-20, "one place to see the whole elephant; every module's metrics show up
-# in the metrics line". The first count (05:29Z) was done by hand: 84 workloads, 36 with their own
+# Origin: ISSUE-29 (2026-11-20): one place shows every module's metrics
+# in the metrics line. The first count (05:29Z) was done by hand: 84 workloads, 36 with their own
 # metrics. These records compute the same thing every evaluation.
 #
 # Key: <namespace>/<workload>, the runtime key agreed with the foundation line (its domain map will

@@ -80,9 +80,9 @@ class PolicyFileTests(unittest.TestCase):
             self.assertIn(name, names, f"allow names {name}, which no Tekton pipeline in k8s/cicd/tekton defines")
 
     def test_only_the_platform_prod_pipeline_is_on_the_policy(self) -> None:
-        # Owner 2026-11-12 (main lane): the platform's own PROD delivery runs on the signed
-        # policy. This replaces his 2026-10-10 decision (Codex review R02) for that pipeline
-        # only; the Trade PROD delivery still waits for him on every release.
+        # 决定 2026-11-12 (main lane): the platform's own PROD delivery runs on the signed
+        # policy. This replaces 决定 2026-10-10 (Codex review R02) for that pipeline
+        # only; the Trade PROD delivery still waits for the Owner on every release.
         allow = load(TEMPLATE)["allow"]
         self.assertIn("bifrost-deliver-platform-prod", allow)
         self.assertNotIn("bifrost-deliver-prod", allow, "the Trade PROD delivery stays with the Owner")

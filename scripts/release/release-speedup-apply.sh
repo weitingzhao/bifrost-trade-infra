@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# W-31 3.4 ①② (Owner 2026-10-21 「D3 A」): the Owner applies the release speed-up to cicd.
+# W-31 3.4 ①② (决定 2026-10-21, D3 = A): the Owner applies the release speed-up to cicd.
 #
 #   bash scripts/release/release-speedup-apply.sh check   read only: the commit, who you are,
 #                                                          the release window, a server

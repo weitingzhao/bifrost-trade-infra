@@ -30,7 +30,7 @@ prunable  TD-383's deletion rule over the agent/<task>/a<n> branches of bifrost-
           on main (a note with landed): main's history does not say when a commit reached it.
 
 Where the line is (ADR §1, §5, §12.7: until the release queue, nothing reaches a running system
-unattended, and merging is 「核对后合」, Owner 10-19). Pushing bifrost-platform's main starts its CI
+unattended, and merging follows verification, 决定 2026-10-19). Pushing bifrost-platform's main starts its CI
 and nothing else: a release is its own step (STG by an Agent, PROD on the Owner's approval). It is
 the one repository apply pushes. bifrost-ui's main is what the Console and the Trade frontend build
 against, and their checks are not run here; bifrost-trade-infra's k8s/ is synced by Argo

@@ -1317,7 +1317,7 @@ if __name__ == "__main__":
 
 
 class PushMainCI(_Fixture):
-    """W-31 3.4 ② (Owner 2026-10-21 「D3 A」): a commit of a repo with its own CI reaches main
+    """W-31 3.4 ② (决定 2026-10-21, D3 = A): a commit of a repo with its own CI reaches main
     only with a Succeeded ci-* run of that exact commit."""
 
     def _code_change(self) -> str:

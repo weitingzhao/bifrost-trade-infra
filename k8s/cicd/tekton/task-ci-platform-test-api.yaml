@@ -27,7 +27,7 @@ spec:
     - name: api-scope-request
       type: string
       default: ""
-    # Owner 2026-11-15: `main` makes a run with no base judge a commit that is
+    # ISSUE-22 (2026-11-15): `main` makes a run with no base judge a commit that is
     # not on main against main's head (see the step). The pipeline passes it;
     # anything else, and a run from before the pipeline did, is as it was.
     - name: landing-base
@@ -315,7 +315,7 @@ spec:
             GIT_CONFIG_KEY_1=http.followRedirects GIT_CONFIG_VALUE_1=false \
             GIT_CONFIG_KEY_2=credential.helper GIT_CONFIG_VALUE_2= git "$@"
         }
-        # Owner 2026-11-15: a backend-only landing's CI is 67-128 s and 49-111 s
+        # ISSUE-22 (2026-11-15): a backend-only landing's CI is 67-128 s and 49-111 s
         # of it is the whole Go suite; the landing gate takes main as its base
         # like the infra gate (task-ci-infra-clone.yaml). A run with no base
         # whose commit is not on main (a ready/ push: trigger-trade-ci.yaml
@@ -553,7 +553,7 @@ spec:
         revision=""
         base="${LANDING_BASE:-}"
         [ -n "$base" ] || base="$landing_base"
-        # Owner 2026-11-16: with landing-base=main the only base is main's head
+        # ISSUE-22 (2026-11-16): with landing-base=main the only base is main's head
         # for a commit that sits on it. The push to main names the commit before
         # it as its base; that run is not incremental against it but full: the
         # incremental ready/ run let the commit in, nobody waits for this one,
@@ -588,8 +588,8 @@ spec:
           fi
         fi
         unset git_auth
-        # Owner 2026-11-16 (acceptance 8, "an incremental run misses nothing a full
-        # run catches"): a full run that failed left failed-tests empty, so the
+        # ISSUE-22 (2026-11-16; acceptance 8: an incremental run misses nothing a full
+        # run catches): a full run that failed left failed-tests empty, so the
         # unit-scope shadow could not say whether the failing package was one the
         # declaration would have run: 10 failed runs of 104 compared, 10 unnamed.
         # go test runs as before and its output is unchanged; on failure the
