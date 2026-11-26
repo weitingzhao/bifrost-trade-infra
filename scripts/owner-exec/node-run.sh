@@ -14,8 +14,8 @@
 #        named host recipes (law 85, 2026-11-24): the card says recipe=<name> class=<read-only|reversible> and the
 #        recipe file's sha256, so the executor can run a read-only one without an Owner code once it trusts the name+hash.
 #   node-run.sh hash                       sha256 of the runtime part (cite it on the card)
-#   node-run.sh recipes                    the registered host recipes, one per line: <name> <class> <node> <recipe_sha256>.
-#        This is the list the approvals line matches a card's recipe= and recipe_sha256= against (read it from main).
+#   node-run.sh recipes                    the list the approvals line pins: "recipe <name> <class> <node> <recipe_sha256>
+#        [<PARAM>=<regex> ...]" per host recipe, then "runtime <runtime_sha256>". Read it from main.
 #   node-run.sh selftest                   renders every case, parses the YAML, runs the refusal tests (no cluster needed)
 #
 # TIER device  — fixed, named recipes only (no free command). Privileged only so a device node can be opened. No hostPID,
@@ -157,10 +157,16 @@ render() {
         [ "$want" = "$got" ] || die "recipe $recipe needs exactly these parameters: ${want:-none} (got: ${got:-none})"
         while IFS= read -r line; do [ -n "$line" ] || continue
           k=${line%%=*}; v=${line#*=}
+          case "$v" in *[[:space:]]*) die "parameter $k has whitespace in its value" ;; esac
           printf '%s' "$v" | grep -Eq "$(host_recipe_params "$recipe" | awk -v k="$k" '$1==k{print $2}')" || die "parameter $k=$v is not allowed for $recipe"
         done <<< "$params"
-        cmd="$(printf '%s' "$params" | awk -F= 'NF{printf "%s=%s\n",$1,$2}')
-$(cat "$(host_recipe_file "$recipe")")"
+        # HOSTCMD = N lines K=V (N = the recipe's whitelisted parameters, 0 lines when none), then the recipe file
+        # verbatim. printf '%s\n' "$cmd" below gives back the file's one final newline. The approvals line recomputes
+        # recipe_sha256 from the card this way: drop the first N lines of the block, join the rest with \n, add one \n.
+        local plines rbody
+        plines=$(printf '%s' "$params" | awk -F= 'NF{printf "%s=%s\n",$1,$2}'; printf x); plines=${plines%x}
+        rbody=$(cat "$(host_recipe_file "$recipe")"; printf x); rbody=${rbody%x}; rbody=${rbody%$'\n'}
+        cmd="$plines$rbody"
       fi
       [ -n "$cmd" ] || die "tier host needs --cmd or --recipe"
       hit=$(tripwire_hit "$cmd"); [ -z "$hit" ] || die "refused: the command text mentions '$hit' (Trade / IB / Secret directories are not for this path; this check is a tripwire, not a barrier)"
@@ -254,13 +260,24 @@ PY
   refuse "recipe param out of list"   "not allowed"          --tier host --node gpu-server --pods-file "$t/pods.txt" --recipe gpu-strata-profile --param MODEL=iq3 --param CTX=1048576
   refuse "recipe param missing"       "needs exactly"        --tier host --node gpu-server --pods-file "$t/pods.txt" --recipe gpu-strata-profile --param MODEL=q4
   refuse "recipe plus a free command" "takes no --cmd"       --tier host --node gpu-server --pods-file "$t/pods.txt" --recipe gpu-models --cmd ls
-  # 1c. `recipes` lists every host recipe once, with the same class and hash the card header carries (2026-11-26:
-  #     the approvals line matches cards against this list; a recipe missing from it would be pushed to the Owner).
+  # 1c. the approvals line pins cards against `recipes` (2026-11-26, LAW-6): every host recipe listed once with the
+  #     header's class and hash and its whitelist; runtime matches the header; each recipe file ends in exactly one
+  #     newline; and recipe_sha256 is recomputed from a rendered card (drop the first N lines of HOSTCMD, add one \n).
   local listed; listed=$("$0" recipes)
+  local r spec n
   for r in gpu-strata-status gpu-models gpu-strata-profile; do
-    printf '%s\n' "$listed" | grep -qx "$r $(host_recipe_class "$r") $(host_recipe_node "$r") $(sha256 < "$(host_recipe_file "$r")")" && ok "recipes lists $r" || bad "recipes misses $r"
+    printf '%s\n' "$listed" | grep -q "^recipe $r $(host_recipe_class "$r") $(host_recipe_node "$r") $(sha256 < "$(host_recipe_file "$r")")" && ok "recipes lists $r" || bad "recipes misses $r"
+    [ "$(tail -c 1 "$(host_recipe_file "$r")" | od -An -c | tr -d ' ')" = '\n' ] && [ "$(tail -c 2 "$(host_recipe_file "$r")" | od -An -c | tr -d ' ')" != '\n\n' ] \
+      && ok "recipe file ends in one newline: $r" || bad "recipe file must end in exactly one newline: $r"
+    case "$r" in gpu-strata-profile) spec="--param MODEL=iq3 --param CTX=131072"; n=2 ;; *) spec=""; n=0 ;; esac
+    "$0" render --tier host --node gpu-server --pods-file "$t/pods.txt" --recipe "$r" $spec | awk '/^HOSTCMD_EOF$/{f=0} f{print} /<<.HOSTCMD_EOF.$/{f=1}' > "$t/hostcmd.$r"
+    [ "$(tail -n +$((n+1)) "$t/hostcmd.$r" | sha256)" = "$(sha256 < "$(host_recipe_file "$r")")" ] \
+      && ok "recipe hash recomputes from the card: $r" || bad "recipe hash does not recompute from the card: $r"
   done
-  [ "$(printf '%s\n' "$listed" | wc -l | tr -d ' ')" = "$(grep -c '^  gpu-[a-z-]*) *echo "\$HERE/recipes/' "$0")" ] && ok "recipes lists every host_recipe_file entry" || bad "recipes and host_recipe_file differ"
+  [ "$(printf '%s\n' "$listed" | grep -c '^recipe ')" = "$(grep -c '^  gpu-[a-z-]*) *echo "\$HERE/recipes/' "$0")" ] && ok "recipes lists every host_recipe_file entry" || bad "recipes and host_recipe_file differ"
+  printf '%s\n' "$listed" | grep -qx "runtime $(runtime | sha256)" && ok "recipes pins the runtime hash" || bad "recipes runtime line"
+  printf '%s\n' "$listed" | grep -q '^recipe gpu-strata-profile .* MODEL=^(iq3|q4)\$ CTX=' && ok "recipes prints the whitelist" || bad "recipes whitelist"
+  refuse "recipe param with a space"  "whitespace"           --tier host --node gpu-server --pods-file "$t/pods.txt" --recipe gpu-strata-profile --param "MODEL=iq3 x" --param CTX=131072
   # 2. refusals at render time
   refuse "free command on device tier" "takes a recipe"      --tier device --node ubt-k3s-05 --recipe nvme-smart --cmd 'ls'
   refuse "unknown recipe"             "unknown recipe"       --tier device --node ubt-k3s-05 --recipe format-disk
@@ -286,10 +303,22 @@ PY
   echo "selftest: $fails failure(s)"; [ "$fails" -eq 0 ]
 }
 
+# The list the approvals line pins (LAW-6): one "recipe" line per host recipe, then the runtime hash every card carries.
+#   recipe <name> <class> <node> <recipe_sha256> [<PARAM>=<regex> ...]
+#   runtime <runtime_sha256>
+list_recipes() {
+  local r
+  for r in gpu-strata-status gpu-models gpu-strata-profile; do
+    printf 'recipe %s %s %s %s%s\n' "$r" "$(host_recipe_class "$r")" "$(host_recipe_node "$r")" \
+      "$(sha256 < "$(host_recipe_file "$r")")" "$(host_recipe_params "$r" | awk 'NF{printf " %s=%s",$1,$2}')"
+  done
+  printf 'runtime %s\n' "$(runtime | sha256)"
+}
+
 case "${1:-}" in
   render) shift; render "$@" ;;
   hash) runtime | sha256 ;;
-  recipes) for r in gpu-strata-status gpu-models gpu-strata-profile; do printf '%s %s %s %s\n' "$r" "$(host_recipe_class "$r")" "$(host_recipe_node "$r")" "$(sha256 < "$(host_recipe_file "$r")")"; done ;;
+  recipes) list_recipes ;;
   selftest) selftest ;;
   *) sed -n 2,34p "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac
