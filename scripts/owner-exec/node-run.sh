@@ -14,6 +14,8 @@
 #        named host recipes (law 85, 2026-11-24): the card says recipe=<name> class=<read-only|reversible> and the
 #        recipe file's sha256, so the executor can run a read-only one without an Owner code once it trusts the name+hash.
 #   node-run.sh hash                       sha256 of the runtime part (cite it on the card)
+#   node-run.sh recipes                    the registered host recipes, one per line: <name> <class> <node> <recipe_sha256>.
+#        This is the list the approvals line matches a card's recipe= and recipe_sha256= against (read it from main).
 #   node-run.sh selftest                   renders every case, parses the YAML, runs the refusal tests (no cluster needed)
 #
 # TIER device  — fixed, named recipes only (no free command). Privileged only so a device node can be opened. No hostPID,
@@ -252,6 +254,13 @@ PY
   refuse "recipe param out of list"   "not allowed"          --tier host --node gpu-server --pods-file "$t/pods.txt" --recipe gpu-strata-profile --param MODEL=iq3 --param CTX=1048576
   refuse "recipe param missing"       "needs exactly"        --tier host --node gpu-server --pods-file "$t/pods.txt" --recipe gpu-strata-profile --param MODEL=q4
   refuse "recipe plus a free command" "takes no --cmd"       --tier host --node gpu-server --pods-file "$t/pods.txt" --recipe gpu-models --cmd ls
+  # 1c. `recipes` lists every host recipe once, with the same class and hash the card header carries (2026-11-26:
+  #     the approvals line matches cards against this list; a recipe missing from it would be pushed to the Owner).
+  local listed; listed=$("$0" recipes)
+  for r in gpu-strata-status gpu-models gpu-strata-profile; do
+    printf '%s\n' "$listed" | grep -qx "$r $(host_recipe_class "$r") $(host_recipe_node "$r") $(sha256 < "$(host_recipe_file "$r")")" && ok "recipes lists $r" || bad "recipes misses $r"
+  done
+  [ "$(printf '%s\n' "$listed" | wc -l | tr -d ' ')" = "$(grep -c '^  gpu-[a-z-]*) *echo "\$HERE/recipes/' "$0")" ] && ok "recipes lists every host_recipe_file entry" || bad "recipes and host_recipe_file differ"
   # 2. refusals at render time
   refuse "free command on device tier" "takes a recipe"      --tier device --node ubt-k3s-05 --recipe nvme-smart --cmd 'ls'
   refuse "unknown recipe"             "unknown recipe"       --tier device --node ubt-k3s-05 --recipe format-disk
@@ -280,6 +289,7 @@ PY
 case "${1:-}" in
   render) shift; render "$@" ;;
   hash) runtime | sha256 ;;
+  recipes) for r in gpu-strata-status gpu-models gpu-strata-profile; do printf '%s %s %s %s\n' "$r" "$(host_recipe_class "$r")" "$(host_recipe_node "$r")" "$(sha256 < "$(host_recipe_file "$r")")"; done ;;
   selftest) selftest ;;
   *) sed -n 2,34p "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac
