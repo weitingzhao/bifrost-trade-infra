@@ -239,7 +239,7 @@
 4. **领域合约为空**：crew、triage 已并进 station、audit（b0336adc），剩 station、audit 两份合约是空的，由各线自己补。原记：crew、station、audit、triage 在 `DOM:584-610` 都是 `{}`；只有 Station 写了一份自我说明（领活），合入那份 verification 和 delivery 共用。发布窗口、建卡、发信三份自我说明还没写（`infra:scripts/station/README.md:40`）。→ 各线
 5. **占位领域没人值守**：7-payload 信箱没登记、「自己定」「必须答」空着；2-lineage 席位空着。要用计划、插件、租户接入时找不到人答。→ 主统筹定先后
 6. **Trade 和 Research 的业务改动找谁**：名册里没有 Trade 五仓、Research 的席位；章程只覆盖 Ops 一侧。→ 主统筹
-7. **数据库备份、CNPG、UniFi 网络动作归谁**：`trigger_cnpg_backup`、`repair_cnpg_wal_store`、`sweep_failed_backups`、`unifi_*`、`ensure_metrics_server`、`sync_kubeconfig` 等在动作目录里，但归属表的合约没把它们登在任何领域下（只有 `unifi_firewall_apply` 在 foundation）。→ 地图线、Foundation **认领**：0-foundation-decouple（章程第 2 节，infra 4e356a7a）；登进归属表合约由地图线做；缺口怎么看：`get_domain_status` 的 checks 里 class=mcp-tool 那一项的 not_registered。
+7. **数据库备份、CNPG、UniFi 网络动作归谁**：已解决（2026-11-26）。六个数据库、集群、网络动作登进了 foundation 合约（platform 4afbe028），归 0-foundation-decouple。
 8. **preflight.js 归谁**：Crew 和 Foundation 的卡都说不是自己的、待裁（`CH/11-station.md`（原 9-crew 章程已并入）、`CARD/0-foundation-decouple.yaml:24`）。被它误拦时该找谁没有定。→ 主统筹 **认领**：11-station（主统筹 11-25 分给工坊；墙清理 11-25 也由工坊做）。被它误拦找工坊。
 9. **4090 的 harness、agent-06 当执行机**：算力线说缺；装到 06 属阶段 B 现在不做（`CH/6-compute.md:61,74`）；06 已决定格式化回集群，Agent 主机这块谁收尾只在手续第 7 步一句话。→ 6-compute、Station
 10. **叫醒没挂门铃的会话**（8-2 已补，2026-11-25）：平台信箱只留底，叫醒要对方挂着门铃。没挂门铃的 Claude 会话，用 harness 的会话消息直接发给它的 `local_…` 会话号（Claude Desktop 里的 SendMessage），会开启它的一个回合；回执写 delivered 和「turn has started」。Codex 坐席发给它在 Claude 一侧的联络会话。会话消息不留在平台的事件账里，要留底的话，同一件事再发一封平台信。席位空着（`session: null`）的，两种都叫不醒，找主统筹。→ 8-2-comm-desk
