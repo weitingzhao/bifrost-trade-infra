@@ -1016,6 +1016,10 @@ spec:
             description: "The {{ $labels.slot }} slot has held no live TWS session for 15m. Positions, account values and live streams all stop behind this. Check the ib-gateway pod logs in the data namespace for repeated 'API connection failed' against the Windows TWS host, then Ops Console → IB Gateway."
 
         - alert: BifrostIBGatewaySecondaryDisconnected
+          # Kept for the Console Owner page (ownerModel.ts shows the "secondary shelved" notice from
+          # it), but it asks no one for a verdict: alert-firing-to-duty excepts it (bus subscriptions
+          # rocket.yaml, platform de2415227, 2026-11-26), since it fired daily on a shelved state.
+          # When the secondary path is fixed, drop that except so it wakes the duty seat again.
           expr: |
             max by (slot) (bifrost_ib_gateway_slot_connected{slot="secondary"}) == 0
           for: 1h
