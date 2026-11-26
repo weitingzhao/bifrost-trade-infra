@@ -23,7 +23,7 @@
 | 复核记录（缓存以外） | 495 个目录，2.11 GiB | — | — | 全部（D-L4） | — |
 | 共享 `.cache` | 43 项 | 3 个缓存根（18.96 GiB），只按上限修剪 | 40 项（1.29 GiB），含引号目录 | — | — |
 | 分支备份 bundle | 30 个 | — | 30（168 个引用的提交已不在 Gitea 上，这些包是最后的副本） | 归档位置随 D-L4 | — |
-| `cicd` PipelineRun | 306 | 现有 7 天 CronJob 照跑 | — | 换成 Owner 10-10 的规则：只差批 apply（D-L7） | — |
+| `cicd` PipelineRun | 306 | 现有 7 天 CronJob 照跑 | — | 换成决定 2026-10-10 的规则：只差批 apply（D-L7） | — |
 | `cicd` 单独 TaskRun | 475（423 个超过 2 天，122 个超过 7 天） | — | — | D-L7 同一张单 | — |
 | `cicd` PVC | 285 | 随 PipelineRun 级联 | — | 4 个属于 06-19 单独 TaskRun 的随 D-L7 | 3 个数据卷 `gitea-backup`、`gitea-data`、`registry-data` |
 

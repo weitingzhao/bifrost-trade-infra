@@ -19,7 +19,7 @@
 
 ## 为什么
 
-- Owner 10-13 定的分工：核心部分 Claude 写、Codex 只读复核。规则里早有这两条能力事实（`capability-facts` v1，STG、PROD 都签过）：`exec:claude only author_core`、`exec:codex only review_core`。
+- 决定 2026-10-13 的分工：核心部分 Claude 写、Codex 只读复核。规则里早有这两条能力事实（`capability-facts` v1，STG、PROD 都签过）：`exec:claude only author_core`、`exec:codex only review_core`。
 - 但领活只看 `active` 和 `probation` 的候选（`store/route.go` `readCapabilities`），claude 在实现岗是 `qualifying`，所以今天**核心类实现谁都领不到**：只有 claude 能写，而 claude 不在候选里。
 - 试用期（`probation`）的效果：
   - 核心类实现（`core: true`）：只有 claude 能领（`author_core`），派给它。
@@ -59,11 +59,11 @@ bash bifrost-trade-infra/scripts/agentrt/rule.sh sign bifrost-trade-infra/agent-
 
 不签：核心类实现继续没人能领，2.4「Claude 写核心代码」这一项停在这里；别的不受影响。
 
-## 后续：计划格式里的 `core`（Owner 10-19 23:4x「核心字段 A」）
+## 后续：计划格式里的 `core`（决定 2026-10-19：核心字段 A）
 
 Owner 原话：「核心字段 A：计划格式加可选的 core，参谋长按规则判断哪件是核心类，路由照现有核心类规则走。」实现在平台分支 `w31/plan-core`。
 
-**定义只有一处**：核心类 = 运行时自己的核心（设计 v5 §0 第 6 条、Owner 10-13：数据层、Redis 数据形式、内核接口、agentd、总线与叫停）。落到仓库是 `Repos` 里每个仓库新加的 `Core` 目录（`store/repos.go`）：bifrost-platform 的 `api/internal/agentrt/`、`api/internal/agentd/`、`api/cmd/agentd/`；别的仓库（infra 等）没有核心类。核心目录下的外围活（测试样板、文档、按已定接口填的页面）不算核心类。计划者和参谋长的提示都用同一段文字（`CoreText()`，从 `Repos` 生成），程序校验也读同一份目录。
+**定义只有一处**：核心类 = 运行时自己的核心（设计 v5 §0 第 6 条、决定 2026-10-13：数据层、Redis 数据形式、内核接口、agentd、总线与叫停）。落到仓库是 `Repos` 里每个仓库新加的 `Core` 目录（`store/repos.go`）：bifrost-platform 的 `api/internal/agentrt/`、`api/internal/agentd/`、`api/cmd/agentd/`；别的仓库（infra 等）没有核心类。核心目录下的外围活（测试样板、文档、按已定接口填的页面）不算核心类。计划者和参谋长的提示都用同一段文字（`CoreText()`，从 `Repos` 生成），程序校验也读同一份目录。
 
 | 改了什么 | 说明 |
 |---|---|

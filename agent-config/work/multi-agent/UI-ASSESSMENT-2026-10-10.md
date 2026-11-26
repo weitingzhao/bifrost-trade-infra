@@ -57,7 +57,7 @@
   - 没有页面级的插槽。
 - 设计侧已有准备：Ops 的 Claude Design 项目里已经有一张「Needs you」卡片（`status/ActionItem`）和「四个问题总览」的样式，代码里还没实现。
 
-## 2.5 Owner 10-10 的补充：「现在要我做的」和「历史」要分开
+## 2.5 补充（ISSUE-3，2026-10-10）：「现在要 Owner 做的」和「历史」要分开
 
 Owner 的感受：Ops Platform 的重心已经从后台 CI/CD 变成监控、审批和 Owner 的三件事，所以 UI 应该把「人现在要做的事」放到最重要的位置。现在的页面把它和历史混在一起。比如 Maintenance › Approvals，待批的单子和几十张已经关闭的单子列在同一页。
 

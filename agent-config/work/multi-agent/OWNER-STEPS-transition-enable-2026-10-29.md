@@ -102,7 +102,7 @@ cd /Users/vision-mac-trader/agent-work/night-1028/infra && bash scripts/agentrt/
 ### P2 · 你：推 infra main（提交 #2）
 
 命令由统筹在这一步给。推之前统筹再查一次发布窗口和该提交的 CI。
-**会发生什么**：Argo 自动同步 `bifrost-platform-prod`：PROD `platform-api` 重启一次（Recreate，两个副本一起换，约一分钟不可用），读到两个令牌、登记 `seat:coordinator`（授权材料、建单校验、审批执行器在 api 进程里用已挂的只读 Gitea 读者读 Git；落地身份只在 workers，Owner 2026-10-29 选 A）。`platform-workers` 不变，live 照旧开着。此时仍没有任何新能力打开：信封没签，钉不了、领不了、建不了授权单。
+**会发生什么**：Argo 自动同步 `bifrost-platform-prod`：PROD `platform-api` 重启一次（Recreate，两个副本一起换，约一分钟不可用），读到两个令牌、登记 `seat:coordinator`（授权材料、建单校验、审批执行器在 api 进程里用已挂的只读 Gitea 读者读 Git；落地身份只在 workers，决定 2026-10-29 选 A）。`platform-workers` 不变，live 照旧开着。此时仍没有任何新能力打开：信封没签，钉不了、领不了、建不了授权单。
 
 ### P3 · 统筹：核对 PROD（不需要你）
 
@@ -170,7 +170,7 @@ CUT 加 §11.16 启用记录（时间线、四件实测的单号与提交号、�
 | D2 | `k8s/overlays/platform-stg/platform-api-role-tokens.patch.yaml` | `env` 末尾加两项 | Argo 自动；STG `platform-api` 重启 |
 | E1 | `k8s/overlays/platform-prod/config/platform-auth.yaml` | 末尾加两条令牌 | Argo 自动（`bifrost-platform-prod`） |
 | E2 | `k8s/overlays/platform-prod/platform-api-role-tokens.patch.yaml` | `env` 末尾加两项 | Argo 自动；PROD `platform-api` 重启 |
-| E3 | （删除）api 进程不挂落地身份 | Owner 2026-10-29 选 A：platform `2150b99c` 让授权链用只读的 Gitea 读者（`GITEA_READER_DIR`，api 已挂），落地身份只留在 workers | — |
+| E3 | （删除）api 进程不挂落地身份 | 决定 2026-10-29 选 A：platform `2150b99c` 让授权链用只读的 Gitea 读者（`GITEA_READER_DIR`，api 已挂），落地身份只留在 workers | — |
 
 平台仓库（`bifrost-platform`）**不需要改**：`config/platform-auth.yaml` 只给本机开发用，集群读 infra overlay 的副本。
 
@@ -287,7 +287,7 @@ limits:
 `k8s/overlays/platform-prod/config/platform-auth.yaml` 末尾追加（与 D 相同，`token_env` 换成 `PLATFORM_PROD_SEAT_COORDINATOR_TOKEN`、`PLATFORM_PROD_AGENTD_COORDINATOR_MBP_TOKEN`）。
 `k8s/overlays/platform-prod/platform-api-role-tokens.patch.yaml` 的 `env:` 末尾追加两项（同 D 的形状，键名换成上面两个 PROD 键）。
 
-（原拟的 `platform-api-landing-grant.patch.yaml` 已取消：Owner 2026-10-29 选 A，授权链在 api 进程里用只读的 Gitea 读者读 Git，见 platform `2150b99c`。）
+（原拟的 `platform-api-landing-grant.patch.yaml` 已取消：决定 2026-10-29 选 A，授权链在 api 进程里用只读的 Gitea 读者读 Git，见 platform `2150b99c`。）
 
 **不需要改**：RBAC（api 与 workers 同用 ServiceAccount `bifrost-platform`，`bifrost-platform-observer` 已含 `tekton.dev pipelineruns get/list/watch`，`k8s/platform-rbac/00-clusterroles.yaml:57–59`；workers 现在就用它读落地 CI）；Gitea 读者（api 已挂 `bifrost-gitea-reader`，`agentRuntimeMains` 读 main 头用它）；`AGENTRT_ENV=prod`（api 已有）。
 
@@ -374,7 +374,7 @@ limits:
 
 ## 七、核实不了 / 有疑问的点
 
-- **Q1（已定）**：Owner 2026-10-29 选 A——api 进程不挂落地身份；platform `2150b99c` 加 `landinggit.ReaderFromEnv`（只读的 Gitea 读者，任何写操作在联网前拒绝），授权链改用它。随下一批 platform 代码由 Owner 推 main、走 PROD 发布单上线，启用前完成。
+- **Q1（已定）**：决定 2026-10-29 选 A——api 进程不挂落地身份；platform `2150b99c` 加 `landinggit.ReaderFromEnv`（只读的 Gitea 读者，任何写操作在联网前拒绝），授权链改用它。随下一批 platform 代码由 Owner 推 main、走 PROD 发布单上线，启用前完成。
 - **Q2 额度线**：精确领取受 Claude 池额度线（90%）约束（F8）。统筹自己就在用同一个 Owner 账号的池；周额度高时 `handin.sh run` 会被 `no_lease` 拒。B1 让原因可见；需要时你可签 `routing:dev` 提高 `quota_stop_percent`，本单不做。
 - **Q3 `bifrost-mbp` 的 Gitea 写权**：没读令牌就无法确认它能写 `bifrost-platform`。S6-a 第一次 `handin.sh run` 推 `agent/<task>/a1` 就会证明；不行再补团队成员。
 - **Q4 `stg_release` 取值**：设计 O-1 A 默认 `true`；但 PROD 跑的 `efac01e5` 还没有 B5 的批次授权（`f4153c41` 在其后），PROD `landing:dev` 也是 `stg_release: none`。实测建议用 `false`，免得把 B5 牵进来；B5 上线后再按默认。请统筹定。

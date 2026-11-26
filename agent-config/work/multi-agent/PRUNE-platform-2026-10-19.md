@@ -1,6 +1,6 @@
 # platform 分支清理空跑清单 — 2026-10-19 21:4x
 
-Owner 10-19 21:3x「已合并的 62 条分支先空跑 prune 列清单给我」「分支照建议」。数据：`scripts/prune-merged-branches.sh --repos bifrost-platform`（空跑）对 Gitea `origin`；判「已合并」按 Change-Id，没有 Change-Id 的按标题，所以比按祖先算的 62 条多 5 条（3 条 cursor 分支、2 条 agent 分支的提交以另一个哈希进了 main）。
+决定 2026-10-19：已合并的 62 条分支先空跑 prune 列清单，分支照建议。数据：`scripts/prune-merged-branches.sh --repos bifrost-platform`（空跑）对 Gitea `origin`；判「已合并」按 Change-Id，没有 Change-Id 的按标题，所以比按祖先算的 62 条多 5 条（3 条 cursor 分支、2 条 agent 分支的提交以另一个哈希进了 main）。
 
 ## 要删的 67 条（内容都已在 main）
 

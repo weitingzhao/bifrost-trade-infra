@@ -400,7 +400,7 @@ plan/review/verify 等任务没有独立代码 ref 时，归档为环境 runtime
 
 以上每份均 `git bundle verify`、独立空 bare 仓 fetch、rev-parse 与完整 SHA 相等、`git fsck --full --no-reflogs` PASS。完整路径是页首归档根目录加 bundle 文件名。
 
-## 审批执行记录与新动作（Owner 2026-10-26 选 A）
+## 审批执行记录与新动作（决定 2026-10-26 选 A）
 
 归档与校验于 **2026-10-25 完成**。正式审批 **#165 于 2026-10-26 16:01Z 执行**，原 SQL 写入被 runtime 自身的事件 guard 拒绝：
 
@@ -420,6 +420,6 @@ Owner 选 A：新增正式动作 `mark_missions_no_merge`，随平台版本发�
 
 END OF EVIDENCE
 
-## Owner 2026-10-25：M-1、M-2、M-4 取回
+## 决定 2026-10-25：M-1、M-2、M-4 取回
 
 PROD M-1、M-2、M-4 是 Owner 自己的注释工作，不是演练；内容已作为新提交从 platform w31/dl5-comments 取回，并由 Owner 于 2026-10-25 推至 platform main：93399f27（M-4）、ce5d2c30（M-1）、ca4f8149（M-2）。这三个 mission 保留 no_merge，仅表示原尝试不合入；原始对象归档保留。5 个 cancelled 实现任务核对：4 个是基准题回放，原修复已在 infra main（Q12 = `67fda99`，Q20 = `4a59032`）；1 个是故意失败的实验（STG M-2 T06）。都没有要保留的工作。

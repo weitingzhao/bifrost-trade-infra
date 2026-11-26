@@ -123,6 +123,6 @@ FROM agentrt.event WHERE event_stream_id='landing:bifrost-platform' AND event_ty
 
 **结论**：正常路径、①、③、④ 在 STG 实跑通过；② 只由测试覆盖（无法故意造）。③ 读回里「活动位释放」没有被下一次领取直接证明（当时没有排队的任务），由 `failed` 是终态、`TestCloseMissionsWaitsForLandingInFlight` 与 mission 已关佐证。
 
-**以后不再做长演练（Owner 2026-10-27）**：六小时上限只靠测试守住（假时钟、秒级），不再在 STG 上持窗口六小时。原因：持窗口期间所有仓库都不能发版，代价是整整一个白天。上限或计时逻辑改动时，改的人补测试，不补演练。
+**以后不再做长演练（决定 2026-10-27，ISSUE-19）**：六小时上限只靠测试守住（假时钟、秒级），不再在 STG 上持窗口六小时。原因：持窗口期间所有仓库都不能发版，代价是整整一个白天。上限或计时逻辑改动时，改的人补测试，不补演练。
 
 **遗留**：M-153 在 rehearsed 后仍 active：被替换的旧任务停在 ready（任务级 stop 只拦领取，不改状态），Agent 没有正当途径关这个 mission；演练因此每轮为已 rehearsed 的任务重读 Git（CPU 约 0.35 核，复核 641 §3）。跟进：候选在读 Git 前按本轮已读的落地流跳过 rehearsed / 在途的任务（platform 跟进提交）；根治见 TD-447 第 5 项。prepare_failed 无退避地烧光尝试预算另记。

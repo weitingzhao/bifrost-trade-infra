@@ -198,7 +198,7 @@ kubectl --kubeconfig ~/.bifrost-owner/kube/admin.yaml -n cicd create rolebinding
 
 先在线程里回我一句同意推 PROD 的挂载提交（只加 `bifrost-platform-prod/bifrost-gitea-reader` 的只读挂载，推上 main 后 Argo 自动生效；旧代码不读它）。我推完核对 PROD 两个 Pod 里文件都读得到，再建发布单。
 
-然后在 Console 的审批页（For you）会有一张 `start_pipeline_run`、流水线 `bifrost-deliver-platform-prod` 的单。理由第一段写：批了之后 PROD 平台换成自己的只读 Gitea 账号读 Gitea，并挂上 `bifrost-platform-prod/bifrost-gitea-reader`；它跑的是 STG 已核对过的同一个提交。批了就是同意（Owner 10-11），不用再在线程里说。发完我核对 PROD 的分支标签列表、发布策略和血缘，再请你做第 5 节。
+然后在 Console 的审批页（For you）会有一张 `start_pipeline_run`、流水线 `bifrost-deliver-platform-prod` 的单。理由第一段写：批了之后 PROD 平台换成自己的只读 Gitea 账号读 Gitea，并挂上 `bifrost-platform-prod/bifrost-gitea-reader`；它跑的是 STG 已核对过的同一个提交。批了就是同意（决定 2026-10-11），不用再在线程里说。发完我核对 PROD 的分支标签列表、发布策略和血缘，再请你做第 5 节。
 
 ---
 
