@@ -19,6 +19,7 @@ resources:
   - bifrost-hosts-external.yaml
   - bifrost-blackbox.yaml
   - bifrost-host-rules.yaml
+  - bifrost-nas-rollup-rules.yaml
   - bifrost-flex-query.yaml
   - bifrost-market-data.yaml
   - bifrost-research.yaml

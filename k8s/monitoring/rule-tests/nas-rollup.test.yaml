@@ -1,9 +1,9 @@
-# promtool unit tests for the bifrost-nas-rollup group of bifrost-host-rules.yaml
+# promtool unit tests for bifrost-nas-rollup-rules.yaml (split out of bifrost-host-rules.yaml 2026-11-26)
 # (TD-444 step 5 runbook §5.3: one source missing, a source that never succeeded, a stale
 # generation, a failed run, the textfile missing, the replica CronJob deleted or never
 # successful, HDDs busy). Run: make check-alert-rules.
 rule_files:
-- bifrost-host-rules.yaml
+- bifrost-nas-rollup-rules.yaml
 evaluation_interval: 1m
 tests:
 - name: one of the five sources disappears and only that source alerts
