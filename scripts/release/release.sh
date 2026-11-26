@@ -4,7 +4,7 @@
 #   release.sh stg  [options]                    bifrost-deliver-stg (revision main)
 #   release.sh prod --from-stg <run> [options]   bifrost-deliver-prod at that STG run's six commits
 #   release.sh dev  [options]                    make dev-sync-backend-images RESTART=1 (:stg -> :dev, backend + frontend)
-#   release.sh window [--clear]                  show the release window (exit 1 while one is open)
+#   release.sh window                            show the release window (exit 1 while one is open)
 #   release.sh hold --what <repo>[,<repo>...] [--reason <text>]  hold that same window until this process exits
 #   release.sh db-steps [<env>]                  list one-off DB steps and their state
 #   release.sh db-done <env> <step-id>           record that the Owner ran a step
@@ -320,20 +320,6 @@ window_open() {
   trap 'window_close; exit 143' TERM
   window_renew_loop &
   WINDOW_RENEW_PID=$!
-}
-
-window_clear() {
-  WHO="$(default_who)"
-  local body
-  body="$(python3 -c 'import json,sys; print(json.dumps({"action":"release_window_release","reason":"clear release window","params":{"who":sys.argv[1],"force":True}}))' "${WHO}")"
-  if [[ "${DRY_RUN:-0}" -eq 1 ]]; then
-    platform_preview POST /api/v1/approvals "${body}"
-    return 0
-  fi
-  local resp id
-  resp="$(platform_send POST /api/v1/approvals "${body}" operator)" || rel_die "could not ask to clear the window" 1
-  id="$(printf '%s' "${resp}" | json_field id)"
-  echo "approval ${id}: Owner approves release_window_release, then the window is cleared"
 }
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -819,7 +805,9 @@ case "${1:-}" in
   window)
     shift
     DRY_RUN=0
-    if [[ "${1:-}" == "--clear" ]]; then window_clear; exit $?; fi
+    if [[ "${1:-}" == "--clear" ]]; then
+      rel_die "window --clear was removed (walls review wall:104): only the holder releases a window; one whose holder is gone ends by itself within its ttl" 2
+    fi
     window_show; exit $? ;;
   hold)
     shift

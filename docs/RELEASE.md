@@ -298,8 +298,8 @@ scripts/release/push-main.sh <checkout> <sha>
 
 `release.sh window` 没有窗口时 exit 0，有窗口时打印持有者并 exit 1。任何会话在**推 Trade 任一仓库的 main**
 或**起任何 `bifrost-deliver-*` run** 之前都先跑它：窗口开着就等它关，或者问 Owner。窗口 ttl 5 分钟，
-持有期间每分钟续期；进程退出或到期后自然放开。`release.sh window --clear` 提交
-`release_window_release`（force）审批，由 Owner 批准后才清掉别人的窗口。
+持有期间每分钟续期；进程退出或到期后自然放开。只有持有者能放开窗口；清掉别人的窗口这一项已删掉
+（墙复审 wall:104）：持有者不在了，窗口到期自己放开。
 
 窗口在 `release.sh` 运行期间存在（`hold` 一直占到进程退出，并续期）。Research 与插件用同一个
 ConfigMap `cicd/bifrost-release-window`，`what` 写仓库名。对应流水线的第一个 task
