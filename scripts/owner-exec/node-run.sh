@@ -15,7 +15,7 @@
 #        recipe file's sha256, so the executor can run a read-only one without an Owner code once it trusts the name+hash.
 #   node-run.sh hash                       sha256 of the runtime part (cite it on the card)
 #   node-run.sh recipes                    the list the approvals line pins: "recipe <name> <class> <node> <recipe_sha256>
-#        [<PARAM>=<regex> ...]" per host recipe, then "runtime <runtime_sha256>". Read it from main.
+#        [<PARAM>=<regex> ...]" per host recipe, then "runtime <sha>", "image <IMG>", "deadline-max <s>". Read it from main.
 #   node-run.sh selftest                   renders every case, parses the YAML, runs the refusal tests (no cluster needed)
 #
 # TIER device  — fixed, named recipes only (no free command). Privileged only so a device node can be opened. No hostPID,
@@ -37,6 +37,7 @@
 set -uo pipefail
 VERSION=1
 IMG='192.168.10.73:30500/bifrost-research@sha256:8cd0b34bbff05e1c6bc21b555e9d196813c484f6d49514583a78def32b4b83c5'  # bifrost-research:0.205.0 (0.183.0's digest left the registry: cards #626-#628 failed on 2026-11-19)
+RECIPE_DEADLINE_MAX=900   # a recipe card's root Pod lives at most this long; the approvals line pins it from `recipes`
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 die() { echo "node-run: $*" >&2; exit 2; }
@@ -151,6 +152,8 @@ render() {
         host_recipe_file "$recipe" >/dev/null || die "unknown host recipe '$recipe' (known: gpu-strata-status, gpu-models, gpu-strata-profile)"
         [ "$(host_recipe_node "$recipe")" = "$node" ] || die "recipe $recipe runs only on $(host_recipe_node "$recipe")"
         rclass=$(host_recipe_class "$recipe")
+        case "${DEADLINE:-300}" in ''|*[!0-9]*) die "DEADLINE must be a number of seconds" ;; esac
+        [ "${DEADLINE:-300}" -le "$RECIPE_DEADLINE_MAX" ] || die "a recipe card runs at most ${RECIPE_DEADLINE_MAX}s (DEADLINE=${DEADLINE})"
         local want got k v line
         want=$(host_recipe_params "$recipe" | awk 'NF{print $1}' | sort | paste -sd' ' -)
         got=$(printf '%s' "$params" | awk -F= 'NF{print $1}' | sort | paste -sd' ' -)
@@ -276,7 +279,12 @@ PY
   done
   [ "$(printf '%s\n' "$listed" | grep -c '^recipe ')" = "$(grep -c '^  gpu-[a-z-]*) *echo "\$HERE/recipes/' "$0")" ] && ok "recipes lists every host_recipe_file entry" || bad "recipes and host_recipe_file differ"
   printf '%s\n' "$listed" | grep -qx "runtime $(runtime | sha256)" && ok "recipes pins the runtime hash" || bad "recipes runtime line"
+  # 2026-11-26: the approvals line found IMG in no hash; a swapped image swaps what runs as root. Pin it here.
+  local cimg; cimg=$("$0" render --tier host --node gpu-server --pods-file "$t/pods.txt" --recipe gpu-models | sed -n "s/^IMG='\(.*\)'.*/\1/p")
+  printf '%s\n' "$listed" | grep -qx "image $cimg" && ok "recipes pins the card's image" || bad "recipes image line differs from the card's IMG"
+  printf '%s\n' "$listed" | grep -qx "deadline-max $RECIPE_DEADLINE_MAX" && ok "recipes prints deadline-max" || bad "recipes deadline-max line"
   printf '%s\n' "$listed" | grep -q '^recipe gpu-strata-profile .* MODEL=^(iq3|q4)\$ CTX=' && ok "recipes prints the whitelist" || bad "recipes whitelist"
+  DEADLINE=901 refuse "recipe deadline over the cap" "at most" --tier host --node gpu-server --pods-file "$t/pods.txt" --recipe gpu-models
   refuse "recipe param with a space"  "whitespace"           --tier host --node gpu-server --pods-file "$t/pods.txt" --recipe gpu-strata-profile --param "MODEL=iq3 x" --param CTX=131072
   # 2. refusals at render time
   refuse "free command on device tier" "takes a recipe"      --tier device --node ubt-k3s-05 --recipe nvme-smart --cmd 'ls'
@@ -306,6 +314,8 @@ PY
 # The list the approvals line pins (LAW-6): one "recipe" line per host recipe, then the runtime hash every card carries.
 #   recipe <name> <class> <node> <recipe_sha256> [<PARAM>=<regex> ...]
 #   runtime <runtime_sha256>
+#   image <the IMG the card's Pod runs, with digest>
+#   deadline-max <seconds a recipe card's DEADLINE may be at most>
 list_recipes() {
   local r
   for r in gpu-strata-status gpu-models gpu-strata-profile; do
@@ -313,6 +323,8 @@ list_recipes() {
       "$(sha256 < "$(host_recipe_file "$r")")" "$(host_recipe_params "$r" | awk 'NF{printf " %s=%s",$1,$2}')"
   done
   printf 'runtime %s\n' "$(runtime | sha256)"
+  printf 'image %s\n' "$IMG"
+  printf 'deadline-max %s\n' "$RECIPE_DEADLINE_MAX"
 }
 
 case "${1:-}" in
