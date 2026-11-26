@@ -30,8 +30,9 @@ class RenderTests(unittest.TestCase):
         doc = rp.render(load(TEMPLATE), load(PATHS), None, NOW)
         self.assertEqual(doc["policy_id"], "rp-20261010-0930")
         self.assertEqual(doc["signed_at"], "2026-10-10T09:30:15Z")
-        self.assertEqual(doc["expires_at"], "2027-01-08T09:30:15Z")
-        self.assertEqual(doc["valid_days"], 90)
+        # 365 days: walls review [99], 决定 2026-11-25 #783 (was 90).
+        self.assertEqual(doc["expires_at"], "2027-10-10T09:30:15Z")
+        self.assertEqual(doc["valid_days"], 365)
         self.assertEqual(doc["version"], 1)
         self.assertNotIn("about", doc)
         for key in ("allow", "conditions", "reminders", "ci_repos", "db_steps", "pinned", "paths"):

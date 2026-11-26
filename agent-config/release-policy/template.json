@@ -2,7 +2,7 @@
   "version": 1,
   "about": "Release-policy template (W-42). release.sh policy sign fills policy_id, signed_at and expires_at, merges paths.json, and signs the result. allow names Tekton pipelines; anything not listed waits for the Owner. Every condition must hold for platform-api to approve a tier-C release without the Owner. trust_anchor_self_checked (Owner 2026-11-15: no second reader; the author proves a change to the judge with machine facts): a no_trust_anchor_change hit in a self_checked_repos repository is covered when the diff touches no owner_only path (paths.json) and the commit's CI succeeded; that CI runs the must-refuse sets, which live under the owner_only paths, and the decision snapshots; trust_anchor_ignore_tests leaves _test.go and testdata out of what counts as a trust-anchor hit, never out of owner_only. ddl_reversible (Owner 2026-11-15): a migration file under ddl_reversible_paths that is new in the diff and whose every statement is of a kind that cannot destroy rows is not a no_ddl refusal, and run_agentrt_migration may apply such files without the Owner once the source environment delivered the commit. apply (class 4): an apply_manifest plan is covered when every object is one of these kinds in these namespaces, already exists with an Apply entry of field_manager (so the same path at an earlier commit of main is the way back), and neither its path nor any object is excluded; everything else waits for the Owner. Owner 10-08: no rolling cap; reminders 14d, 3d and 1d before expiry.",
   "signed_by": "owner",
-  "valid_days": 90,
+  "valid_days": 365,
   "allow": [
     "bifrost-deliver-stg",
     "bifrost-deliver-platform",
@@ -31,7 +31,8 @@
   ],
   "apply": {
     "namespaces": [
-      "cicd"
+      "cicd",
+      "monitoring"
     ],
     "kinds": [
       "Pipeline",
@@ -40,7 +41,11 @@
       "TriggerBinding",
       "EventListener",
       "CronJob",
-      "Deployment"
+      "Deployment",
+      "PrometheusRule",
+      "ScrapeConfig",
+      "ServiceMonitor",
+      "PodMonitor"
     ],
     "field_manager": "bifrost-applier",
     "require_previous_generation": true,
@@ -49,7 +54,11 @@
       "Task",
       "TriggerTemplate",
       "TriggerBinding",
-      "EventListener"
+      "EventListener",
+      "PrometheusRule",
+      "ScrapeConfig",
+      "ServiceMonitor",
+      "PodMonitor"
     ],
     "exclude_paths": [
       "k8s/cicd/release-policy/**",
