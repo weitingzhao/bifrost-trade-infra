@@ -2,8 +2,8 @@
 
 > 状态：第 2 稿，按复核 534（`~/agent-work/codex-review-534/REPORT.md`，结论「先改」）改写；逐条回应在该复核目录的 `RESPONSE.md`。
 > 一次只读盘点在同目录 `INVENTORY-lifecycle-2026-10-24.md`，原始数据与脚本在 `INVENTORY-lifecycle-2026-10-24.data/`。（原始数据与脚本不进公开仓库：其中有本机临时目录和一个不在公开清单里的仓库的 SHA，复核 539 C4；留在统筹机器的 `~/agent-work/r4-lifecycle/agent-config/work/multi-agent/INVENTORY-lifecycle-2026-10-24.data/`，提交 db3d14d9。）**这一步没有删任何东西。**
-> 依据：第 4 轮草案 4.6（Claude Doc「小牛牛包工队全面盘点」第二个标签页；Owner 10-23 23:3x「D2 A、D3 A、D4 A，其余按推荐，开第 4 轮第一波」）；
-> Owner 10-23 原话「版本分支的清理和保持，之前发生过我本地的硬盘全部占满的情况」；TD-415、TD-383、TD-299；
+> 依据：第 4 轮草案 4.6（Claude Doc「小牛牛包工队全面盘点」第二个标签页；决定 2026-10-23：D2 A、D3 A、D4 A，其余按推荐，开第 4 轮第一波）；
+> ISSUE-23（2026-10-23：版本分支要清理和保持，曾把本机硬盘占满）；TD-415、TD-383、TD-299；
 > `CUT-gitea-primary-2026-10-17.md` §6、§9.2、§9.6；infra `15271dd`；4.1 的 `CUT-landing-2026-10-24.md`（`r4-landing` 线，`047ea5c`）。
 >
 > **做完标准**（草案原文的意思，按复核 C3 改正了方向）：一周不手工清理，每台跑 Agent 的机器上**磁盘占用不持续增长（可用空间不持续下降），分支数不涨**。
@@ -85,7 +85,7 @@ main 上同 Change-Id 的是拆分后的另一个提交；一批 worktree 的旧
 
 | 对象 | 数量 | 说明 |
 |---|---|---|
-| PipelineRun | 306 | 已有清理：CronJob `tekton-pipelinerun-ttl`（`k8s/cicd/tekton/pipelinerun-ttl.yaml`，建于 2026-08-10，infra `73e181f`；10-24 04:20Z 最近一次成功）删 7 天前结束的 PipelineRun，删 2 天前结束的 TaskRun 的 Pod。TD-299 正文「`kubectl -n cicd get cronjob` 什么都没有」与此不符（原因没查），要改。Owner 10-10 定的保留规则还没实现 |
+| PipelineRun | 306 | 已有清理：CronJob `tekton-pipelinerun-ttl`（`k8s/cicd/tekton/pipelinerun-ttl.yaml`，建于 2026-08-10，infra `73e181f`；10-24 04:20Z 最近一次成功）删 7 天前结束的 PipelineRun，删 2 天前结束的 TaskRun 的 Pod。TD-299 正文「`kubectl -n cicd get cronjob` 什么都没有」与此不符（原因没查），要改。决定 2026-10-10 的保留规则还没实现 |
 | PVC | 285（local-path 282） | 随 PipelineRun 的 ownerReference 级联删；4 个属于 06-19 的单独 TaskRun；3 个数据卷 `gitea-backup`、`gitea-data`、`registry-data` |
 | TaskRun | 3030 | 475 个单独的（`github-sync-*`、`gitea-mirror-sync`……）**没有东西在清**；近 7 天每天新增 34–94 个，423 个超过 2 天、122 个超过 7 天 |
 | 发布记录 ConfigMap | 550 | 发布证据，留着 |
@@ -130,8 +130,8 @@ main 上同 Change-Id 的是拆分后的另一个提交；一批 worktree 的旧
 | R10 | lane 目录里 git 以外的剩余、普通目录和文件 | 登记；没登记的只能猜 | 跟 R8 的记录同一规则（D-L4） | 定时任务 | 没登记的一律只报 |
 | R11 | 工具自己的临时 checkout（`$TMPDIR/push-main.*`、`merge-accepted/<task>/`） | 建它的工具 | **与 R5 完全相同的门槛**（`merge_accepted.py:485-503` 会在 detached checkout 上 cherry-pick、amend，不能假定它们都是 main 的祖先） | 定时任务；工具自己的 `trap` 照旧 | `push-main` 残留（12 处未提交删除）只报，除非完整归档了差异 |
 | R12 | 分支备份 | `prune-merged-branches.sh` | 冗余包（每个提交都还在持久引用上）90 天；含独有对象的包不按期限删 | 定时任务 | 现有 30 个包里有 168 个引用是最后的副本 |
-| R13 | Docker、默认 Go 缓存、Time Machine 本地快照 | 这台 Mac | 照 `disk-guard.sh` 现有规则（Owner 10-21 定的） | 定时任务 | Cursor `state.vscdb`：只报（要 Cursor 关着，他自己做） |
-| R14 | Tekton PipelineRun 与它的卷 | 流水线 | Owner 10-10 已定：成功 24 小时、失败 7 天、每条流水线至少留 5 个、交付类有该 run / 仓库 / 提交的发布记录才删；只删终态对象；PVC 按真实 ownerReference 级联；数据卷不碰 | `tekton-pipelinerun-ttl`（改它，不新建）；`cicd` 写入由 Owner 批 apply（D-L7） | 没有发布记录的交付 run |
+| R13 | Docker、默认 Go 缓存、Time Machine 本地快照 | 这台 Mac | 照 `disk-guard.sh` 现有规则（决定 2026-10-21） | 定时任务 | Cursor `state.vscdb`：只报（要 Cursor 关着，他自己做） |
+| R14 | Tekton PipelineRun 与它的卷 | 流水线 | 决定 2026-10-10：成功 24 小时、失败 7 天、每条流水线至少留 5 个、交付类有该 run / 仓库 / 提交的发布记录才删；只删终态对象；PVC 按真实 ownerReference 级联；数据卷不碰 | `tekton-pipelinerun-ttl`（改它，不新建）；`cicd` 写入由 Owner 批 apply（D-L7） | 没有发布记录的交付 run |
 | R15 | 单独的 TaskRun 与它们的 PVC | 建它的触发器 | 成功 2 天、失败 7 天；失败 run 的 Pod 也留 7 天（现在的第 2 遍 2 天就删 Pod，要一起改） | 同 R14 | — |
 | R16 | 发布记录 ConfigMap | 发布 | 不清 | — | — |
 
@@ -203,7 +203,7 @@ main 上同 Change-Id 的是拆分后的另一个提交；一批 worktree 的旧
 
 ### 4.5 磁盘余量进监控、低了停派（复核 B4）
 
-- **停派闸门读实时余量**：`preflight.js` 在拦截点当场 `statfs` 目标卷（Node 的 `fs.statfsSync`，毫秒级），不读每小时的状态文件。分级沿用 Owner 10-21 定的语义：
+- **停派闸门读实时余量**：`preflight.js` 在拦截点当场 `statfs` 目标卷（Node 的 `fs.statfsSync`，毫秒级），不读每小时的状态文件。分级沿用决定 2026-10-21 的语义：
   低于 **30 GiB** 不起新的复核、`npm ci`、新 worktree；低于 **15 GiB** 什么新活都不起，先清扫并告诉 Owner。读不到（卷不对、调用失败）按低于 15 GiB 处理，并写明原因。
 - **并发预算**：余量先减去在跑的活的预留再比阈值——复核每个预留 2 GiB、lane 每个 3 GiB（盘点里单个复核的缓存最大 1.15 GiB、单个 worktree 最大 2.3 GiB）；预留数记在登记里。
 - **agentd 主机**：平台已从每次领活拿到剩余磁盘，但只存跨线事件。要存最近一个样本（主机、卷、读数、采样时间），由 platform 导出 `bifrost_agentrt_host_free_bytes{host,volume}`
@@ -241,7 +241,7 @@ main 上同 Change-Id 的是拆分后的另一个提交；一批 worktree 的旧
 | S4 | 远端人的分支（**D-L1 定了才做**）：`--remote-only`，只删 main 祖先，`--force-with-lease=<ref>:<旧 sha>` | infra `scripts/` | `--remote-only` 不碰本地；检查后有人推了新头 → 不删，重试不刷新期望值；不是 main 祖先的 → 不删 |
 | S5 | agentd 删前归档：删前把该提交 fetch 进本机归档仓库、打包到持久存储、平台记位置与校验值；查明 6 条到期未删的原因 | platform `agentd/prune.go`、`store/prune.go` | 假 Gitea 里到期的取消任务、被取代尝试：没有归档记录时不删，有归档且验证过的才删；缺推送提交的不删 |
 | S6 | 停派闸门与指标：`preflight.js` 实时 `statfs`、30/15 GiB、预留预算、读不到即停；platform 存最近样本并导出指标（形状按 D-L6） | infra、platform | 测试里把卷换成 10 GiB 的假卷 → `codex exec` 被拦；`statfs` 抛错 → 被拦并写明原因；STG 上一台报低于下限的主机拿不到新尝试、告警到手机（TD-415 第二层原验收）；样本过期显示「未观测」 |
-| S7 | Tekton：按 Owner 10-10 的规则改 `tekton-pipelinerun-ttl`，加单独 TaskRun 一遍，失败 run 的 Pod 留 7 天，Role 加 `configmaps` get/list；TaskRun 数量告警；TD-299 正文更新 | infra `k8s/cicd/tekton/`、`k8s/monitoring/` | 先 `DRY_RUN=1` 跑一遍给 Owner 看清单；只删终态对象、数据卷不在清单里、交付 run 只在有对应发布记录时进清单 |
+| S7 | Tekton：按决定 2026-10-10 的规则改 `tekton-pipelinerun-ttl`，加单独 TaskRun 一遍，失败 run 的 Pod 留 7 天，Role 加 `configmaps` get/list；TaskRun 数量告警；TD-299 正文更新 | infra `k8s/cicd/tekton/`、`k8s/monitoring/` | 先 `DRY_RUN=1` 跑一遍给 Owner 看清单；只删终态对象、数据卷不在清单里、交付 run 只在有对应发布记录时进清单 |
 | S8 | 一次性清理（§4.6） | — | 清理报告：每类删了几个、归档了几个、腾出多少、回退清单在哪 |
 | S9 | 观察一周（复核 B3） | — | 见下 |
 

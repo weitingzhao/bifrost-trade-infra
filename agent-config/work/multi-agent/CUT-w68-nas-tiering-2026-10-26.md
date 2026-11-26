@@ -18,7 +18,7 @@ SMART 那一半已经修好代码，等 Owner 推 infra 后在 NAS 重跑一步�
 
 ## 1. 要做的事和边界
 
-- 任务：`agent-config/WORK.md` 第 4 轮 4.9 与 W-68：NAS 装 SSD（`/volume2`，pool2，Btrfs，约 984 GB，10-24 装好），存储按方案 B 分层（Owner 10-24 定，承诺先出设计再动；第二块同款 SSD 以后可买，到时 SSD 池改镜像）；
+- 任务：`agent-config/WORK.md` 第 4 轮 4.9 与 W-68：NAS 装 SSD（`/volume2`，pool2，Btrfs，约 984 GB，10-24 装好），存储按方案 B 分层（决定 2026-10-24，承诺先出设计再动；第二块同款 SSD 以后可买，到时 SSD 池改镜像）；
   W-68「硬件到货」一条：装完写每晚把行情归档备份到新池的任务。
 - 只出设计和诊断。NAS 上的操作由 Owner 做；集群上的改动按平时的规矩（清单进仓库、平台动作或 Owner 用管理员 kubeconfig）。
 - 不在本文：异地副本（TD-218，SSD 和 RAID5 在同一台 NAS 里，不算异地）；Prometheus 在 NAS 整机停时卡住的问题（B4 切法 §6 已记）。
@@ -173,7 +173,7 @@ cd ~ && for p in .cache .npm .codex/plugins .codex/computer-use .codex/cache .co
 
 ## 6. 行情归档的每晚副本（W-68「硬件到货」那条）
 
-Owner 10-17 定的是「每晚 UGOS 备份行情归档到新池」。实测后有一个更好核对的做法，两种都列：
+决定 2026-10-17 的做法是「每晚 UGOS 备份行情归档到新池」。实测后有一个更好核对的做法，两种都列：
 
 | | ① 集群 CronJob 复制并核对（推荐） | ② UGOS「同步与备份」本地任务（10-17 定的） |
 |---|---|---|

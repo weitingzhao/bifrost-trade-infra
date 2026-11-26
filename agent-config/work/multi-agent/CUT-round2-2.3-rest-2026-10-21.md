@@ -12,13 +12,13 @@
 
 | 项 | 结论 | 证据 | 还差 |
 |---|---|---|---|
-| **T03 同伴越权** | **做完**（按 Owner 10-19「Gate B ① A」的理解：尝试路由；叫停不在内） | 主线 `ee4ad276`（只加测试）；`TestPeerReachesNoOtherAttempt`（`agentrtapi/peer_test.go`）：别的主机的 agentd 令牌打 8 条尝试路由，写持有者主机 → 403 `wrong_host`，写自己主机 → 409 `fenced`，非 agentd 令牌 → 401，一个事件不写、持有者照常心跳；存储层 `TestFenceAndLeaseClock`、`TestEnded`、`TestSalvage`。切法 `CUT-gate-b-2026-10-19.md` 第 14 行 | 没有专门的 STG 实测（设计没要求；路由同一份代码） |
+| **T03 同伴越权** | **做完**（按决定 2026-10-19（Gate B ① 选 A）的理解：尝试路由；叫停不在内） | 主线 `ee4ad276`（只加测试）；`TestPeerReachesNoOtherAttempt`（`agentrtapi/peer_test.go`）：别的主机的 agentd 令牌打 8 条尝试路由，写持有者主机 → 403 `wrong_host`，写自己主机 → 409 `fenced`，非 agentd 令牌 → 401，一个事件不写、持有者照常心跳；存储层 `TestFenceAndLeaseClock`、`TestEnded`、`TestSalvage`。切法 `CUT-gate-b-2026-10-19.md` 第 14 行 | 没有专门的 STG 实测（设计没要求；路由同一份代码） |
 | **T04 交叉传播** | **做完** | 主线 `148e421b`、`1eebd54b`；`TestCrossPropagationChangesNothing`、`TestApprovalClaimInAMessage`、`TestApprovalClaimPhrases`（`store/claims_test.go`）。实测：`RUN-r2-stars-2026-10-20.md` 第 126 行（STG M-26，事件 2125 `policy_alert`，任务照常 accepted）、第 128 行（PROD M-13，事件 1543） | 短语表是绊线，换说法就漏（切法 gate-b 第 15 行 ②）；真正的防线是 T12 |
 | **T07 安全停止** | **做完**（本机 bare 仓库） | 主线 `021b84d0`、`93f5eae8`；`TestAStopDuringThePush`（`agentd/safestop_test.go`）：推送卡在 pre-receive 钩子时叫停，放行 → 远端分支 = 平台记的提交、submitted；拒收 → 两边都没有提交 | Gitea 真推送由 T22 ④ 的 STG 走查覆盖（Gate A），不单独再量 |
-| **T11 隔离** | **做完到设计写的「部分」** | 主线 `80caed0a`…`8196672c`（复核 340–343 收线）；`TestWorkspaceRef`、`TestWorkspaceRefRefused`、`TestUploadNamingAWorkspace`、`TestHandedInVerifyNamesNoWorkspace`、`TestHandInWithholdsAnotherTasksWorkspace`。写墙（TD-371，主线 21 个提交，`TECH_DEBT.md` 第 32 行「待你签收」PASS 10-19）：06 探针 `confine-probe-stg-20261019T103613`、`T113354` 墙的 11 项全过。实测：`RUN-r2-stars` 第 124、125 行（STG、PROD 各 422 `workspace_ref`、库里无此产物） | 读的隔离、推别的尝试的分支、逃出进程组、同用户令牌是 §7 第 7 条 ② 的第 2 轮例外（第 3 轮虚拟机）；macOS 没有墙；codex 不在 agentd 的墙里（Owner 10-19 选 A） |
+| **T11 隔离** | **做完到设计写的「部分」** | 主线 `80caed0a`…`8196672c`（复核 340–343 收线）；`TestWorkspaceRef`、`TestWorkspaceRefRefused`、`TestUploadNamingAWorkspace`、`TestHandedInVerifyNamesNoWorkspace`、`TestHandInWithholdsAnotherTasksWorkspace`。写墙（TD-371，主线 21 个提交，`TECH_DEBT.md` 第 32 行「待你签收」PASS 10-19）：06 探针 `confine-probe-stg-20261019T103613`、`T113354` 墙的 11 项全过。实测：`RUN-r2-stars` 第 124、125 行（STG、PROD 各 422 `workspace_ref`、库里无此产物） | 读的隔离、推别的尝试的分支、逃出进程组、同用户令牌是 §7 第 7 条 ② 的第 2 轮例外（第 3 轮虚拟机）；macOS 没有墙；codex 不在 agentd 的墙里（决定 2026-10-19 选 A） |
 | **T12 来源注入** | **做完**（控制器一侧） | 主线 `148e421b`、`93f5eae8`；`TestRepositoryInstructionsChangeNoDecision`（差分：注入文字下任务流转、路由、租约、判定逐条相同）、负对照 `TestAliasesKeepRowsApart` | 评审 LLM 读了仓库后写「VERDICT: pass」是 LLM 层的注入，不属于控制器的判断，防线是「先确定性验证、评审与作者不同提供方」（切法 gate-b 第 19 行残留） |
-| **T13 无业务键** | **做完**（按 Owner 10-20 11:5x「★ 三条 A」的口径：agentd 交给执行者的环境） | 主线 `3c4fcf65`；`TestBusinessKeys`、`TestNoExecutorSeesABusinessKey`（`agentd/businesskeys_test.go`）。实测：`RUN-r2-stars` 第 127、129 行（STG、PROD 确定性验收 11 个名字交集 0；codex 自己加的 `GIT_PAGER` 按口径 A 不算，第 168 行） | 无 |
-| **T14 根目录只读** | **做完**（按 Owner 10-19「Gate B ② A」改定的标准） | 主线 `7199e43a`；`TestAWalledAttemptLeavesTheRootAsItWas`（`agentd/rootwall_linux_test.go`）。本线 10-21 在本机 Docker 的 Linux 内核（Landlock ABI 6，本机已有的 `busybox:latest`，`--network none`）里重跑：它和 `TestWallHolds`、`TestSetupWallKeepsTheExecutorsHome` 都 PASS（`~/agent-work/w31-23-rest/linuxtest/rootwall.txt`）。06 上的证明是 TD-371 的探针（同 T11） | v5 §5.3 T14 那一行已按 ② A 改写，不再写「被 preflight 拦」 |
+| **T13 无业务键** | **做完**（按决定 2026-10-20（★ 三条 A）的口径：agentd 交给执行者的环境） | 主线 `3c4fcf65`；`TestBusinessKeys`、`TestNoExecutorSeesABusinessKey`（`agentd/businesskeys_test.go`）。实测：`RUN-r2-stars` 第 127、129 行（STG、PROD 确定性验收 11 个名字交集 0；codex 自己加的 `GIT_PAGER` 按口径 A 不算，第 168 行） | 无 |
+| **T14 根目录只读** | **做完**（按决定 2026-10-19（Gate B ② 选 A）改定的标准） | 主线 `7199e43a`；`TestAWalledAttemptLeavesTheRootAsItWas`（`agentd/rootwall_linux_test.go`）。本线 10-21 在本机 Docker 的 Linux 内核（Landlock ABI 6，本机已有的 `busybox:latest`，`--network none`）里重跑：它和 `TestWallHolds`、`TestSetupWallKeepsTheExecutorsHome` 都 PASS（`~/agent-work/w31-23-rest/linuxtest/rootwall.txt`）。06 上的证明是 TD-371 的探针（同 T11） | v5 §5.3 T14 那一行已按 ② A 改写，不再写「被 preflight 拦」 |
 
 另三项（不在这次点名里，顺带核过）：T09 做完（STG 19.65 秒、PROD 22.18 秒，`RUN-r2-stars` 第 130 行；`TestAStopReachesTheTasksChecks` 等重跑过）；T15 接口层做完（`TestBusWipedMidTask`）；T32（经导入）做完到代码（`TestPlanImportCounterExamplesThroughTheRoute`、`TestRecorderImport*` 四个重跑过），记录器那一半没在 STG / PROD 跑过（见 1.3）。
 
@@ -63,7 +63,7 @@
 
 ## 3. 要 Owner 定的（每条 2–3 个选项和推荐）
 
-**已定（Owner 2026-10-21 13:2x，在统筹线程，原话「2.3 的四条都照推荐 A。」，统筹线程 `local_accccb4e…` 转来）**：1 选 A（`GET /api/v1/agentrt/artifacts` 只回元数据、游标分页、`limit` ≤ 100，加 MCP `search_artifacts`；要索引就单独一条迁移，算 PROD DDL）；2 选 A（第 2 轮不做 presence，写进设计 §5.3）；3 选 A（第 1 轮不导入，写进设计 §5.3）；4 选 A（认可 `agentrt.recorder_import/v1`，一份日志一张卡；先 STG，由已签的卡规则答；PROD 17 张卡在 STG 核过之后由统筹线程提、Owner 答；`lane.py`、`rec.py` 等 PROD 导完再退役）。落地见 §6。
+**已定（决定 2026-10-21：2.3 的四条都照推荐 A）**：1 选 A（`GET /api/v1/agentrt/artifacts` 只回元数据、游标分页、`limit` ≤ 100，加 MCP `search_artifacts`；要索引就单独一条迁移，算 PROD DDL）；2 选 A（第 2 轮不做 presence，写进设计 §5.3）；3 选 A（第 1 轮不导入，写进设计 §5.3）；4 选 A（认可 `agentrt.recorder_import/v1`，一份日志一张卡；先 STG，由已签的卡规则答；PROD 17 张卡在 STG 核过之后由统筹线程提、Owner 答；`lane.py`、`rec.py` 等 PROD 导完再退役）。落地见 §6。
 
 1. **`search_artifacts`（新路由）**。设计 §5.3 的交付物里点了名，没有定形状；交接（`HANDOFF.md` → `handover` 产物）要靠它找「最新的一份交接」。
    - **A（推荐）**：`GET /api/v1/agentrt/artifacts?kind=&task=&mission=&author=&since=&limit=`（read 角色），只回元数据（号、种类、作者、任务、时间、大小、媒体类型），正文仍按号用 `GET /artifacts/{id}` 读；按时间倒序、游标分页、`limit` ≤ 100。MCP `search_artifacts` 同参数。不加表列（`artifact` 表已有这些列，必要时加一个索引，走迁移）。
@@ -156,7 +156,7 @@
 
 **记录器导入的步骤**（统筹线程安排；Owner 只在 PROD 答卡）：
 1. 合并 `w31/23-recorder-card`，发 STG（STG 跑的平台要带这个提交，否则规则会答 Do not import）。
-2. STG：经 MCP `propose_plan_import`（STG 那一个），逐个提交 `recorder-<work>.json`，`reason` 写「W-31 2.3：本机派工记录迁进平台（Owner 10-21 第 4 条 A）」，每份一个新的幂等键。STG 的卡规则 v3 约 5–10 秒答 a；核对：`legacy:recorder:<work>` 17 条流、各自条数与本地一致（合计 1108）、`VerifyStream` 过；同一份再提一次回「已导入」。STG 有规则答的卡不受问题库配额限制（ByRule）。
+2. STG：经 MCP `propose_plan_import`（STG 那一个），逐个提交 `recorder-<work>.json`，`reason` 写「W-31 2.3：本机派工记录迁进平台（决定 2026-10-21 第 4 条 A）」，每份一个新的幂等键。STG 的卡规则 v3 约 5–10 秒答 a；核对：`legacy:recorder:<work>` 17 条流、各自条数与本地一致（合计 1108）、`VerifyStream` 过；同一份再提一次回「已导入」。STG 有规则答的卡不受问题库配额限制（ByRule）。
 3. PROD：**分批提**（复核 482 C2）：问题库对每个请求方最多 3 张未答卡、每小时最多建 6 张，PROD 没有规则豁免。建议每批 3 张，Owner 答完、控制器确认后再提下一批；17 张约 6 批、至少 3 小时（每小时 6 张）。卡上会写推荐 Import 和理由；Owner 答 Import 落地，答 Do not import 什么都不写。
 4. PROD 17 条流核对过之后：infra 一个提交删 `agent-config/scripts/recorder/` 里的 `lane.py`、`rec.py`（`STATUS.md` 写去向：`legacy:recorder:<work>`），`_observer/` 不导入、随看板在 2.5 退役。
 

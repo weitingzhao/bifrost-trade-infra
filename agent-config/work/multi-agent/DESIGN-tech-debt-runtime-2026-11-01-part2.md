@@ -14,7 +14,7 @@
 | `related` | `debt_edge` | TD-476 与 TD-478（STG 512Mi 低于启动峰值） |
 | 重复 | `debt.duplicate_of`（只存这一处） | 合并时用 |
 | `paid_by_step` | `debt_ref` → `plan_node` | 由某个计划步来还 |
-| `waits_on_owner` | `debt_ref` → 问题 `Q63` / 审批 `#255` / `debt_decision` | TD-473 的上线等 #255（`owner_run_command`，D 级，`covers=apply`）；TD-144「Owner 10-07 暂缓」，等「数据缺口的三处设计 / DDL」那一组（`covers=start`） |
+| `waits_on_owner` | `debt_ref` → 问题 `Q63` / 审批 `#255` / `debt_decision` | TD-473 的上线等 #255（`owner_run_command`，D 级，`covers=apply`）；TD-144（决定 2026-10-07 暂缓），等「数据缺口的三处设计 / DDL」那一组（`covers=start`） |
 | `guarded_by` | `debt_ref` → `ratchet` | TD-473 → `test_dagster_pods_have_a_reaping_pid_1` |
 | `raised_by_issue` | `debt_ref` → `issue` | 一条吐槽查下来是缺陷 |
 | `reclassified_as` | `debt_ref` → `accepted_gap` | 订阅里没有的数据，从债改成边界 |

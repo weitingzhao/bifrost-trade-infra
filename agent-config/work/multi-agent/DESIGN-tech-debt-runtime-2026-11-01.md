@@ -5,7 +5,7 @@
 > 下一步：Owner 过目（5.8-2）定第十二节的待定项 → 才开 5.8-3。
 > 依据（全部只读）：infra `origin/main` de152c7；platform `origin/main` bfa513d6（下文 `file:line` 不带仓库名的都指 platform）；core `2277054`；
 > PROD 运行时计划 `R5:5.8`（get_plan）；Design v3.6 `design/ops/`；记忆 `project_crew_institution_north_star`、`feedback_discipline_into_code`、
-> `feedback_build_vs_adopt`、`project_crew_memory_core_asset`。方向：Owner 2026-11-01 在统筹线程里选了 B（技术债成为运行时一等记录），没选 A、C。
+> `feedback_build_vs_adopt`、`project_crew_memory_core_asset`。方向：决定 2026-11-01 选 B（技术债成为运行时一等记录），没选 A、C。
 > 标 **〔推断〕** 的没有在代码或环境里核实。台账数字是用脚本读 de152c7 的 `TECH_DEBT.md` 得出的，可复现（1.1 末）。
 
 ## 修订记录（r2）
@@ -141,7 +141,7 @@ Owner 列的五件事在 git 里都能找到形状：
 |---|---|---|
 | A | `agentrt.issue` 加 `kind='debt'`，再加一张子表 | 要放宽 `issue_id ~ '^BI-'`（`:105`）、标题 ≤80（`:108`）、状态与 `waiting_on`（`:111-113`）、`served_person` 约束（`:134-137`）；`list_issues` 的六个视图都要排除债；改的是一张带活守卫的表 |
 | **B（推荐）** | 新表族 `agentrt.debt*`，事件流 `debt:TD-n` | 一次新迁移、几百行 store 代码，样板和 issue 相似 |
-| C | Gitea Issues | Owner 11-01 已选 B 而不选 C；跨仓库债、事件、守卫、签收都要另造 |
+| C | Gitea Issues | 决定 2026-11-01 选 B 而不选 C；跨仓库债、事件、守卫、签收都要另造 |
 
 业务问题可以**变成**债：用 `raised_by_issue` 连起来，两个对象各走各的流程。
 

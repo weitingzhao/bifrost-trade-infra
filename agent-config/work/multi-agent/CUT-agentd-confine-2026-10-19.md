@@ -104,7 +104,7 @@ agentd 在 Linux 上启动时（领活之前）自己跑一遍探针：在 `<roo
 4. setup 留下的、`setsid` 甩掉进程组的进程（在窄墙里）还能在 `--refuse` 检查之后、cursor 读之前往工作区放 `.cursor/hooks.json`；钩子跑在 cursor 的墙里。事后 `checkChanges` 会让留了执行者配置的尝试失败，但钩子自己删掉文件就看不出来。要彻底关，得按尝试放进 cgroup（单元加 `Delegate=yes`，结束时 `cgroup.kill`）——改单元，交统筹线程定。
 5. 进程组：执行者 `setsid` 甩掉组（v5 §6.2 已接受）；甩掉的进程仍在它自己的墙里。
 6. codex 的证明走 `codex sandbox -P :workspace`，生产跑的是 `codex exec -s workspace-write`（复核 301 B、304 B2）：两者用同一组钉子，但探针证明不了 exec 的命令真按这组配置起、能用 Go 模块缓存、写和网的限制都一样。按 §10 的 A，codex 不在 agentd 的墙里，exec 路径的配置差异**没有外层墙兜底**，所以 STG 走查必须真跑一次带 setup、Go 模块缓存和真实命令的 codex 尝试，分别看允许的写、被拒的写和网络。
-7. **codex 进程本身靠厂商代码**（Owner 2026-10-19 选 §10 的 A 时定为残留）：codex 不在 agentd 的墙里。它起的命令由它自己的 bubblewrap 沙箱在内核层限住（根只读，只有工作区和 `a.Out/tmp` 可写，命令没网；**新版探针在 06 上通过之后才算证明，截至 2026-10-19 11:0x 还没跑**）；codex 进程自己写的东西（它的 `CODEX_HOME`、`report.md`、在进程里应用补丁）靠 codex 按 `writable_roots` 和 `approval_policy="never"` 做的检查，codex 出了 bug 就可能写到别的尝试。codex 的 setup 命令照样各自套 agentd 的窄墙；agentd 自己对 codex 工作区的 git 和文件操作也照样进墙、不跟链接。长远的修法是 §10 的 C（每个槽位一个系统用户）。
+7. **codex 进程本身靠厂商代码**（决定 2026-10-19 选 §10 的 A 时定为残留）：codex 不在 agentd 的墙里。它起的命令由它自己的 bubblewrap 沙箱在内核层限住（根只读，只有工作区和 `a.Out/tmp` 可写，命令没网；**新版探针在 06 上通过之后才算证明，截至 2026-10-19 11:0x 还没跑**）；codex 进程自己写的东西（它的 `CODEX_HOME`、`report.md`、在进程里应用补丁）靠 codex 按 `writable_roots` 和 `approval_policy="never"` 做的检查，codex 出了 bug 就可能写到别的尝试。codex 的 setup 命令照样各自套 agentd 的窄墙；agentd 自己对 codex 工作区的 git 和文件操作也照样进墙、不跟链接。长远的修法是 §10 的 C（每个槽位一个系统用户）。
 
 ## 8. 06 上要 Owner 跑一次的探针
 
@@ -172,7 +172,7 @@ systemd-run --quiet --wait --pipe --collect --uid="$u" --gid="$u" \
 
 不选的：把 codex 钉回还支持 legacy Landlock 的旧版本。0.163 已改成必须用 bubblewrap，退版本会落后厂商修复，下一次升级还会撞上同一个问题。
 
-**Owner 2026-10-19 10:4x 定：选 A。**原话（统筹线程转）：「codex 隔离选 A：codex 在墙外用它自己的 bubblewrap 沙箱，钉子齐、沙箱经探针证明就算受限，可以共享主机；『codex 进程本身靠厂商代码』记为残留」。残留写在 §7 第 7 条。实现在平台分支 `w31/confine-codex`（基于主线 `2b101cd`）。
+**决定 2026-10-19：选 A。**codex 在墙外用它自己的 bubblewrap 沙箱，钉子齐、沙箱经探针证明就算受限，可以共享主机；「codex 进程本身靠厂商代码」记为残留。残留写在 §7 第 7 条。实现在平台分支 `w31/confine-codex`（基于主线 `2b101cd`）。
 
 **选 A 要改的**（不改公开接口；已按下面做）：`proveCodex` 改成不套 agentd 墙、在单元限制下跑 `codex sandbox`（同一组钉子），探针加一项「codex 沙箱里写工作区外被拒」。`Wall.Executors["exec:codex"]` 的含义改成「codex 自己的沙箱证明过」。Run 里 codex 不套墙前缀、不加 legacy 开关，`checkPins` 按这个来；setup 仍带 `--write`（命令各自套窄墙）。§7 加一条残留。测试：`TestCheckPins` 的 codex 分支、`TestConfined`，以及「codex 只有在沙箱证明过时才算受限」的测试。
 

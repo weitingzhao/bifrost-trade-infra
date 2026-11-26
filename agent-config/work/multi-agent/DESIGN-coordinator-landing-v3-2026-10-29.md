@@ -278,7 +278,7 @@
 - `failed{declined}` 从 `awaiting_grant` 写入时，同一事件必须带 `landing_grant_request{op, approval_id, status:"rejected"}`（append 校验强制），把处置绑定到具体审批。
 - `RetryableReasons` 加 `approval_expired`。`declined` 仍不可重试。
 - 新增 `reasons`：`approval_expired`、`grant_insufficient`（后者只出现在最终闸决定里，不是 failed 原因）。
-- 旧代码（v1.1 解析器）读到 v1.2 kind 会整条流读不出 → 失败闭合（不领、不推）；所以回滚只能在流里没有 v1.2 记录时做，否则向前修（Owner 2026-10-19「往前修」）。
+- 旧代码（v1.1 解析器）读到 v1.2 kind 会整条流读不出 → 失败闭合（不领、不推）；所以回滚只能在流里没有 v1.2 记录时做，否则向前修（LAW-14 一）。
 
 ### 5.3 计时与预算（唯一定义）
 
@@ -539,7 +539,7 @@ CREATE INDEX task_pinned_ready_idx ON agentrt.task (created_at) WHERE state = 'r
 |---|---|---|
 | F1 外部执行者的数据库落法 | **A 迁移加列与约束（pin 列化）** | §7.1 迁移 0010；§7.3 先迁移、再全部读者、确认无旧读者、才启用；**PROD DDL 执行前须 Owner 在线程里单独点头**（本采纳不等于 DDL 批准） |
 | F2 撤销 | **A 实现撤销**：消费前可撤，消费后如实提示「已交给推送」 | §5.7 |
-| F3 hard 文件能否经审批落地 | ~~A 第一版保持 Owner 手推特殊路径~~ → **Owner 2026-10-28 23:4x CDT 在线程里改选：信任核心的改动也走「核心级 D 单」**（统筹提问的选项 A） | §12 取代 §4.4 的手推范围 |
+| F3 hard 文件能否经审批落地 | ~~A 第一版保持 Owner 手推特殊路径~~ → **决定 2026-10-28 改选：信任核心的改动也走「核心级 D 单」**（统筹提问的选项 A） | §12 取代 §4.4 的手推范围 |
 | F4 混合来源 | **A 第一版不进自动通道** | §2.8 |
 
 同时沿用 v2 已定：E1 A（独立 coordinator 主机与令牌）、E2 A（24 h、从真实批准时刻起、消费时也验、不可刷新）、E4 A（一个接受的单提交、按操作一张单、绑定 R/M0）。E3 由本稿 §4 的包级闭包取代 v2 的「扩大后的最小可信边界」。B5 O-1 A（`stg_release`）在 §5.6、§8 落地。
@@ -558,7 +558,7 @@ CREATE INDEX task_pinned_ready_idx ON agentrt.task (created_at) WHERE state = 'r
 
 ---
 
-## 12. 核心级 D 单（Owner 2026-10-28 23:4x CDT 在线程里选定，取代 F3 A）
+## 12. 核心级 D 单（决定 2026-10-28，取代 F3 A）
 
 **依据**：统筹提问「信任核心的改动，是否也改成你在 Console 批、落地身份推？」，Owner 回「选 A」。理由（统筹提问时陈述）：Owner 手推时推的是统筹给的 SHA，并不逐行看 diff；Console 批准在信任上与手推等价，并多出留痕、异家复核结论与独立核对入口。本节改动 §4 的语义，不改 §4.2 清单本身。
 

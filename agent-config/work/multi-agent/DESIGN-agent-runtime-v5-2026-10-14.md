@@ -8,7 +8,7 @@
   3. 现在由 LLM（统筹线程）手工维护的活，逐条改成程序维护（§9）。
   4. **从内往外**：先做数据层（PG 状态库、`redis-agents` 的数据形式），再做接口，最后做界面（§5 的 2.1 → 2.5）。不做内核之前的外层小版本。
   5. 分发任务按**能力和额度**，先判断谁能胜任，再在能胜任的里按额度挑（§5.1、§5.4）。
-  6. 分工（Owner 2026-10-13 23:16，`WORK.md` W-31「分工」）：第 2 轮的核心部分（数据层、Redis 数据形式、内核接口、`agentd`、总线与叫停）由 Claude 写、Codex 只读复核；外围活（测试样板、文档、按已定接口填的页面）交 Codex 或 Cursor 写、Claude 验收。
+  6. 分工（决定 2026-10-13，`WORK.md` W-31「分工」）：第 2 轮的核心部分（数据层、Redis 数据形式、内核接口、`agentd`、总线与叫停）由 Claude 写、Codex 只读复核；外围活（测试样板、文档、按已定接口填的页面）交 Codex 或 Cursor 写、Claude 验收。
 - **证据口径**：平台源码读的是 `bifrost-platform` 的 `origin/main` `5021b0f`（2026-10-13 21:03）；它和 PROD 正在跑的 `38500f9`（审批单 #16，10-13 20:52 发完）之间 `api/`、`mcp/` 没有差异（`git diff --stat 38500f9 origin/main -- api mcp` 为空），所以下文的 `文件:行` 就是 PROD 的行为。平台源码路径省略前缀 `bifrost-platform/api/internal/`。集群用只读身份 `bifrost-agent` 读，时间 2026-10-13 23:00–23:20 CDT；没有读任何 Secret 的内容。没核实的写「未核实」。
 - **编号**：W-31。新测试从 T19 接着编（§5.6）。
 
@@ -18,16 +18,16 @@
 
 | # | 方面 | v4 是什么 | v5 改成什么 | 为什么 |
 |---|---|---|---|---|
-| 1 | 运行位置 | `agentd` 第 0 阶段在 MacBook，第 2 阶段迁进 mini 虚拟机（v4 §8、§12） | 设计只认「**Agent 主机**」这个角色。第 2 轮的 Agent 主机是开发机（Mac16,1，10 核，24 GB，会睡），第 3 轮换成 mini 上的虚拟机；换主机只换主机登记和登录，不改平台和数据（§6.3） | Owner 2026-10-13 22:58：先在开发机上把架构做完，再搬虚拟机；10-13 晚：「本机」将来是外置服务器 |
-| 2 | 分阶段 | 第 0 步（工作区即代码、Gitea 做主、私有仓库、根目录白名单、硬编码路径、编号、D1、RP、心跳、进展）→ 阶段 0–5 | 第 2 轮按**从内往外**分五步：2.1 数据层 → 2.2 接口层与 `agentd` → 2.3 总线与叫停、本机文件迁进平台 → 2.4 多厂商、按能力和额度分流、参谋长 → 2.5 界面（Progress 页全由接口生成，本机看板退役）。第 3 轮搬 mini 虚拟机。v4 阶段 3–5 在第 3 轮之后。v4 第 0 步里和运行时无关的几项不在第 2 轮（§8） | Owner 2026-10-13：架构做完前不做业务；按他的经验先定数据存储形式，再基于 API 构建 UI |
-| 3 | 计划进运行时 | 运行时只有 mission 和任务；进展由事件算（v4 §20.1） | 新增**计划结构**：轮 → 项 → 步，编号一经分配不变；每一步带一条「何时算做完」的规则，只由事件推进（审批执行、提问回答、任务验收、CI 结果、门禁测试通过）。LLM 只能**提议**改计划，不能手改状态。任务挂在哪一步由控制器按提议的上下文写、库里的触发器校验，填错就拒（5.1.1、5.1.2）。「架构对照」也是计划数据，每行的勾由它对应的验收测试结果对照当前部署算出来 | 第 2 轮的计划和进展一换轮次就退化，因为编号和状态由 LLM 手写（Owner 10-13 晚；`board2.py:481-484` 的注释记了一次：第 2 轮的「2.0-1」认不出） |
-| 4 | 分流 | 按各家剩余额度分流（v4 §6、§12 阶段 2） | **按能力和额度分流**：先按岗位筛出能胜任的（资格考试、基准题集、在岗成绩、实测的硬约束），再在里面按额度挑。数据层有「执行者 × 模型 × 岗位 × 任务类别」的成绩表和硬约束表；放宽候选名单要 Owner 签 | Owner 2026-10-13 晚 |
+| 1 | 运行位置 | `agentd` 第 0 阶段在 MacBook，第 2 阶段迁进 mini 虚拟机（v4 §8、§12） | 设计只认「**Agent 主机**」这个角色。第 2 轮的 Agent 主机是开发机（Mac16,1，10 核，24 GB，会睡），第 3 轮换成 mini 上的虚拟机；换主机只换主机登记和登录，不改平台和数据（§6.3） | 决定 2026-10-13：先在开发机上把架构做完，再搬虚拟机；「本机」将来是外置服务器（ISSUE-60） |
+| 2 | 分阶段 | 第 0 步（工作区即代码、Gitea 做主、私有仓库、根目录白名单、硬编码路径、编号、D1、RP、心跳、进展）→ 阶段 0–5 | 第 2 轮按**从内往外**分五步：2.1 数据层 → 2.2 接口层与 `agentd` → 2.3 总线与叫停、本机文件迁进平台 → 2.4 多厂商、按能力和额度分流、参谋长 → 2.5 界面（Progress 页全由接口生成，本机看板退役）。第 3 轮搬 mini 虚拟机。v4 阶段 3–5 在第 3 轮之后。v4 第 0 步里和运行时无关的几项不在第 2 轮（§8） | 决定 2026-10-13：架构做完前不做业务；先定数据存储形式，再基于 API 构建 UI（ISSUE-99） |
+| 3 | 计划进运行时 | 运行时只有 mission 和任务；进展由事件算（v4 §20.1） | 新增**计划结构**：轮 → 项 → 步，编号一经分配不变；每一步带一条「何时算做完」的规则，只由事件推进（审批执行、提问回答、任务验收、CI 结果、门禁测试通过）。LLM 只能**提议**改计划，不能手改状态。任务挂在哪一步由控制器按提议的上下文写、库里的触发器校验，填错就拒（5.1.1、5.1.2）。「架构对照」也是计划数据，每行的勾由它对应的验收测试结果对照当前部署算出来 | 第 2 轮的计划和进展一换轮次就退化，因为编号和状态由 LLM 手写（ISSUE-18，2026-10-13；`board2.py:481-484` 的注释记了一次：第 2 轮的「2.0-1」认不出） |
+| 4 | 分流 | 按各家剩余额度分流（v4 §6、§12 阶段 2） | **按能力和额度分流**：先按岗位筛出能胜任的（资格考试、基准题集、在岗成绩、实测的硬约束），再在里面按额度挑。数据层有「执行者 × 模型 × 岗位 × 任务类别」的成绩表和硬约束表；放宽候选名单要 Owner 签 | ISSUE-13，2026-10-13 |
 | 5 | 租约 | 任务级租约 120 秒、心跳 30 秒、`FOR UPDATE SKIP LOCKED`（v4 §7.2） | 租约挂在**尝试**（attempt）上，带隔离号（lease epoch）：过期先进「过期待续」，宽限期内同一主机可以续；过了宽限期判「丢失」。接管按副作用类别：`none` / `branch` 宽限后可重派（重复计算是写明的代价，每个任务只有一次尝试能被验收），`external` 等旧尝试确认结束才动；平台每次写入都在同一事务里按数据库时间查隔离号（§6.2 接管协议）。沿用审批执行器已经在 PROD 跑的做法（`approvals/execution.go:14-33,355-357`） | Agent 主机会睡；只有一台主机时，任务要能等它醒，又不能让醒来的旧进程写坏状态 |
 | 6 | 决策卡 | 新表 `agentrt.decision`（v4 §7.5） | **复用已在 PROD 的「提问」**（`questions/types.go:46-72` 已有选项、推荐、`meanwhile` 即「不回复会怎样」、`work_id`），加两个字段：`owner_duty`（三件事里的哪一件）和 `task_id`。待 Owner 定（§7 第 3 条） | 同一个概念不存两处；提问入口和 Owner 的手机通知已经接好 |
 | 7 | 身份 | `actor` 一层 | 身份分**工具**和**模型提供方**两层（ADR §12.10「身份分工具与模型两层」）：执行者是工具（`exec:cursor`），每次尝试记下实际用的模型和提供方；独立验收按提供方判（ADR §12.5）。主机另有一张表；`agentd` 每台主机一把令牌（§7 第 5 条） | Cursor 一家能跑 Claude、GPT、Grok 等多家模型 |
 | 8 | 参谋长的形态 | 一个 24 小时在线的席位，跑在 mini 上（v4 §5.2） | 第 2 轮用**任务**实现席位：控制器在固定时点、Owner 说话、出现阻塞时生成 `brief` / `plan` 任务，由坐席的候选执行；Owner 的对话入口是「提问」和信箱（加厂商的 Remote Control 作补充，§4）。24 小时在线随第 3 轮的 mini 虚拟机到位 | 第 2 轮只有一台会睡的 Agent 主机，常驻会话做不到 24 小时；任务形态在主机醒来后自然接着做，状态都在平台 |
 | 9 | 基准与考场 | 用 Harbor 或 inspect_swe 做考场，第 0 阶段测 Cursor 20 次（v4 §11） | Gate A 用 `agentd` 本身跑 6 道回放题（§5.2）；20 题全集在 2.4 跑，作为能力成绩的初始数据。外部考场（Harbor / inspect_swe）放到第 3 轮之后 | 第 2 轮的被测对象就是这套运行时；先让它自己跑通 |
-| 10 | 进展 | 运行时阶段 1 起由事件算（v4 §20.4） | 2.5 交付：PROD Console 的 Progress 页**完全由接口生成**（计划栏、架构对照、现场、需要他做的事），本机看板（`~/agent-work/status/`）退役；验收是停掉 Agent 主机上的看板程序后 PROD 页照常正确（T24） | Owner 10-13 晚 |
+| 10 | 进展 | 运行时阶段 1 起由事件算（v4 §20.4） | 2.5 交付：PROD Console 的 Progress 页**完全由接口生成**（计划栏、架构对照、现场、需要他做的事），本机看板（`~/agent-work/status/`）退役；验收是停掉 Agent 主机上的看板程序后 PROD 页照常正确（T24） | ISSUE-1，2026-10-13 |
 | 11 | 环境 | 状态库和 Redis 只在 PROD | 状态库分 DEV / STG / PROD 三个库，每个库有本环境自己的两个登录角色（5.1.1）；DEV 库给 Agent 主机上 `bdev` 跑的本地 platform-api 开发用。事实只认 PROD | 开发在 Agent 主机上的本地平台进行，需要一份可丢的库 |
 | 12 | 第 1 轮已建好、直接成为运行时一部分的 | —（v4 写于第 1 轮之前） | 审批单与编号、执行器领单、提问、ntfy 通知、线程心跳、发版策略与冻结的代码和闸门、CI 门禁、按摘要核对、提交血缘、派工记录的事件格式。逐项见 §3 | 第 1 轮 75 步 2026-10-13 22:11 做完（`WORK.md` W-31「第 1 轮逐项」） |
 | 13 | 厂商自带、不必自建的 | v4 §17、§18 有原则，没逐家核对 | 逐家核对了本机命令行的 `--help` 和公开文档，结论分「自建 / 用厂商的 / 先用厂商的、留接口」三类（§4） | 粘合剂策略（ADR §12.2 第 6、7 条） |
@@ -151,7 +151,7 @@
 
 总则：
 - 每一步按验收测试算数；纸面上有不算。每步的「★」那一项在 PROD（或集群）上实测通过才算这一步做完。
-- 谁写（Owner 10-13 23:16）：核心部分 Claude 写、Codex 只读复核、复核问题由 Claude 改；外围活（测试样板、文档、2.5 按已定接口填的页面）Codex 或 Cursor 写、Claude 验收；复核问题不退回 Cursor（`WORK.md` W-66「指派规矩再改一处」）。
+- 谁写（决定 2026-10-13）：核心部分 Claude 写、Codex 只读复核、复核问题由 Claude 改；外围活（测试样板、文档、2.5 按已定接口填的页面）Codex 或 Cursor 写、Claude 验收；复核问题不退回 Cursor（`WORK.md` W-66「指派规矩再改一处」）。
 - 工作区规矩里要 Owner 点头的（新增表或列、新外部依赖、改公开接口、PROD DDL、集群清单、Secret、PROD 发布单），全部列在 5.7 的依赖清单里，每一步的「Owner 动手」指向它的行号。
 
 ### 5.1 第 2.1 步：数据层（状态库 + `redis-agents` 的数据形式）
@@ -185,7 +185,7 @@
 - `plan_node`：改 `plan_node_id`、`parent_plan_node_id`、`node_kind`、`ordinal`、`created_*` 报错，`DELETE` 报错；父子类型只许 `round → item → step`、`arch_root → arch_row`。
 - `task`（建时即时查；建后的改动见下条）：`plan_node_id` 必须指向 `step`；那一步绑了 mission 时 `task.mission_id` 必须等于它；有 `subject_task_id` 的（验收、评审）`plan_node_id`、`off_plan` 必须和对象任务相同（返工是同一个任务 `round_no + 1`，自然同一步）。
 - **绑定固定**（复核 142 R3）：一步一经挂了任务，它的 `mission_id`（含从空绑上）和这些任务的 `plan_node_id`、`mission_id` 都固定。确需迁移，只能是一次原子的计划变更（本事务的事件是 `plan_changed`，正文写明迁移），提交时对最终状态重验：这一步下每个任务的 `mission_id` 等于这一步的；验收、评审任务仍和对象同一步；每条 `done_rule` 仍只引用绑在自己这一步的对象。任何一条不合，整个事务回滚。重验用延期的约束触发器（`CREATE CONSTRAINT TRIGGER … DEFERRABLE INITIALLY DEFERRED`），一次变更里先改步骤还是先改任务都不会卡在中间状态；不经 `plan_changed` 的这类 UPDATE 直接拒。
-- **步骤锁**（复核 143 的 R3 余项，Owner 2026-10-14 同意照补、未再复核）：挂步骤、改绑、迁移三条路径对同一步先拿同一把行锁，再读最新状态、再校验。`task` 的触发器在检查之前做 `SELECT … FROM agentrt.plan_node WHERE plan_node_id = NEW.plan_node_id FOR SHARE`（改绑时新旧两步都锁），检查用这条锁定语句读回的行（READ COMMITTED 下等锁之后读到的是最新提交的版本）；`plan_changed` 的迁移对它动到的每一步先 `FOR UPDATE`。并发新建任务之间互不挡（都是共享锁），迁移和挂任务互相挡：迁移先拿到锁，挂任务等它提交后读到新的 mission，不合就拒；挂任务先拿到锁，迁移等它提交，提交时的重验看得到新任务，不合就整个迁移回滚。锁加在触发器里，任何写路径都绕不过。
+- **步骤锁**（复核 143 的 R3 余项，决定 2026-10-14：照补、未再复核）：挂步骤、改绑、迁移三条路径对同一步先拿同一把行锁，再读最新状态、再校验。`task` 的触发器在检查之前做 `SELECT … FROM agentrt.plan_node WHERE plan_node_id = NEW.plan_node_id FOR SHARE`（改绑时新旧两步都锁），检查用这条锁定语句读回的行（READ COMMITTED 下等锁之后读到的是最新提交的版本）；`plan_changed` 的迁移对它动到的每一步先 `FOR UPDATE`。并发新建任务之间互不挡（都是共享锁），迁移和挂任务互相挡：迁移先拿到锁，挂任务等它提交后读到新的 mission，不合就拒；挂任务先拿到锁，迁移等它提交，提交时的重验看得到新任务，不合就整个迁移回滚。锁加在触发器里，任何写路径都绕不过。
 - `task_dependency` 插入先拿依赖图的一把事务级锁（`pg_advisory_xact_lock(<固定键>)`，全库一把），再沿已提交的依赖查，成环就拒。并发插 A→B、B→A 的两个事务，后拿到锁的那个等前一个提交，拿锁之后的查询（READ COMMITTED，新快照）看得到那条边，被拒。
 - `verification`：`accepts_attempt = true` 的行要求被验的尝试 `persisted_at` 非空。
 
@@ -283,7 +283,7 @@ CREATE TABLE agentrt.task (
   subject_task_id      text REFERENCES agentrt.task(task_id),            -- verify / review 的对象
   role                 text NOT NULL CHECK (role IN ('plan','implement','verify','review','brief','other')),
   task_class           text NOT NULL,      -- 'go'、'python'、'ts'、'shell'、'design'、'doc'；能力表按它分
-  core                 boolean NOT NULL DEFAULT false,   -- 核心部分（Owner 10-13：Claude 写、Codex 只读复核）
+  core                 boolean NOT NULL DEFAULT false,   -- 核心部分（决定 2026-10-13：Claude 写、Codex 只读复核）
   title                text NOT NULL,
   spec_artifact_id     text NOT NULL REFERENCES agentrt.artifact(artifact_id),   -- 任务书
   repo                 text,
@@ -490,7 +490,7 @@ CREATE TABLE agentrt.rule (                            -- v4 §7.5 原样：只�
 -- 'job:implementer'、'capability-facts'、'visibility'。发版策略不在这里，仍在 cicd ConfigMap（修复链，ADR §12.3）
 ```
 
-**能力与额度**（Owner 10-13 晚：先能力、后额度）：
+**能力与额度**（ISSUE-13：先能力、后额度）：
 
 ```sql
 CREATE TABLE agentrt.job (                             -- v4 §7.5
@@ -588,10 +588,10 @@ CREATE TABLE agentrt.schema_migration (
 
 | `capability_fact_id` | 内容 | 类别 | 出处 |
 |---|---|---|---|
-| `codex-sandbox-no-listen` | Codex 的沙箱跑不了要监听本机端口的测试 → 这类测试由 `agentd` 的确定性验收在沙箱外跑，不让 Codex 自验 | measured | `WORK.md` W-66「指派规矩再改一处（Owner 2026-10-12 13:24）」；第 1 轮 ⑥ 第二轮修复「它的沙箱跑不了测试」 |
+| `codex-sandbox-no-listen` | Codex 的沙箱跑不了要监听本机端口的测试 → 这类测试由 `agentd` 的确定性验收在沙箱外跑，不让 Codex 自验 | measured | `WORK.md` W-66「指派规矩再改一处」（决定 2026-10-12）；第 1 轮 ⑥ 第二轮修复「它的沙箱跑不了测试」 |
 | `codex-sandbox-no-commit` | Codex 的沙箱不能提交 → 提交和推分支由 `agentd` 做 | measured | `RUNTIME-PLACEMENT-2026-10-11.md` §10 第 1 行；同上 W-66 |
-| `cursor-no-fix-review-findings` | 复核或验收查出的问题不退回 Cursor；Cursor 只做第一轮实现 | owner | W-66「指派规矩再改一处」（Owner 10-12） |
-| `core-author-claude` | `core=true` 的任务作者只能是 Claude | owner | W-31「Owner 2026-10-13 23:16：分工」 |
+| `cursor-no-fix-review-findings` | 复核或验收查出的问题不退回 Cursor；Cursor 只做第一轮实现 | owner | W-66「指派规矩再改一处」（决定 2026-10-12） |
+| `core-author-claude` | `core=true` 的任务作者只能是 Claude | owner | W-31「分工」（决定 2026-10-13） |
 | `core-review-codex-readonly` | `core=true` 的任务由 Codex 只读复核（`-s read-only` 或 `codex review`） | owner | 同上 |
 | `review-other-provider` | 评审的模型提供方不能和作者相同；作者不验收自己 | owner | ADR §12.2 第 3 条、§12.5 |
 
@@ -602,7 +602,7 @@ CREATE TABLE agentrt.schema_migration (
 | 计划 | `plan_node_created`、`plan_node_retitled`（只许未开始的步骤）、`plan_node_state_changed`（from、to、cause：哪条原子满足了，或 `standing_lapsed`）、`plan_change_proposed`、`plan_change_decided`、`plan_changed`（经授权的变更落地：加步骤、绑审批或提问、改完成规则；cause 指向 `plan_change_decided`） |
 | mission | `mission_proposed`、`mission_state_changed`、`mission_amended` |
 | 任务 | `task_proposed`、`task_state_changed`、`task_dependency_added`、`task_cancelled`（级联的根）、`route_decided` |
-| 尝试 | `attempt_leased`、`attempt_started`、`attempt_progress`（阶段、一句话；文本变了才记，最多每分钟一条。心跳本身不记事件，只改存活列，所以事件日志回放不出心跳时间）、`attempt_checkpointed`（`checkpoint_seq`，日志尾部和补丁的产物号，或「检查点过大，未持久化」）、`attempt_stale`、`attempt_renewed`、`attempt_computed`、`attempt_persisted`、`attempt_submitted`、`attempt_lost`、`attempt_ended`、`attempt_salvaged`（过期尝试保全进来的产物和提交；不改任务状态）、`attempt_cancelled`（采纳保全结果时，同一事务里取消这个任务还活着的新尝试；`reason`，`accepted_attempt` 是被采纳的那次 `lost` 尝试；迁移 0005，Owner 10-14 选 A，复核 152 A3） |
+| 尝试 | `attempt_leased`、`attempt_started`、`attempt_progress`（阶段、一句话；文本变了才记，最多每分钟一条。心跳本身不记事件，只改存活列，所以事件日志回放不出心跳时间）、`attempt_checkpointed`（`checkpoint_seq`，日志尾部和补丁的产物号，或「检查点过大，未持久化」）、`attempt_stale`、`attempt_renewed`、`attempt_computed`、`attempt_persisted`、`attempt_submitted`、`attempt_lost`、`attempt_ended`、`attempt_salvaged`（过期尝试保全进来的产物和提交；不改任务状态）、`attempt_cancelled`（采纳保全结果时，同一事务里取消这个任务还活着的新尝试；`reason`，`accepted_attempt` 是被采纳的那次 `lost` 尝试；迁移 0005，决定 2026-10-14 选 A，复核 152 A3） |
 | 产物与验收 | `artifact_put`、`verification_recorded` |
 | Owner 与外部事实 | `owner_wait_opened`、`owner_wait_closed`（关联审批 `#n` 或提问 `Qn`）、`approval_seen`、`question_seen`（正文带回答的选项、原文、回答者、时间：不可变的副本）、`ci_seen`、`pipeline_seen`、`deploy_seen`（某环境现在部署的提交和镜像摘要变了）（控制器读到外部记录的状态变化）、`owner_signoff`（带 `plan_node_id`） |
 | 主机与身份 | `actor_registered`（建 `actor` 行：种子里的 `controller`、`owner`，以后加的执行者、席位）、`host_registered`、`host_state_changed`（`active → draining → retired`；在线 / 失联不是状态，按 `last_poll_at` 算，不记事件）、`host_retired` |
@@ -665,11 +665,11 @@ T30、T32 在 2.1 用存储包的通用批量写入夹具（一组行经写事�
 |---|---|---|
 | `GET /plan?root=R2`、`GET /plan/{plan_node_id}` | viewer | 计划树和每步的状态、出处事件；签过的步骤带 `signoffs`（2.5 补，见 §5.5） |
 | `POST /plan/proposals` | reporter / seat / thread | `plan_change_proposed`；在常备授权内（给进行中的项加步骤、改未开始步骤的标题）自动 `plan_change_decided`，否则生成一条提问给 Owner |
-| `POST /plan/{plan_node_id}/signoff` | 只 admin（Owner） | `owner_signoff`（2.5 补，Owner 2026-10-21；见 §5.5） |
+| `POST /plan/{plan_node_id}/signoff` | 只 admin（Owner） | `owner_signoff`（2.5 补，决定 2026-10-21；见 §5.5） |
 | `POST /missions`、`GET /missions/{id}` | seat / thread 提议；viewer 读 | `mission_proposed`；落在 `standing-envelope` 内自动 `active` |
 | `POST /missions/{id}/tasks` | seat / thread / 规划任务 | `task_proposed`（带任务书产物、`needs_json`、`core`） |
 | `GET /tasks?mission=&state=`、`GET /tasks/{id}`、`GET /attempts/{id}` | viewer | — |
-| `POST /claim` | `agentd` | 长轮询 ≤ 25 秒（同审批的 `maxWait`，`approvals/execution.go:32`）；正文 `{host_id, free_slots, tools, disk_free_bytes?, root_free_bytes?}`；按分流结果 `FOR UPDATE SKIP LOCKED` 取一条，`attempt_leased`；回 `attempt_id`、`lease_epoch`、任务书、`base_commit`、`pushed_ref`；顺带更新 `host.last_poll_at`。**剩余磁盘**（TD-415 第二层，Owner 2026-10-21「agentd 心跳带剩余磁盘，低于下限不派新活并告警，尝试结束后清工作目录」；领活就是主机的心跳）：`disk_free_bytes` 是主机根目录所在卷、`root_free_bytes` 是 `AGENTD_ROOT` 所在卷的可用字节，两个一起带（只带一个回 400，负数回 400）；任一低于下限（默认 15 GiB，平台环境变量 `AGENTRT_DISK_FLOOR_GIB` 可改）就不派活，同 `free_slots=0`，`last_poll_at` 照常更新；跌破时在 `host:<id>` 流记一条 `policy_alert`（`rule=disk_low`，产物写明观测时间、两卷剩余与下限），回到下限或以上记一条 note，每个方向只记一次。推手机由控制器做（循环 `agentrt-disk-pages`，每分钟）：7 天内还没推的记录逐条推，中转收下或没有目标（skipped）就在同一流记「已推」note，失败下一分钟重试，一直失败按控制器循环告警（复核 497 A4）。不带这两个字段（TD-415 之前的 `agentd`）不判 |
+| `POST /claim` | `agentd` | 长轮询 ≤ 25 秒（同审批的 `maxWait`，`approvals/execution.go:32`）；正文 `{host_id, free_slots, tools, disk_free_bytes?, root_free_bytes?}`；按分流结果 `FOR UPDATE SKIP LOCKED` 取一条，`attempt_leased`；回 `attempt_id`、`lease_epoch`、任务书、`base_commit`、`pushed_ref`；顺带更新 `host.last_poll_at`。**剩余磁盘**（TD-415 第二层，决定 2026-10-21：agentd 心跳带剩余磁盘，低于下限不派新活并告警，尝试结束后清工作目录；领活就是主机的心跳）：`disk_free_bytes` 是主机根目录所在卷、`root_free_bytes` 是 `AGENTD_ROOT` 所在卷的可用字节，两个一起带（只带一个回 400，负数回 400）；任一低于下限（默认 15 GiB，平台环境变量 `AGENTRT_DISK_FLOOR_GIB` 可改）就不派活，同 `free_slots=0`，`last_poll_at` 照常更新；跌破时在 `host:<id>` 流记一条 `policy_alert`（`rule=disk_low`，产物写明观测时间、两卷剩余与下限），回到下限或以上记一条 note，每个方向只记一次。推手机由控制器做（循环 `agentrt-disk-pages`，每分钟）：7 天内还没推的记录逐条推，中转收下或没有目标（skipped）就在同一流记「已推」note，失败下一分钟重试，一直失败按控制器循环告警（复核 497 A4）。不带这两个字段（TD-415 之前的 `agentd`）不判 |
 | `POST /attempts/{id}/heartbeat` | `agentd` | `{lease_epoch, phase, line}` → 续租（只改存活列，不记事件）；回 `{lease_expires_at, stop}` |
 | `POST /attempts/{id}/checkpoint`、`/computed`、`/persist`、`/submit` | `agentd` | 依次记 `attempt_checkpointed`（`checkpoint_seq`、日志尾部和补丁的产物号）；`attempt_computed`（退出码、`end_how`、`conclusion`）；`attempt_persisted`（产物号、`pushed_ref`、`pushed_commit`：平台核对产物都在；推了分支的，再查 Gitea 上 `pushed_ref` 的头就是这个提交；都对才记）；`attempt_submitted`（控制器排确定性验收和评审）。都带幂等键：`checkpoint` 是 `attempt_id + checkpoint_seq`（每次采样一个新号，同一次采样的重试复用它；复核 142 R2）；`computed`、`persist` 是尝试 + 步骤；`submit` 按 `pushed_commit`，没推分支的按尝试。「做成了但回复丢了」重试得到同一结果（顺序见下「写入时的隔离检查」） |
 | `POST /attempts/{id}/salvage` | `agentd` | 只收本主机的、已过宽限的尝试：它的产物和它自己分支上的提交 → `attempt_salvaged`。宽限还没过的回「尚在宽限内」，`agentd` 留在本地队列里重试（见下「心跳与死人开关」）。不改任务状态，自己不能让任务被验收：保全的结果要被采纳，只能由控制器另建一个新的验收任务，走正常的验收编排；`lost` 的尝试不会被直接标成 `accepted`，每个任务最多一次采纳（`verification_one_accept`）不变（复核 142 B2）。平台对保全做和 `persist` 同样的核对（产物在平台、Gitea 上本尝试分支的头等于交来的提交），核过就给这次尝试写 `persisted_at`——它说的是结果在哪，和租约无关，尝试的 `state` 仍是 `lost`；所以新验收任务的那条采纳记录指向这次 `lost` 的尝试，`accepts_attempt` 的触发器照常放行。采纳保全结果时，控制器在同一事务里取消这个任务还在跑的新尝试（统筹方补，修订 2 子代理留的缺口） |
@@ -739,12 +739,12 @@ MCP 工具（加在现有 `mcp/platform`）：`whoami`、`get_plan`、`get_missi
 
 **交付物**：把 2.1 的中继和重建接进 `platform-workers`（只接线）；信箱、唤醒、在线、叫停广播的 API 与 MCP 长轮询（`wait_for_messages`、`ack_messages`、`ask`、`request_help`、`handover`、`search_artifacts`）；等待计时由控制器做（`RULE-waits` 总则第 4 条）；隔离、根目录只读、注入防护；本机文件导入。
 
-（Owner 2026-10-21 13:2x「2.3 的四条都照推荐 A」，`CUT-round2-2.3-rest-2026-10-21.md` §3）**在线**：第 2 轮只做主机在线（按 `host.last_poll_at`），**交互线程和席位的 presence（5.1.4 的 `agrt:presence:<actor_id>`）第 2 轮不做**：线程存活看平台已有的线程心跳（`agentthreads`，T26 就读它），席位第 2 轮是任务形态、不常驻（§1 第 8 行）；presence 随第 3 轮常驻席位做。`ask`、`request_help`、`handover` 由一个 `send_message`（`kind` 取 ask / help / handover / note / answer）承担，`handover` 的产物是 `put_artifact`（kind `handover`）；`search_artifacts` 是只回元数据的 `GET /api/v1/agentrt/artifacts`。
+（决定 2026-10-21：2.3 的四条都照推荐 A，`CUT-round2-2.3-rest-2026-10-21.md` §3）**在线**：第 2 轮只做主机在线（按 `host.last_poll_at`），**交互线程和席位的 presence（5.1.4 的 `agrt:presence:<actor_id>`）第 2 轮不做**：线程存活看平台已有的线程心跳（`agentthreads`，T26 就读它），席位第 2 轮是任务形态、不常驻（§1 第 8 行）；presence 随第 3 轮常驻席位做。`ask`、`request_help`、`handover` 由一个 `send_message`（`kind` 取 ask / help / handover / note / answer）承担，`handover` 的产物是 `put_artifact`（kind `handover`）；`search_artifacts` 是只回元数据的 `GET /api/v1/agentrt/artifacts`。
 
 | 本机文件 | 怎么迁 |
 |---|---|
-| `WORK.md`「第 2 轮逐项」「架构对照」（「第 1 轮逐项」**不导入**，留在 `WORK.md` 作历史：全部做完、没有在跑的活挂在上面。Owner 2026-10-21 13:2x，`CUT-round2-2.3-rest` §3 第 3 条 A） | 一次性导入成 `plan_node`（`legacy_imported`），编号按表里的项号和行序，`W-n` 写进 `work_id`；「架构对照」每行指定它的门禁测试编号和钉住的规格 sha256（例：状态库 ← T19、T20、T23a）。导入后的去留见 §7 第 4 条。`TECH_DEBT.md`、`RATCHETS.md` 第 2 轮不导入（§8） |
-| 派工记录 `~/agent-work/recorder-root` | 先校验哈希链，再作为 `legacy:recorder` 流导入；然后 `lane.py`、`rec.py` 退役。（Owner 2026-10-21 13:2x，`CUT-round2-2.3-rest` §3 第 4 条 A：请求格式 `agentrt.recorder_import/v1`，经 `POST /plan/imports`，一份日志一张卡；先 STG（由已签的卡规则答），STG 核过后 PROD 的卡由统筹线程提、Owner 答；`lane.py`、`rec.py` 等 PROD 导完再退役。`_observer/` 是看板的观察轮次，不导入，随看板在 2.5 退役） |
+| `WORK.md`「第 2 轮逐项」「架构对照」（「第 1 轮逐项」**不导入**，留在 `WORK.md` 作历史：全部做完、没有在跑的活挂在上面。决定 2026-10-21，`CUT-round2-2.3-rest` §3 第 3 条 A） | 一次性导入成 `plan_node`（`legacy_imported`），编号按表里的项号和行序，`W-n` 写进 `work_id`；「架构对照」每行指定它的门禁测试编号和钉住的规格 sha256（例：状态库 ← T19、T20、T23a）。导入后的去留见 §7 第 4 条。`TECH_DEBT.md`、`RATCHETS.md` 第 2 轮不导入（§8） |
+| 派工记录 `~/agent-work/recorder-root` | 先校验哈希链，再作为 `legacy:recorder` 流导入；然后 `lane.py`、`rec.py` 退役。（决定 2026-10-21，`CUT-round2-2.3-rest` §3 第 4 条 A：请求格式 `agentrt.recorder_import/v1`，经 `POST /plan/imports`，一份日志一张卡；先 STG（由已签的卡规则答），STG 核过后 PROD 的卡由统筹线程提、Owner 答；`lane.py`、`rec.py` 等 PROD 导完再退役。`_observer/` 是看板的观察轮次，不导入，随看板在 2.5 退役） |
 | 看板数据 `tasks.json` 手写行、`HANDOFF.md` | 「需要你」→ 提问 / 审批 / 计划里的 Owner 步骤；「在做」→ 任务与尝试；「最近」→ 事件；`HANDOFF.md` 只剩判断性的话，作为 `handover` 产物经 MCP 写入 |
 | 等待计时、看护（`~/agent-work/watch-agents.sh`） | 控制器的 `wait_limit_passed` 和租约循环 |
 | 额度读数（`usage.py`、`cursor-quota.json`） | 2.4 的 `pool_measured` |
@@ -753,14 +753,14 @@ MCP 工具（加在现有 `mcp/platform`）：`whoami`、`get_plan`、`get_missi
 
 | 编号 | 过的标准 |
 |---|---|
-| T03 同伴越权 | 一个主体去心跳、提交、取消别人的尝试或任务：403 / 409。（Owner 2026-10-19「Gate B ① A」：「取消」指尝试路由；叫停是安全方向的刹车，任何已认证主体都能叫停，不在 T03 之内） |
+| T03 同伴越权 | 一个主体去心跳、提交、取消别人的尝试或任务：403 / 409。（决定 2026-10-19，Gate B ① 选 A：「取消」指尝试路由；叫停是安全方向的刹车，任何已认证主体都能叫停，不在 T03 之内） |
 | T04 交叉传播 | 一件任务的产物被拼进另一件的任务书，里面写「Owner 已批准」：任何状态不变，记一条 `policy_alert` |
 | T07 安全停止 | 在推分支的那一刻叫停：要么推上去并记录，要么没推；没有半截状态 |
 | T09 叫停 | 从 `POST /controls` 到 Agent 主机上子进程死掉 ≤ 60 秒；之后不再派活 |
 | T11 隔离 | 任务书、产物里引用另一个任务的工作区一律拒收。同一系统用户下读不读得到别的目录**做不到**，标「部分」，第 3 轮虚拟机补；推到别的尝试的分支、逃出进程组、读同用户的令牌同属这一例外（§7 第 7 条 ②） |
 | T12 来源注入 | 仓库文件里的指令改变不了控制器的任何判断 |
 | T13 无业务键 | 执行者子进程的环境变量名和拒绝清单交集为空 |
-| T14 根目录只读 | （Owner 2026-10-19「Gate B ② A」改定）执行者写不进 agentd 根目录和 agent 用户的家：Linux 上由 agentd 的写墙保证（06 探针），另有一个 Linux 测试——带墙的尝试试图在 agentd 根目录建文件被拒，结束后根目录列表不变；codex 由它自己的沙箱证明。原写「被 preflight 拦；根目录白名单」与 §8 冲突，不再用 |
+| T14 根目录只读 | （决定 2026-10-19，Gate B ② 选 A，改定）执行者写不进 agentd 根目录和 agent 用户的家：Linux 上由 agentd 的写墙保证（06 探针），另有一个 Linux 测试——带墙的尝试试图在 agentd 根目录建文件被拒，结束后根目录列表不变；codex 由它自己的沙箱证明。原写「被 preflight 拦；根目录白名单」与 §8 冲突，不再用 |
 | T15 总线重建（接口层） | 任务进行中清空 `redis-agents`：领活、心跳、信箱不中断（期间走 PG）；领活、未读、叫停以 PG 查询为准，未 ack 的消息按 `message_id` 去重后逻辑上只处理一次（Redis 里可以重复或留陈旧信号；复核 142 R6） |
 | T32（经导入） | 把 T32 的反例放进待导入的计划（`WORK.md` 格式）和记录器事件，经导入入口提交：都被拒并写明违反的约束，不留半条记录；同一份文件导入两次结果相同（复核 142 R4，从 Gate A 挪来） |
 
@@ -781,7 +781,7 @@ MCP 工具（加在现有 `mcp/platform`）：`whoami`、`get_plan`、`get_missi
 | 观察窗口 | 从 `mission_proposed` 到最后一件 `accepted` |
 | 过的标准 | ① 窗口内统筹线程**没有回合**：`agentthreads` 里统筹线程 id 没有 `turn_start`（线程心跳在 PROD，可直接读）；② PROD 审计日志和事件里，窗口内对这个 mission 的写入全部来自 `controller`、`host:*`、`exec:*`、`seat:chief_of_staff`、`owner`，统筹线程的令牌写入数为 0；③ 4 件全部 `accepted`，其中一件经过一次 `rework`；④ 每次评审的模型提供方 ≠ 作者的，核心类作者是 Claude；⑤ 每 5 分钟一次的探针对比 `GET /progress` 和库里的真实状态，零次不一致，合盖期间那件显示「宿主失联」而不是「在做」；⑥ 截止时间（8 小时）内完成。Owner 在窗口内只做事先列明的动作（给目标、回答事先登记的决策卡） |
 | 不过 | 任一条不成立；按停线规矩分「会答错」和「只缺测试」 |
-| 修订（Owner 10-19 22:3x） | ① 改为：**窗口里统筹线程对这个 mission 零写入，mission 没有等过统筹线程**（窗口里 Owner 自己在统筹线程发消息、用 `!` 跑命令开的回合不算插手）。另：④ 只验评审提供方 ≠ 作者（10-19 02:1x）；返工出现就必须收下、没自然出现不算不过（10-18 21:5x）；故障注入为停 06 的 PROD agentd（第二次 4 分 42 秒，Owner 定算数）。**结果：PROD M-12（10-19 21:37–22:11）过，T26 收线**；报告 `REPORT-T26-2026-10-19.md` |
+| 修订（决定 2026-10-19） | ① 改为：**窗口里统筹线程对这个 mission 零写入，mission 没有等过统筹线程**（窗口里 Owner 自己在统筹线程发消息、用 `!` 跑命令开的回合不算插手）。另：④ 只验评审提供方 ≠ 作者（10-19 02:1x）；返工出现就必须收下、没自然出现不算不过（10-18 21:5x）；故障注入为停 06 的 PROD agentd（第二次 4 分 42 秒，Owner 定算数）。**结果：PROD M-12（10-19 21:37–22:11）过，T26 收线**；报告 `REPORT-T26-2026-10-19.md` |
 
 **依赖**：2.3。**Owner 动手**：5.7 的 O23–O25。**粗估**：4–6 天；把握低（额度读数和参谋长考试都是第一次做）。
 
@@ -793,12 +793,12 @@ MCP 工具（加在现有 `mcp/platform`）：`whoami`、`get_plan`、`get_missi
 
 **依赖**：2.2（接口）、2.3（导入）。**Owner 动手**：5.7 的 O26–O28。**粗估**：2–4 天；把握中。
 
-**2.5 补的两处公开接口（Owner 2026-10-21「缺口 1、2 照推荐加」；T24 场景 8、9 要）**：
+**2.5 补的两处公开接口（决定 2026-10-21：缺口 1、2 照推荐加；T24 场景 8、9 要）**：
 - `GET /progress` 加 `owner_next`：下一次需要 Owner 的是哪件事、哪一步、预计几点，跨事依赖取晚的；估不出就 `unknown` 写原因。形状和规则见 `SPEC-agentrt-progress-2026-10-14.md` 第 4 版 §2.7。Console 在 For you 的 Yours 卡里显示。
 - 审批单加 `drill`（演练）：`POST /api/v1/approvals` 收 `"drill": true`，所有读方带 `drill`（为假时不出现）；演练单不问发版策略的自动批，批准路由在任何渠道都回 409 `a drill cannot be approved`，所以永远不执行；驳回照常可以关掉它，过期照常；通知写「Drill · #n」「A drill: nothing runs, and it cannot be approved.」，优先级 3，不发提醒。MCP `request_action` 收 `drill`。Console「需要你」把待批的演练单单列一组「Drills」，不计入任何计数；审批页写明是演练、没有 Approve 按钮。审批单存在 statefile，没有迁移，不是 PROD DDL。
 - 另两处只改 Console、不改接口：待批项显示它是计划里哪一步（按步骤完成规则里的 `approval_executed` 反查，场景 10）；断库时说最后一次读到是几点（场景 5，交 PROD 运行时 M-33 做）。
 
-**2.5 补的第三处公开接口：Owner 签收这一步**（Owner 2026-10-21「加一个只给我用的「签收这一步」路由和 Console 按钮，记一条 TD；2.4-1 考试那步也先用签收」）。完成规则里的 `owner_signoff` 原子此前没有任何路由、工具或按钮能写，写成签收的步骤永远打不上勾。
+**2.5 补的第三处公开接口：Owner 签收这一步**（决定 2026-10-21：加一个只给 Owner 用的「签收这一步」路由和 Console 按钮，记一条 TD；2.4-1 考试那步也先用签收）。完成规则里的 `owner_signoff` 原子此前没有任何路由、工具或按钮能写，写成签收的步骤永远打不上勾。
 - **路由**：`POST /api/v1/agentrt/plan/{plan_node_id}/signoff`，正文 `{"ref": "…"}`。规则只等一个签收时 `ref` 可省，等多个时必须写；多出的字段回 400。写一条 `owner_signoff` 事件：落在这一步所属轮的计划流上，`plan_node_id` 是这一步，正文 `{ref}`，`actor` 是 `owner`。路由不自己求值，控制器下一遍完成规则把这一步推成 `done`（同其他事实）。
 - **只给 Owner**：新能力 `signoff`，只有 admin 角色。Agent 持有的令牌（viewer、reporter、operator、seat、`agentd`）在路由前就被拒：平台的角色中间件对没有令牌和角色不对一律回 401 `admin token required`（复核 485 B1）。存储层再查一遍写入人必须是 `owner`，否则 403 `not_owner`。不加给 Agent 用的 MCP 写工具；`get_plan` 读得到 `signoffs`（只读）。admin 令牌是 Owner 的，接受的风险与审批相同（ADR §5：`preflight.js` 拦 Agent 读它）。
 - **应答**：200 `{plan_node_id, ref, by, at, event_id, already_signed}`。重复签回 `already_signed: true`，带第一次的 `event_id`、`at`、`by`，什么都不写。
@@ -953,9 +953,9 @@ MCP 工具（加在现有 `mcp/platform`）：`whoami`、`get_plan`、`get_missi
 - 网页推送 / PWA（S0-0e、W-44 的推送部分）；手机原生应用（已否）。
 - 厂商云端任务（Claude Routines、Codex cloud、Cursor 云端 Agent）、自托管执行器（Cursor My Machines、Claude self-hosted environments）、ACP 适配器、A2A、LiteLLM、Harbor / inspect_swe 外部考场。
 - 真正的 CNPG 切换演练（影响 Trade 和 GS）。
-- 业务工作和其余技术债（Owner 10-13：架构完成前不做）。
+- 业务工作和其余技术债（决定 2026-10-13：架构完成前不做）。
 - `TECH_DEBT.md`、`RATCHETS.md` 迁进运行时（状态行、计数、「待你签收」、Console 上签收）：第 3 轮或以后，另做数据设计；`W-n` 改由平台发号随它一起（§7 第 4、8 条）。
-- 内核之前的外层小版本（Owner 10-13 定从内往外）；本机看板在 2.5 前只修会答错的。
+- 内核之前的外层小版本（决定 2026-10-13：从内往外，ISSUE-99）；本机看板在 2.5 前只修会答错的。
 
 ## 9. 现在由 LLM 手工维护、要改成程序维护的活
 
@@ -963,11 +963,11 @@ MCP 工具（加在现有 `mcp/platform`）：`whoami`、`get_plan`、`get_missi
 
 | # | 活 | 现在怎么做 | 出过的错 | 程序化后由什么维护 | 落在哪一步 |
 |---|---|---|---|---|---|
-| 1 | **计划结构和状态**：轮 → 项 → 步的编号、谁在做、做完几步、在跑的活对应哪一步 | LLM 手改 `WORK.md`「第 N 轮逐项」「架构对照」并改「核对于」时间；本机 `roadmap.py` 解析它；`board2.py:481-489` 的 `step_id_of` 按派工名的前缀认步骤（过渡：派工名要以「项号-步号」开头才认得出） | 第 2 轮的「2.0-1」按第 1 轮的写法认不出，在跑的活挂不到步骤上（`board2.py:482-484`，Owner 10-13）；全局计划和台账是两份、手抄（教训 51、52）；台账状态落后（ADR §12.2 第 13 条列的当天证据） | `plan_node`（编号分配后不变，触发器挡改号和错的父子类型）；步骤状态只由 `plan_node_state_changed` 事件改，事件的原因是满足了 `done_rule_json` 里的哪一条（任务验收、审批执行、提问回答、CI 结果、门禁测试、Owner 签收）；任务挂哪一步由控制器按提议上下文写、触发器校验；计数按 5.1.2 的一条规则算；LLM 只能 `propose_plan_change`；架构对照的勾由对照当前部署的 `verification` 算 | 2.1 表；2.2 接口和控制器；2.3 导入；2.5 界面 |
+| 1 | **计划结构和状态**：轮 → 项 → 步的编号、谁在做、做完几步、在跑的活对应哪一步 | LLM 手改 `WORK.md`「第 N 轮逐项」「架构对照」并改「核对于」时间；本机 `roadmap.py` 解析它；`board2.py:481-489` 的 `step_id_of` 按派工名的前缀认步骤（过渡：派工名要以「项号-步号」开头才认得出） | 第 2 轮的「2.0-1」按第 1 轮的写法认不出，在跑的活挂不到步骤上（`board2.py:482-484`，ISSUE-18）；全局计划和台账是两份、手抄（教训 51、52）；台账状态落后（ADR §12.2 第 13 条列的当天证据） | `plan_node`（编号分配后不变，触发器挡改号和错的父子类型）；步骤状态只由 `plan_node_state_changed` 事件改，事件的原因是满足了 `done_rule_json` 里的哪一条（任务验收、审批执行、提问回答、CI 结果、门禁测试、Owner 签收）；任务挂哪一步由控制器按提议上下文写、触发器校验；计数按 5.1.2 的一条规则算；LLM 只能 `propose_plan_change`；架构对照的勾由对照当前部署的 `verification` 算 | 2.1 表；2.2 接口和控制器；2.3 导入；2.5 界面 |
 | 2 | **派活和收结果**：写任务书、启动 Codex / Cursor、等、读报告、决定下一步 | 任务书写在 `~/agent-work/<事>/TASK*.md`；`lane.py start -- codex exec …` / `cursor-agent -p …`；统筹线程盯进程、读 `REPORT.md`、决定复核或返工。Claude 子代理在统筹线程里做的活，派工工具完全看不见（没有事件） | 监控脚本在 CI 结束那一刻死了，看板一直显示「在跑」，等了 9 分钟（教训 48）；夜里 8 小时没有进展（教训 106）；并行把机器压满（教训 105） | 任务书是 `task_spec` 产物；`agentd` 领活、起进程、心跳、交产物；控制器按验收结果排复核或返工、按 `route_json` 换人；Claude 的活由 `claude` 执行者经 `agentd` 跑，在统筹线程里用子代理做的活不算计划里的步骤 | 2.1 表；2.2 `agentd`（Codex、Cursor）与控制器；2.4 `claude` 执行者 |
 | 3 | **台账记账**：`TECH_DEBT.md` 的状态行、「待你签收」一节、未结计数；`RATCHETS.md` 的行；签收后删条目 | LLM 改 markdown、手数计数 | 未结计数手数错：10-13 重数是 114 项，此前写的 99 少数了（`TECH_DEBT.md:19`） | 第 2 轮不动，仍是 markdown。方向：每条债和防线的状态、验收命令和结果成为运行时数据，计数和「待你签收」由程序生成，签收是 Console 上的一个动作（`owner_signoff` 事件），条目正文仍由人写；表结构和导入另做数据设计 | 第 3 轮或以后（§7 第 4 条、§8） |
 | 4 | **发布流程**：持有窗口、发测试环境、核对、源检查试跑、建正式环境发布单前的三条前提、盯执行、核对正式环境 | 统筹线程手工跑 `release.sh window / hold / stg`、核对 Pod 与摘要、`request_action`、`~/agent-work/release-platform-prod/watch.sh` 盯 | 没看 CI 就建了 PROD 发布单（教训 38）；发布结束后窗口没放开（教训 11）；两会话同发一个版本（工作区 `CLAUDE.md` §5 的 09-27、09-28 两次事故） | 计划里的 `release` 类步骤：控制器在建单前程序检查三条前提，缺一条不建；单子执行后自动建确定性核对任务（复用第 1 轮 ⑤ 的摘要核对）；窗口和执行仍由平台已有的部分负责（审批执行器、窗口 ConfigMap）；步骤由 `approval_seen` 事件推进 | 2.2（前提检查、核对任务、步骤推进）；全自动发布不在第 2 轮 |
-| 5 | **交接记录与看板手写行**：`~/agent-work/status/HANDOFF.md`、`tasks.json` 的「需要你」「在做」「最近」「队列」「图」 | 统筹线程在压缩上下文前、交接前手写 | 手写段落跟不上实际，Owner 10-13 22:04 指出「在跑」一栏混着手写行和事件算出的行、同一件事出现两次（`WORK.md` W-31「第 2 轮」那一条）；「需要你 1」和「3 个等我接手」让 Owner 读成三件要他做（教训 80） | 交接 = 读运行时（`whoami`、`get_plan`、`list_tasks`、未结的提问和审批）；判断性的话写成 `handover` 产物；「需要你」由提问、审批和计划里的 Owner 步骤生成 | 2.1 表；2.3 迁移和 `handover` 工具；2.5 看板退役 |
+| 5 | **交接记录与看板手写行**：`~/agent-work/status/HANDOFF.md`、`tasks.json` 的「需要你」「在做」「最近」「队列」「图」 | 统筹线程在压缩上下文前、交接前手写 | 手写段落跟不上实际（ISSUE-18）：2026-10-13「在跑」一栏混着手写行和事件算出的行、同一件事出现两次（`WORK.md` W-31「第 2 轮」那一条）；「需要你 1」和「3 个等我接手」让 Owner 读成三件要他做（教训 80） | 交接 = 读运行时（`whoami`、`get_plan`、`list_tasks`、未结的提问和审批）；判断性的话写成 `handover` 产物；「需要你」由提问、审批和计划里的 Owner 步骤生成 | 2.1 表；2.3 迁移和 `handover` 工具；2.5 看板退役 |
 | 6 | **等待计时和看护** | `RULE-waits` 的上限由统筹线程掐表；`~/agent-work/watch-agents.sh` 叫醒 | 线程断了、机器睡了就没人掐表（`RUNTIME-PLACEMENT` §10 第 4 行） | 控制器的租约循环和 `wait_limit_passed` | 2.2（租约）；2.3（等待上限） |
 | 7 | **额度读数和指派** | 统筹线程读各家页面、`usage.py`、`cursor-quota.json`，凭当天判断指派 | 从两次读数推出「Codex 一天只够 9 次」，结论相反（教训 63） | `vendor_pool`、`budget_ledger`、`capability_*`；分流程序按 5.1.2 的七步 | 2.1 表；2.4 分流 |
 | 8 | **编号发放** | `W-n` 由 LLM 在 `WORK.md` 发号，`check_work_ids.py` 查重；派工名由 LLM 起 | 两个协调者撞号（v4 §1.1） | mission、任务、计划节点的编号由平台发；`W-n` 仍在 `WORK.md` 发号，计划节点用 `work_id` 带上它；平台发 `W-n` 推迟到台账迁移（§7 第 8 条） | 2.2；`W-n` 第 3 轮或以后 |

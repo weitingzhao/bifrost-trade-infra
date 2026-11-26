@@ -33,7 +33,7 @@
 
 **P3 · data · Native barmanObjectStore backups are removed in CloudNativePG 1.30; the Barman Cloud Plugin that replaces them needs cert-manager, which the cluster does not have**
 
-- **状态**：未开始（Owner 10-07 暂缓）
+- **状态**：未开始（决定 2026-10-07 暂缓）
 - **Claim**: Applying the Cluster on 10-06 printed "Native support for Barman Cloud backups and recovery is deprecated and will be completely removed in CloudNativePG 1.30.0". The operator is 1.27.4. The plugin needs cert-manager; no cert-manager namespace or CRDs exist.
 - **Evidence**:
   - `bifrost-trade-infra/k8s/data/cluster.yaml` — spec.backup.barmanObjectStore
@@ -48,7 +48,7 @@
 
 **P3 · research-data · Settled candidates are not attributed to the judge (persona) that put them forward, so the Personas bench track-record columns stay grey**
 
-- **状态**：未开始（Owner 10-07 暂缓）
+- **状态**：未开始（决定 2026-10-07 暂缓）
 - **验收**：选 A 时，上线后：`SELECT count(*), count(*) FILTER (WHERE source_ref ? 'persona') FROM research.candidate_pool WHERE source='harness' AND trade_date >= '<上线日>'`（Golden Source 副本只读）两数相等且 > 0
 - **Claim**: research.candidate_pool has 129 rows and none carries a persona key in source_ref; no other table records which judge proposed which candidate. JudgeTrackRecord's four track-record columns and the Pilot Console bench bar have nothing to read.
 - **Measured**: MEASURED 10-06 on the Golden Source replica.
@@ -64,7 +64,7 @@
 
 **P3 · research-data · No store accepts a hand verdict, so the Personas bench 'Agrees with you' column cannot be computed**
 
-- **状态**：未开始（Owner 10-07 暂缓）
+- **状态**：未开始（决定 2026-10-07 暂缓）
 - **验收**：建了的话：`git -C bifrost-research grep -n 'verdict' origin/main -- src/bifrost_research/schema` 出现新表的 DDL，且 `git -C bifrost-trade-frontend grep -n "column: 'Agrees with you'" origin/main -- src` 无输出（列不再登记为缺数据）
 - **Claim**: Nothing records a hand verdict beside the machine's on the same name; JudgeTrackRecord greys 'Agrees with you' for that reason.
 - **Measured**: CODE-READ 10-06: no verdict table under bifrost_research/schema on origin/main a242b22.
@@ -80,7 +80,7 @@
 
 **P3 · frontend · "My levels" (plan stop / target and price alerts as horizontal lines) on the Symbol chart waits on Design: ASK-symbol-chart-my-levels-2026-10-06**
 
-- **状态**：未开始（Owner 10-07 暂缓）
+- **状态**：未开始（决定 2026-10-07 暂缓）
 - **验收**：Design 的回复（RESPONSE 或 Rev 说明）在 `design/trade/` 里；按回复落地后，Symbol › Price 图有对应图层，或台账 G5 改成「➖ 不做」并写明理由
 - **现在**：Design 10-06 带回的 Package .63 @ Rev .162 只回了 Rev .161 回执，**没有回答这份 ASK**，继续等。ASK 写在 `design/uploads/ASK-symbol-chart-my-levels-2026-10-06.md`。实测：`strategy_plan` 有 `stop_kind/target_kind = underlying_price`，但 PROD 0 行；价格提醒没有存储（`/research/alerts` 是镜头级）
 - **下一步**：Design 定形态；计划止损和止盈部分不需要新表，app 直接做；价格提醒要新表，先列方案给 Owner 批
@@ -111,7 +111,7 @@
 
 **P3 · multi-agent · a silent wrapped run now notifies nobody, and a session that inherited the wrapper's marker is still treated as a wrapped run**
 
-- **状态**：未开始（TD-316 签收时留下的后续，Owner 2026-10-12 签收）
+- **状态**：未开始（TD-316 签收时留下的后续，2026-10-12 签收）
 - **Claim**: after TD-316 a thread whose id begins `run-` is left out of the Owner's silent-thread push, of "Needs you" and of the host-lost message (`bifrost-platform` `api/internal/agentthreads/config.go` `Due`, `threads.go` host message; `console/src/api/agentThreads.ts` `silentThreads`). It stays in the thread list with status `silent`, but nothing calls anyone: the seat that dispatched the run has to watch it itself. Today the only dispatcher is the coordinator, whose own watcher covers it. Second: a process that is not a wrapped run but inherited both `BIFROST_HEARTBEAT_THREAD=run-…` and `BIFROST_HEARTBEAT_WRAPPED_RUN=1` (a daemon or a terminal started from inside a wrapped run) reports under the run's id and is hidden the same way (review 126, P3; unchanged by TD-316).
 - **Measured**: on PROD 2026-10-12 a wrapped run silent for 700 s was counted silent and not pushed (the acceptance of TD-316). No process with both variables existed on the coordinator's machine that day (review 126).
 - **Impact**: none while one seat dispatches and watches. With a second dispatching seat, or a dispatcher without a watcher, a hung background run would go unnoticed.

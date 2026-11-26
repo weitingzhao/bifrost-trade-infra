@@ -6,7 +6,7 @@
 
 ## 1. 已定边界与现场
 
-Owner 2026-10-10 的“只管三件事”（审批、手机通知、问题）只有一个入口；2026-10-26 明确：所有人批准的东西在 `ops.bifrost.lan`。审批来源是 PROD 平台，不由目标环境决定。STG 不再有待 Owner 决定的新单，不能用“去 STG 批一下”绕过通道缺失。
+决定 2026-10-10：Owner 只管的三件事（审批、手机通知、问题）只有一个入口；2026-10-26 明确：所有人批准的东西在 `ops.bifrost.lan`。审批来源是 PROD 平台，不由目标环境决定。STG 不再有待 Owner 决定的新单，不能用“去 STG 批一下”绕过通道缺失。
 
 Work 582 的目录曾写 `Request on the target runtime's platform`；STG #2（`appr_687dc07023699256`）因此留在 STG 存储。PROD 不能直连 STG runtime DB，现有 `mark_missions_no_merge`、`void_exam_paper` 执行器只操作自身 runtime。Owner 定：D-L5 只标 PROD，STG #2 等自身过期。本片不搬迁、批准、删除或重新提交它。
 

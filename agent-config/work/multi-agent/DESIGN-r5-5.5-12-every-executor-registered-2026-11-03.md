@@ -1,7 +1,7 @@
 # 实施设计：R5:5.5-12 所有执行者的活都登记进运行时（神经系统 S1）
 
 状态：**只写设计，不实施**（第 7 稿：范围按统筹裁定收窄；Codex 七轮复核，第 7 轮 PASS，其唯一应该改项已收口；最终处置见附录，各轮细节留在复核文件里，不进本稿）。§「要 Owner 定」的 O1–O7 已由 Owner 在统筹线程 2026-11-03 18:45 CST 定：全部按推荐（O1 选 B，O2–O7 选 A）。不建表、不发令牌、不改钩子、不登记任何东西。
-上游：`agent-config/work/multi-agent/DESIGN-nervous-system-and-brain-2026-11-02.md`（第 4 稿；§13 的 12 项 Owner 2026-11-02 全部按推荐，含 N11 A、N14 A、N15 (i)、N16 A）。上游只定方向；身份规则、权限白名单、接口字段仍请 Owner 签（上游 `:8`）。
+上游：`agent-config/work/multi-agent/DESIGN-nervous-system-and-brain-2026-11-02.md`（第 4 稿；§13 的 12 项按决定 2026-11-02 全部照推荐，含 N11 A、N14 A、N15 (i)、N16 A）。上游只定方向；身份规则、权限白名单、接口字段仍请 Owner 签（上游 `:8`）。
 范围：上游 §11.1 的 S1 一行——钩子自动登记、无计划上下文记 Unlinked、Unlinked 薄读面（§5.3）、装 PreCompact 与 SessionStart（N16）、SS0-P（不含会话表 DDL）与 SS0-S（校准，上游 `:713-714`）。出门条、读回注入、收录回执、本机动作流是 S2、S3、S10、S5。**本稿裁掉的**（§11）：收集员的标题读写、Codex 会话逐个绑定、世代与来源尾注、squash 的来源保留、非受管会话的分母。
 核对基线：platform main `277363a4`，infra main `fa7e2e2`。`api/…`、`console/…`、`mcp/…` 指 platform；`agent-config/…`、`scripts/…`、`k8s/…` 指 infra。带 `文件:行` 的说法都对这两个提交核过；写「未核实」的没有。
 

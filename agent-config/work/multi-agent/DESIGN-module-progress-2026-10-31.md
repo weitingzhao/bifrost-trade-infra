@@ -57,7 +57,7 @@ D6 **Console module rows** (v3.6 WorkPage): per item — id, lane, title; a segm
 
 D7 **Registration.** A new root R5 "Post-transition modules" by one plan import (one Owner card),
    imported AFTER the atoms run on PROD so finished steps import as `[x]`; then each open step's
-   first rule is set under standing. Ledger: `CUT-r5-modules-2026-10-31.md`. Order (Owner 10-31):
+   first rule is set under standing. Ledger: `CUT-r5-modules-2026-10-31.md`. Order (决定 2026-10-31):
    5.1 = this module, 5.2 = release lanes per application, 5.3 = unattended PROD (W-56),
    5.4 = S5 (content checker).
 

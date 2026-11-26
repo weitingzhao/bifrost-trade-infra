@@ -3,7 +3,7 @@
 起草 2026-10-23 23:45–10-24 00:30 CDT（统筹线程派出的子代理）；按 Codex 复核 537（`~/agent-work/codex-review-537/REPORT.md`，结论「先改」）10-24 00:50 起改第 2 版，逐条回应在同目录 `RESPONSE.md`；按窄复核 540（`~/agent-work/codex-review-540/REPORT.md`）01:45 起改第 3 版，回应在 `~/agent-work/codex-review-540/RESPONSE.md`。
 只读调研后写：没有 apply，没有在任何主机上装东西，没有建审批单。清单和脚本在 infra 分支 `w31/r4-w68-b4`（未推送）。Owner 要跑的命令在 `OWNER-STEPS-w68-b4-2026-10-24.md`。
 
-## 1. 要做的事（Owner 2026-10-17 定）
+## 1. 要做的事（决定 2026-10-17）
 
 - B4 = 集群外机器的统一监控与管控，分五片；本切法只做 **① 06、NAS、两台 mini 报数，加「主机失联」和硬盘告警，配一个全机房面板**。
 - 监控就用现有的 kube-prometheus-stack（Prometheus / Alertmanager / Grafana，`monitoring` 命名空间）加社区报数程序，不另起第二套。

@@ -2,7 +2,7 @@
 
 **一句话**：PROD Console 现在有两个数据来源——运行时和平台自己的接口（Crew、参谋长对话、目标卡、叫停、主机、额度池、审批、提问、线程心跳），以及本机看板 `~/agent-work/status/board2.py` 每 15 秒推上去的一份文档（`PUT /api/v1/agent/progress`）。后者还撑着 9 块：计划栏、架构对照、统筹方留言、统筹方的活与步骤、需要你里的「统筹方的条目」、最近、动态、额度读数（Claude 窗口）、手写标记。2.5 把这 9 块逐一换到运行时，分 5 片，终点是 v5 的 T24：停掉本机看板程序，PROD 页面照样对。今天只出设计，不写代码。
 
-**依据**：v5 §5.5、§9；`SPEC-agentrt-progress-2026-10-14.md`（第 3 版）；Owner 10-16 采纳的驾驶舱方向（For you / Chief of staff / Work / System，复杂性收进详情页）；`CUT-plan-import-2026-10-19.md`（计划进运行时，已上 PROD `2b101cd` #47，PROD 还没导入）。代码读的是 `bifrost-platform` `origin/main` `b40867a`（10-19 11:45）。
+**依据**：v5 §5.5、§9；`SPEC-agentrt-progress-2026-10-14.md`（第 3 版）；决定 2026-10-16 的驾驶舱方向（For you / Chief of staff / Work / System，复杂性收进详情页）；`CUT-plan-import-2026-10-19.md`（计划进运行时，已上 PROD `2b101cd` #47，PROD 还没导入）。代码读的是 `bifrost-platform` `origin/main` `b40867a`（10-19 11:45）。
 
 ## 1. 现状：每块读的是什么
 
@@ -114,7 +114,7 @@
 
 ## 5. 要定的事
 
-**已定（Owner 2026-10-19 12:2x「2.5 八条照建议」）**：1–8 全部按推荐——G2 A、G3 A（信箱 note）、G6 A（`GET /events` 跨流）、G7 A、G8 A、G9 A（`GET /capabilities`）、要他在终端跑的事先用 `owner_run_command`、统筹方的活和 W-n 分组从页面去掉。
+**已定（决定 2026-10-19：2.5 八条照建议）**：1–8 全部按推荐——G2 A、G3 A（信箱 note）、G6 A（`GET /events` 跨流）、G7 A、G8 A、G9 A（`GET /capabilities`）、要他在终端跑的事先用 `owner_run_command`、统筹方的活和 W-n 分组从页面去掉。
 
 | # | 问题 | 推荐 | 属 |
 |---|---|---|---|
