@@ -35,7 +35,7 @@
 | 关 4090 | 6-compute | `poweroff_compute_node`，D 级：先排空再关机，建卡等批 | Owner 醒着；卡写清楚上面跑着什么 | `CAT:354`、`DOM:484`、`MCP:421` |
 | 封锁 / 解封节点（cordon / uncordon） | 6-compute | `cordon_node`、`uncordon_node`，B 级，直接调 | 11-24 起是 B（LAW-6 七③，platform ba4ca753） | `CAT:331,337`、`MCP:336,344`；`NOTES/compute/06-rejoin-runbook.md:58` |
 | 排空节点（drain） | 6-compute | `drain_node`，D 级 | 同上 | `CAT:343`、`MCP:352` |
-| 加一台节点进集群（重装后入群） | 6-compute 写手续和登记；装系统、取令牌、入群要 Owner 本人 | 按算力线的手续：Owner 在机器前装 Ubuntu；在 MacBook 上跑 `infra:scripts/k3s/fetch-join-token.sh`（要 SSH 到 .73 并输 sudo 密码）；再 `scp` 三个脚本、`ssh` 跑 `join-bifrost-agent.sh`；之后算力线只读核 Ready、建卡打标签、推 ready/ 改 topology 和 home_info | 入群令牌属 Secret，只在 Owner 的 Mac 和新机之间；手机办不了 | `NOTES/compute/06-rejoin-runbook.md:17-55`、`infra:scripts/k3s/fetch-join-token.sh:8-15`、`CARD/6-hw-upgrade.yaml:22` |
+| 加一台节点进集群（重装后入群） | 6-compute 写手续和登记；装系统、取令牌要 Owner 本人 | 走 `infra:scripts/k3s/node-join.sh`（算力线的现成路径）；之后算力线只读核 Ready、建卡打标签、推 ready/ 改 topology | 入群令牌属 Secret，Owner 手做 | `infra:scripts/k3s/node-join.sh`、`CH/6-compute.md` |
 | 给节点打标签 | 6-compute | 建 `owner_run_command` 卡，命令写 `kubectl label node …`，执行口能写 Node | 命令原文一字不改；结果读 `get_request` | `NOTES/compute/06-rejoin-runbook.md:44-45`、`OE:28-29` |
 | 在某台集群节点上跑一条命令（读盘、看主机状态，包括控制面 ubt-k3s-01 / .73） | 6-compute 用得最多【推】；工具人人可用 | `bash infra:scripts/owner-exec/node-run.sh render --tier device --node <节点> --recipe nvme-smart`（设备只读档）或 `--tier host --node <节点> --cmd '<写死的命令>' --pods-file <该节点存活 Pod 清单>`（主机档 = 节点的 root），把打印出来的整段文字放进 `owner_run_command` 卡 | 节点要 Ready；主机档必须带 `--pods-file`；能用设备档或平台动作就不用主机档；主机档 11-24 已在 .73 真跑通一次（卡 #715，00:57Z，加一行公钥，exit 0）；在 4090（gpu-server）上也跑通过：卡 #721 加 8082 转发、#728 停掉 harness 服务（11-24，exit 0）。4090 要先叫醒到 Ready | `OE:100-128`、`infra:scripts/owner-exec/node-run.sh:10-11,124-132`；.73 是集群节点 `AF` 节点表 ubt-k3s-01 行 |
 | 集群管理员级命令（没有现成平台动作） | 5-approvals 管执行口；谁要谁建卡 | `request_action`，`action: owner_run_command`，`params.command` + `params.reason`，卡理由第一段写「批了会发生什么」，带 `rollback`、`work_id`、`requester_thread` | 命令要自带全部内容（执行口没有仓库检出）；只通集群 API、PROD platform-api、DNS；最长 30 分钟；卡上只留输出最后 2048 字节；不打印秘密；Owner 睡了不建 | `OE:13-35`、`CAT:591-593`、`MCP:874` |
@@ -190,7 +190,7 @@
 ### compute（6-compute）
 - 管：CPU、内存、GPU、集群外容量与调度；节点老家、借用、收回；Tekton 资源；dev-session；节点硬件读数；topology.yaml。`CARD/6-compute.yaml:5-11`
 - 口子：`wake_compute_node`（B）、`poweroff_compute_node`（D）；dev-session 三条路由和三个 MCP 工具；事件 `cluster.node.changed` 等；Prometheus 存储 `bifrost_node:home_info`、ComputePain 告警；读数经 `/api/v1/telemetry/overview?group=compute`；申请格式 `compute/resource-request-standard.md`。`CH/6-compute.md:18-26`
-- 能为别人做的事：开关 4090；决定活放哪台、要多少、会不会挤业务；越线时收回 CI 客人；写节点入群手续并做登记；用 node-run 卡进集群节点（包括 .73）读或做事【推：手续里用 `owner_run_command` 打标签，node-run 是通用工具，没写明是算力线的口子】；cordon / uncordon / drain 建卡。
+- 能为别人做的事：开关 4090；决定活放哪台、要多少、会不会挤业务；越线时收回 CI 客人；写节点入群手续并做登记；用 node-run 卡进集群节点（包括 .73）读或做事【推：手续里用 `owner_run_command` 打标签，node-run 是通用工具，没写明是算力线的口子】；cordon / uncordon 直接调（B 级），drain 建卡。
 
 ### payload（7-payload，占位，信箱未登记）
 - 管：平台接业务应用的包（marketdata、flexquery、research、tradeagent、ibgateway），`config/environments.yaml`、`topology.yaml` 里的租户声明。`CH/7-payload.md:5-9`
@@ -219,7 +219,7 @@
 ## 3. 已知的坑 / 只有某台机器、某个人能做
 
 - **执行口（owner-exec）够得着哪里**：命令跑在集群里一个 Pod，网络只通集群 API、PROD platform-api、DNS；`git clone`、外网、Gitea、数据库都不通；不能写三个 Trade 命名空间、名叫 `daemon` 的 Deployment、`redis-ib`、IB 网关。`OE:28-46`
-- **node-run 够得着哪里**：只到集群节点（经 Pod 钉在节点上）。ubt-k3s-01（.73，唯一的控制面）是集群节点，所以【推】主机档能在 .73 上以 root 跑命令。集群外的机器（Mac mini .50/.52、NAS、ubt-k3s-06）够不着。主机档 11-24 已在 .73 真跑通一次（卡 #715，exit 0），所以「主机档能进 .73」不再是推断；设备档只在 05 上跑过一次（卡 #602）。`OE:127-128`、`AF` 节点表
+- **node-run 够得着哪里**：只到集群节点（经 Pod 钉在节点上）。ubt-k3s-01（.73，唯一的控制面）是集群节点，所以【推】主机档能在 .73 上以 root 跑命令。06 和 4090 也是集群节点，够得着；4090 有三个命名配方（见 `infra:scripts/owner-exec/node-run.sh`）。集群外的机器（Mac mini .50/.52、NAS）够不着。主机档 11-24 已在 .73 真跑通一次（卡 #715，exit 0），所以「主机档能进 .73」不再是推断；设备档只在 05 上跑过一次（卡 #602）。`OE:127-128`、`AF` 节点表
 - **SSH 钥匙谁有**：出处里只写到两件。06 回集群手续要求「导入 MacBook 的公钥」，所有 ssh / scp 都由 Owner 在 MacBook 上跑（`NOTES/compute/06-rejoin-runbook.md:20-38`）；取入群令牌的脚本 SSH 到 `vision@192.168.10.73` 并要输 sudo 密码（`infra:scripts/k3s/fetch-join-token.sh:8-15`）。11-24 起工坊能 SSH 进两台 Mac mini（用户 `vision`，钥匙在工坊所在的 Mac Pro 上）；06 已回集群，走 node-run；4090 的系统层走算力线的主机档卡。哪台机器的哪把钥匙能进哪台主机，没有任何出处列全。
 - **入群令牌**：属 Secret，只在 Owner 的 Mac 和新机之间（`CARD/6-hw-upgrade.yaml:22`）。重装系统要人在机器前（手续第 1 步写明手机办不了）。
 - **集群外机器上执行**：动作目录写着 `owner_run_command` 可以带 `runner: host` 和 `host`（如 `mac-pro`、`mini-1`），由那台机器自己的执行器认领，要 Owner 的一次性码换来的 ticket（`CAT:593`、`plat:api/internal/actions/runner.go:17`）。但 `OE:89` 写「在 Mac 上执行的那一种还没做（TD-578）」。【冲突】代码里有这个参数，文档说没做；哪台机器真装了执行器，出处没写。
@@ -233,15 +233,15 @@
 
 ## 4. 空白（没有出处说怎么办，等各线补）
 
-1. **集群外主机（Mac mini .50/.52、ubt-k3s-06、NAS、4090 的系统层）上跑命令**：执行口和 node-run 都够不着；`runner: host` 文档说没做；SSH 谁能进哪台没有表。06 回集群这次只能等 Owner 在 MacBook 上做。→ 6-compute、5-approvals、Station
+1. **集群外主机（Mac mini .50/.52、NAS）上跑命令**：执行口和 node-run 都够不着（06、4090 已是集群节点，够得着）；带 host 的执行卡平台侧原语已在，Mac 上的执行器还没做；SSH 谁能进哪台没有表。→ 6-compute、5-approvals、Station
 2. **SSH 钥匙和登录面的清单**：哪台机器、哪把钥匙、能进哪台主机、用什么用户，没有一处写全。→ 6-compute（节点）、Station（Agent 主机）
-3. **节点入群的免人手路径**：取令牌、装系统、join 全靠 Owner；有没有可能用主机档在 .73 上读令牌、能不能这样做（令牌是 Secret，属六类），没人判过。→ 6-compute 提，Owner 定
+3. **节点入群的免人手路径**：算力线判了：入群令牌属 Secret（六类），取令牌保持 Owner 手做；其余步骤走 `node-join.sh`。→ 6-compute（已判）
 4. **领域合约为空**：crew、triage 已并进 station、audit（b0336adc），剩 station、audit 两份合约是空的，由各线自己补。原记：crew、station、audit、triage 在 `DOM:584-610` 都是 `{}`；只有 Station 写了一份自我说明（领活），合入那份 verification 和 delivery 共用。发布窗口、建卡、发信三份自我说明还没写（`infra:scripts/station/README.md:40`）。→ 各线
 5. **占位领域没人值守**：7-payload 信箱没登记、「自己定」「必须答」空着；2-lineage 席位空着。要用计划、插件、租户接入时找不到人答。→ 主统筹定先后
 6. **Trade 和 Research 的业务改动找谁**：名册里没有 Trade 五仓、Research 的席位；章程只覆盖 Ops 一侧。→ 主统筹
 7. **数据库备份、CNPG、UniFi 网络动作归谁**：已解决（2026-11-26）。六个数据库、集群、网络动作登进了 foundation 合约（platform 4afbe028），归 0-foundation-decouple。
 8. **preflight.js 归谁**：Crew 和 Foundation 的卡都说不是自己的、待裁（`CH/11-station.md`（原 9-crew 章程已并入）、`CARD/0-foundation-decouple.yaml:24`）。被它误拦时该找谁没有定。→ 主统筹 **认领**：11-station（主统筹 11-25 分给工坊；墙清理 11-25 也由工坊做）。被它误拦找工坊。
-9. **4090 的 harness、agent-06 当执行机**：算力线说缺；装到 06 属阶段 B 现在不做（`CH/6-compute.md:61,74`）；06 已决定格式化回集群，Agent 主机这块谁收尾只在手续第 7 步一句话。→ 6-compute、Station
+9. **4090 的 harness、agent-06 当执行机**：已结（算力线 11-25）：06 已回集群，Agent 主机在两台 Mac mini（工坊管）。
 10. **叫醒没挂门铃的会话**（8-2 已补，2026-11-25）：平台信箱只留底，叫醒要对方挂着门铃。没挂门铃的 Claude 会话，用 harness 的会话消息直接发给它的 `local_…` 会话号（Claude Desktop 里的 SendMessage），会开启它的一个回合；回执写 delivered 和「turn has started」。Codex 坐席发给它在 Claude 一侧的联络会话。会话消息不留在平台的事件账里，要留底的话，同一件事再发一封平台信。席位空着（`session: null`）的，两种都叫不醒，找主统筹。→ 8-2-comm-desk
 11. **谁把 submitted 变成做完、计划步怎么认领**：1 号计划没定（`infra:docs/AGENT_WORK.md` §4）。→ 1-plan **认领**：1-plan，第四轮修法之后定，目前未定。
-12. **算力线的口子里没写「能开 node-run 主机档的卡」**：这次卡住的那件能力，章程和身份卡都没列，只在 `OE` 里当通用工具写。→ 6-compute 核对后补进 §2
+12. **算力线的口子里没写「能开 node-run 主机档的卡」**：已结，补进了算力章程 §2。
