@@ -33,6 +33,7 @@
 | 在工坊值守那里问「找谁、怎么办」，或请它在 mini 上照任务书干一件活 | 11-station（mini-01 值守） | `send_message` 到 `thread:01a20bde-35a2-7600-8947-e24375a43229`，任务书放正文或 artifact | 它每封信醒一次，回信 reply_to 你的信 | `CH/seats.yaml` 的 station-desk-mini01 行 |
 | 叫醒 4090（gpu-server） | 6-compute | `wake_compute_node`，B 级，直接调（MCP bifrost-platform 或 bifrost-kubernetes） | 节点名 `gpu-server`；它平时关着，NotReady 加封锁是常态 | `CAT:360`、`DOM:483`、`MCP:413`、`AF` 节点表 gpu-server 行 |
 | 关 4090 | 6-compute | `poweroff_compute_node`，D 级：先排空再关机，建卡等批 | Owner 醒着；卡写清楚上面跑着什么 | `CAT:354`、`DOM:484`、`MCP:421` |
+| 看 4090 推理服务、列模型、切模型和上下文 | 6-compute | `node-run.sh render --tier host --node gpu-server --recipe <名字> [--param K=V]`：`gpu-strata-status`（只读，服务状态）、`gpu-models`（只读，模型文件）、`gpu-strata-profile`（能撤：MODEL=iq3|q4，CTX=32768|65536|131072|262144；先备份，约 230 秒起不来自动退回原档） | 卡头带 recipe=、class=、recipe_sha256=；4090 平时关着，先叫醒 | `infra:scripts/owner-exec/node-run.sh` |
 | 封锁 / 解封节点（cordon / uncordon） | 6-compute | `cordon_node`、`uncordon_node`，B 级，直接调 | 11-24 起是 B（LAW-6 七③，platform ba4ca753） | `CAT:331,337`、`MCP:336,344`；`NOTES/compute/06-rejoin-runbook.md:58` |
 | 排空节点（drain） | 6-compute | `drain_node`，D 级 | 同上 | `CAT:343`、`MCP:352` |
 | 加一台节点进集群（重装后入群） | 6-compute 写手续和登记；装系统、取令牌要 Owner 本人 | 走 `infra:scripts/k3s/node-join.sh`（算力线的现成路径）；之后算力线只读核 Ready、建卡打标签、推 ready/ 改 topology | 入群令牌属 Secret，Owner 手做 | `infra:scripts/k3s/node-join.sh`、`CH/6-compute.md` |
@@ -219,7 +220,7 @@
 ## 3. 已知的坑 / 只有某台机器、某个人能做
 
 - **执行口（owner-exec）够得着哪里**：命令跑在集群里一个 Pod，网络只通集群 API、PROD platform-api、DNS；`git clone`、外网、Gitea、数据库都不通；不能写三个 Trade 命名空间、名叫 `daemon` 的 Deployment、`redis-ib`、IB 网关。`OE:28-46`
-- **node-run 够得着哪里**：只到集群节点（经 Pod 钉在节点上）。ubt-k3s-01（.73，唯一的控制面）是集群节点，所以【推】主机档能在 .73 上以 root 跑命令。06 和 4090 也是集群节点，够得着；4090 有三个命名配方（见 `infra:scripts/owner-exec/node-run.sh`）。集群外的机器（Mac mini .50/.52、NAS）够不着。主机档 11-24 已在 .73 真跑通一次（卡 #715，exit 0），所以「主机档能进 .73」不再是推断；设备档只在 05 上跑过一次（卡 #602）。`OE:127-128`、`AF` 节点表
+- **node-run 够得着哪里**：只到集群节点（经 Pod 钉在节点上）。ubt-k3s-01（.73，唯一的控制面）是集群节点，所以【推】主机档能在 .73 上以 root 跑命令。06 和 4090 也是集群节点，够得着；4090 有三个命名配方（第 1a 节「看 4090 推理服务」那一行）。集群外的机器（Mac mini .50/.52、NAS）够不着。主机档 11-24 已在 .73 真跑通一次（卡 #715，exit 0），所以「主机档能进 .73」不再是推断；设备档只在 05 上跑过一次（卡 #602）。`OE:127-128`、`AF` 节点表
 - **SSH 钥匙谁有**：出处里只写到两件。06 回集群手续要求「导入 MacBook 的公钥」，所有 ssh / scp 都由 Owner 在 MacBook 上跑（`NOTES/compute/06-rejoin-runbook.md:20-38`）；取入群令牌的脚本 SSH 到 `vision@192.168.10.73` 并要输 sudo 密码（`infra:scripts/k3s/fetch-join-token.sh:8-15`）。11-24 起工坊能 SSH 进两台 Mac mini（用户 `vision`，钥匙在工坊所在的 Mac Pro 上）；06 已回集群，走 node-run；4090 的系统层走算力线的主机档卡。哪台机器的哪把钥匙能进哪台主机，没有任何出处列全。
 - **入群令牌**：属 Secret，只在 Owner 的 Mac 和新机之间（`CARD/6-hw-upgrade.yaml:22`）。重装系统要人在机器前（手续第 1 步写明手机办不了）。
 - **集群外机器上执行**：动作目录写着 `owner_run_command` 可以带 `runner: host` 和 `host`（如 `mac-pro`、`mini-1`），由那台机器自己的执行器认领，要 Owner 的一次性码换来的 ticket（`CAT:593`、`plat:api/internal/actions/runner.go:17`）。但 `OE:89` 写「在 Mac 上执行的那一种还没做（TD-578）」。【冲突】代码里有这个参数，文档说没做；哪台机器真装了执行器，出处没写。
