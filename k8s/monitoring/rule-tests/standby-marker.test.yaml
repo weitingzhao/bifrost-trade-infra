@@ -1,0 +1,56 @@
+# promtool unit test for BifrostElasticStandbyMarker.
+# Origin: 2026-11-26, compute line ev-220327: TargetDown letters for the sleeping 4090 leaked
+# through gaps in the marker (for: 2m after power-off; an unless on workloads that no longer
+# exist), and `== bool 0` inside `and` made the marker fire while gpu-server was awake.
+# Run: make check-alert-rules.
+rule_files:
+  - bifrost-alerting-rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  # The sleeping 4090 is marked at once, so the inhibit covers the first minutes too.
+  - name: gpu-server NotReady is marked immediately
+    interval: 1m
+    input_series:
+      - series: 'kube_node_info{node="gpu-server"}'
+        values: '1x5'
+      - series: 'kube_node_status_condition{node="gpu-server",condition="Ready",status="true"}'
+        values: '0x5'
+    alert_rule_test:
+      - eval_time: 0m
+        alertname: BifrostElasticStandbyMarker
+        exp_alerts:
+          - exp_labels:
+              severity: info
+              elastic_standby: "true"
+              node: gpu-server
+            exp_annotations:
+              summary: "Elastic node gpu-server standby"
+              description: "Node gpu-server is NotReady and is a wake-on-LAN node: expected elastic standby. Alertmanager suppresses its node, DaemonSet and TargetDown noise while this fires; Console Observability neutralizes the same via FE standbyNodes."
+
+  # The old `== bool 0` bug: an awake gpu-server must not be marked, or its real alerts are suppressed.
+  - name: gpu-server Ready is not marked
+    interval: 1m
+    input_series:
+      - series: 'kube_node_info{node="gpu-server"}'
+        values: '1x5'
+      - series: 'kube_node_status_condition{node="gpu-server",condition="Ready",status="true"}'
+        values: '1x5'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: BifrostElasticStandbyMarker
+        exp_alerts: []
+
+  # A NotReady node that is not a wake-on-LAN node is a real outage, never standby.
+  - name: another node NotReady is not marked
+    interval: 1m
+    input_series:
+      - series: 'kube_node_info{node="ubt-k3s-05"}'
+        values: '1x5'
+      - series: 'kube_node_status_condition{node="ubt-k3s-05",condition="Ready",status="true"}'
+        values: '0x5'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: BifrostElasticStandbyMarker
+        exp_alerts: []

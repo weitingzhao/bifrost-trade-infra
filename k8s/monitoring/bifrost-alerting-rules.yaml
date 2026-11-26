@@ -537,8 +537,12 @@ spec:
             summary: "PROD daemon liveness metrics missing"
             description: "Prometheus has no heartbeat or no raw_broker write timestamp from the PROD daemon leader, so BifrostTradeDaemonRawBrokerStale / HeartbeatStale cannot fire. Check `kubectl -n bifrost-prod get pods -l app.kubernetes.io/name=daemon`, the Lease holder, the bifrost-trade-daemon PodMonitor target in Prometheus, and that the worker image is >= 0.2.7."
 
-    # Elastic / WOL standby — marker for Alertmanager inhibit (no GPU/warehouse demand).
-    # Does NOT fire when ai/ollama or data-warehouse/minio want replicas > 0.
+    # Elastic / WOL standby: marker for the Alertmanager inhibit rules (values-kube-prometheus.yaml).
+    # 2026-11-26 (compute line's choice, ev-220327): no `for` and no `unless`. The unless read
+    # ai/ollama and data-warehouse/minio replicas, neither of which exists any more (the 4090 runs
+    # inference on the host), and `for: 2m` left the first minutes after power-off unsuppressed.
+    # The old `== bool 0` inside `and` also never filtered (bool keeps the series either way), so
+    # the marker fired while gpu-server was awake too; `== 0` keeps only a NotReady node.
     - name: bifrost-elastic-standby
       rules:
         # Prefer kube_node_labels{label_bifrost_io_wol="enabled"} when KSM
@@ -548,33 +552,20 @@ spec:
         - alert: BifrostElasticStandbyMarker
           expr: |
             (
-              (
-                max by (node) (kube_node_labels{label_bifrost_io_wol="enabled"})
-                or
-                max by (node) (kube_node_info{node="gpu-server"})
-              )
-              and on (node)
-              (
-                max by (node) (kube_node_status_condition{condition="Ready",status="true"}) == bool 0
-              )
-            )
-            unless on ()
-            (
-              (
-                max(kube_deployment_spec_replicas{namespace="ai",deployment="ollama"}) > 0
-              )
+              max by (node) (kube_node_labels{label_bifrost_io_wol="enabled"})
               or
-              (
-                max(kube_deployment_spec_replicas{namespace="data-warehouse",deployment="minio"}) > 0
-              )
+              max by (node) (kube_node_info{node="gpu-server"})
             )
-          for: 2m
+            and on (node)
+            (
+              max by (node) (kube_node_status_condition{condition="Ready",status="true"}) == 0
+            )
           labels:
             severity: info
             elastic_standby: "true"
           annotations:
-            summary: "Elastic node {{ $labels.node }} standby (no demand)"
-            description: "Node {{ $labels.node }} is NotReady with no GPU/warehouse demand — expected elastic standby (WOL). Console Observability also neutralizes related TargetDown/DaemonSet noise via FE standbyNodes."
+            summary: "Elastic node {{ $labels.node }} standby"
+            description: "Node {{ $labels.node }} is NotReady and is a wake-on-LAN node: expected elastic standby. Alertmanager suppresses its node, DaemonSet and TargetDown noise while this fires; Console Observability neutralizes the same via FE standbyNodes."
 
     # ── Infrastructure that Prod depends on ────────────────────────────────
     #
