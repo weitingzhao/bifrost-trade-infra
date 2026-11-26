@@ -46,6 +46,13 @@ QUERY = """SELECT json_agg(b ORDER BY (b->>'law')::int) FROM (
 ISSUE_QUERY = """SELECT COALESCE(json_object_agg(b->>'issue', b->>'status'), '{}') FROM (
   SELECT DISTINCT ON (event_stream_id) body_json AS b FROM agentrt.event
   WHERE event_type = 'owner_issue' ORDER BY event_stream_id, event_id DESC) x"""
+# What the Owner said (owner_said), short messages only: long ones are mostly
+# agent text he pasted back (2026-11-26: a quote with no "Owner" before it, e.g.
+# a JSON "words" field, slipped past every pattern; his own words find it).
+SAID_QUERY = """SELECT COALESCE(json_agg(t), '[]') FROM (SELECT body_json->>'text' AS t FROM agentrt.event
+  WHERE event_type = 'owner_said' AND length(body_json->>'text') <= 600) x"""
+SHINGLE = 10
+CJK = re.compile(r"[\u4e00-\u9fff]+")
 ISSUE = r"\b(ISSUE-[1-9][0-9]*)\b"
 # The Owner's words or an Owner date on a line (round 3, 2026-11-25: 1,436
 # lines in 624 files of 9 repositories): "Owner 2026-11-25", "Owner 11-25",
@@ -111,6 +118,43 @@ def read_issues(path):
     out = subprocess.run([PSQL, "-h", "192.168.10.73", "-p", "30432", "-U", "agent_reader", "-d", "bifrost_platform",
                           "-At", "-c", ISSUE_QUERY], check=True, capture_output=True, text=True).stdout.strip()
     return json.loads(out or "{}")
+
+
+def read_said(path):
+    """The Owner's short messages, from owner_said (PROD as agent_reader) or --said JSON (a list of texts)."""
+    if path:
+        return json.loads(pathlib.Path(path).read_text())
+    out = subprocess.run([PSQL, "-h", "192.168.10.73", "-p", "30432", "-U", "agent_reader", "-d", "bifrost_platform",
+                          "-At", "-c", SAID_QUERY], check=True, capture_output=True, text=True).stdout.strip()
+    return json.loads(out or "[]")
+
+
+def shingles(texts, k=SHINGLE):
+    """Every run of k Chinese characters in the texts."""
+    out = set()
+    for t in texts:
+        for run in CJK.findall(t or ""):
+            out.update(run[i:i + k] for i in range(len(run) - k + 1))
+    return out
+
+
+def verbatim(said, k=SHINGLE):
+    """Lines on main carrying k Chinese characters in a row that the Owner wrote: his words, however labelled."""
+    sh = shingles(said, k)
+    out = []
+    if not sh:
+        return out
+    for r in repos():
+        p = subprocess.run(["git", "-C", str(r), "grep", "-nP", r"[\x{4e00}-\x{9fff}]{%d}" % k, "origin/main", "--", *SKIP,
+                            ":!**/package-lock.json"], capture_output=True, text=True)
+        for line in p.stdout.splitlines():
+            try:
+                _, path, num, text = line.split(":", 3)
+            except ValueError:
+                continue
+            if any(run[i:i + k] in sh for run in CJK.findall(text) for i in range(len(run) - k + 1)):
+                out.append({"repo": r.name, "path": path, "line": int(num), "kind": kind_of(path), "text": text.strip()[:200]})
+    return out
 
 
 def issue_refs(statuses):
@@ -292,6 +336,7 @@ def main():
     ap.add_argument("--json")
     ap.add_argument("--law")
     ap.add_argument("--issues", help="JSON {ISSUE-n: status} instead of reading the register")
+    ap.add_argument("--said", help="JSON list of the Owner's messages instead of reading owner_said")
     ap.add_argument("--since", help="name who added each line of the Owner's words written on or after this date (YYYY-MM-DD)")
     ap.add_argument("--root", help="the workspace holding the bifrost-* repositories (default: two levels above this repository)")
     a = ap.parse_args()
@@ -324,6 +369,7 @@ def main():
     irefs = issue_refs(read_issues(a.issues))
     words = owner_words()
     attr = attributions()
+    verb = [v for v in verbatim(read_said(a.said)) if v["kind"] != "history"]
     words_new = []
     if a.since:
         for w in words:
@@ -355,7 +401,7 @@ def main():
     if a.json:
         pathlib.Path(a.json).write_text(json.dumps({**report, "ref_list": cited, "shadow_list": sh, "owner_ask_list": asks,
                                                     "issue_list": irefs, "word_list": words,
-                                                    "attribution_list": attr}, ensure_ascii=False, indent=1))
+                                                    "attribution_list": attr, "verbatim_list": verb}, ensure_ascii=False, indent=1))
     print(f'refs: {len(cited)} citations of a law by number; by state: {by_state}')
     for n, v in list(report["refs"]["by_law"].items())[:15]:
         print(f'  law {n} ({v["state"]}): {v["count"]}')
@@ -367,6 +413,10 @@ def main():
     for w in attr:
         attr_by[w["repo"]] = attr_by.get(w["repo"], 0) + 1
     print(f'attributions: {len(attr)} undated lines naming a past act of the Owner\'s (for review; a role the system serves stays): {attr_by}')
+    verb_by = {}
+    for v in verb:
+        verb_by[v["repo"]] = verb_by.get(v["repo"], 0) + 1
+    print(f'verbatim: {len(verb)} lines carry {SHINGLE} Chinese characters in a row from owner_said (his words however labelled; for review): {verb_by}')
     print(f'history: {report["words"]["history"]} lines in applied migrations and DDL steps that ran (kept as the record; not counted)')
     if a.since:
         s = report["words"]["since"]

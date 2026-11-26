@@ -127,6 +127,18 @@ def test_attribution_pattern():
         assert not scan.ATTRIBUTION.search(line), line
 
 
+# 2026-11-26: confirmed.json kept five of his sentences in a "words" field with no
+# "Owner" before them; matching ten characters of what he said finds them.
+def test_shingles_find_his_words_however_labelled():
+    sh = scan.shingles(["挺好，我觉得这个就这么设计吧", "短句"])
+    line = '"words": "我觉得这个就这么设计吧"'
+    assert any(r[i:i + 10] in sh for r in scan.CJK.findall(line) for i in range(len(r) - 9))
+    # positive control: ten characters he never wrote are not his
+    other = "这是一段完全不同的文字内容说明"
+    assert not any(other[i:i + 10] in sh for i in range(len(other) - 9))
+    assert not any(len(x) != 10 for x in sh)
+
+
 def test_issue_refs_are_classified(monkeypatch):
     out = "origin/main:a.go:3:// see ISSUE-3 and ISSUE-999\norigin/main:b.md:1:closed ISSUE-12\n"
     monkeypatch.setattr(scan, "repos", lambda: [scan.pathlib.Path("/x/bifrost-platform")])
