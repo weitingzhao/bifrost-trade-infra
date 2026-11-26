@@ -127,6 +127,15 @@ def issue_refs(statuses):
     return out
 
 
+# A past act of the Owner's named with no date (2026-11-26: "Owner ruling",
+# "the Owner signed it", 「Owner 批了」 slipped past OWNER_WORDS). Candidates for
+# review, not the target: the same words also say what the system does with
+# the Owner as a role ("a policy the Owner signed is verified"), which stays.
+ATTRIBUTION = re.compile(r"\bOwner(?:’s|'s)? (?:ruling|ruled|signed off|chose|picked|decided|deferred|said|wanted|confirmed)\b"
+                         r"|\bthe Owner (?:signed it|chose|picked|ruled|decided|said|wanted|confirmed)\b"
+                         r"|Owner ?(?:选了|说过|拍板|原话|裁定|批了|定了|亲口)")
+
+
 # Applied migrations and DDL steps that ran are the record of what ran: they are
 # counted apart ("history") and not toward the target (2026-11-26: 26 lines,
 # a migration that already ran is not edited).
@@ -155,6 +164,20 @@ def owner_words():
                            capture_output=True, text=True)
         for line in p.stdout.splitlines():
             _, path, num, text = line.split(":", 3)
+            out.append({"repo": r.name, "path": path, "line": int(num), "kind": kind_of(path), "text": text.strip()[:200]})
+    return out
+
+
+def attributions():
+    """Lines naming a past act of the Owner's with no date, outside history (for review)."""
+    out = []
+    for r in repos():
+        p = subprocess.run(["git", "-C", str(r), "grep", "-nP", ATTRIBUTION.pattern, "origin/main", "--", *SKIP, ":!**/package-lock.json"],
+                           capture_output=True, text=True)
+        for line in p.stdout.splitlines():
+            _, path, num, text = line.split(":", 3)
+            if kind_of(path) == "history" or OWNER_WORDS.search(text):
+                continue
             out.append({"repo": r.name, "path": path, "line": int(num), "kind": kind_of(path), "text": text.strip()[:200]})
     return out
 
@@ -300,6 +323,7 @@ def main():
     asks = owner_asks()
     irefs = issue_refs(read_issues(a.issues))
     words = owner_words()
+    attr = attributions()
     words_new = []
     if a.since:
         for w in words:
@@ -330,7 +354,8 @@ def main():
         report["words"]["since"] = {"date": a.since, "lines": len(words_new), "by_session": by_session}
     if a.json:
         pathlib.Path(a.json).write_text(json.dumps({**report, "ref_list": cited, "shadow_list": sh, "owner_ask_list": asks,
-                                                    "issue_list": irefs, "word_list": words}, ensure_ascii=False, indent=1))
+                                                    "issue_list": irefs, "word_list": words,
+                                                    "attribution_list": attr}, ensure_ascii=False, indent=1))
     print(f'refs: {len(cited)} citations of a law by number; by state: {by_state}')
     for n, v in list(report["refs"]["by_law"].items())[:15]:
         print(f'  law {n} ({v["state"]}): {v["count"]}')
@@ -338,6 +363,10 @@ def main():
     print(f'owner asks: {len(asks)} undated lines asking the Owner, not tied to a law (for review; not part of LAW-1 s1)')
     print(f'issues: {len(irefs)} citations of an Owner issue; stale (dropped or no such issue): {report["issues"]["stale"]}')
     print(f'words: {len(target)} lines in {report["words"]["files"]} files carry the Owner\'s words or an Owner date (target 0): {words_by}')
+    attr_by = {}
+    for w in attr:
+        attr_by[w["repo"]] = attr_by.get(w["repo"], 0) + 1
+    print(f'attributions: {len(attr)} undated lines naming a past act of the Owner\'s (for review; a role the system serves stays): {attr_by}')
     print(f'history: {report["words"]["history"]} lines in applied migrations and DDL steps that ran (kept as the record; not counted)')
     if a.since:
         s = report["words"]["since"]

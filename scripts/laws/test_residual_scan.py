@@ -115,6 +115,18 @@ def test_owner_words_git_grep_matches_like_python(tmp_path):
     assert len(want) == 2 and len(got) == 2, got
 
 
+# 2026-11-26: "Owner ruling 2026-09-18", "the Owner signed it", 「Owner 批了」 named past
+# acts and slipped past OWNER_WORDS; present-tense roles are not candidates.
+def test_attribution_pattern():
+    hit = ["Owner ruling: keep it", "the Owner signed it 2026-09-24", "Owner chose A", "Owner’s call deferred; Owner deferred",
+           "Owner 批了 #2", "Owner 选了 B", "Owner signed off on STG"]
+    miss = ["the Owner answers on the console", "a policy the Owner signs is verified", "owner_said", "waits for the Owner"]
+    for line in hit:
+        assert scan.ATTRIBUTION.search(line), line
+    for line in miss:
+        assert not scan.ATTRIBUTION.search(line), line
+
+
 def test_issue_refs_are_classified(monkeypatch):
     out = "origin/main:a.go:3:// see ISSUE-3 and ISSUE-999\norigin/main:b.md:1:closed ISSUE-12\n"
     monkeypatch.setattr(scan, "repos", lambda: [scan.pathlib.Path("/x/bifrost-platform")])
