@@ -1,7 +1,9 @@
-# Hosts outside the cluster (W-68 B4 ①): ubt-k3s-06 (agent host, Ubuntu 24.04, systemd),
-# the NAS (UGOS / Debian 12, Docker) and the two Mac minis (macOS 26, launchd user job).
-# Each runs node_exporter on :9100 at the cluster DaemonSet's version; 06 and the NAS also
-# run smartctl_exporter on :9633. What runs on each host and how it got there:
+# Hosts outside the cluster (W-68 B4 ①): the NAS (UGOS / Debian 12, Docker) and the two
+# Mac minis (macOS 26, launchd user job). Each runs node_exporter on :9100 at the cluster
+# DaemonSet's version; the NAS also runs smartctl_exporter on :9633. ubt-k3s-06 was listed
+# here as the agent host until it was wiped and rejoined the cluster on 2026-11-24; the
+# cluster DaemonSet scrapes it now, and its old host exporters are gone (TargetDown on
+# 192.168.10.79:9633, compute line ev-220327, 2026-11-26). What runs on each host and how it got there:
 # scripts/host-exporters/ and agent-config/work/multi-agent/OWNER-STEPS-w68-b4-2026-10-24.md.
 #
 # Static targets, like bifrost-minio-nas.yaml: no Kubernetes object stands behind them.
@@ -13,9 +15,9 @@
 # nodes already have KubeNodeNotReady. host is the name the alerts and the Bifrost Hosts
 # dashboard print.
 #
-# Reachability: all four sit in 192.168.10.0/24 with the cluster nodes, and pod traffic
+# Reachability: all three sit in 192.168.10.0/24 with the cluster nodes, and pod traffic
 # leaves through the node's address, so no UniFi zone rule is involved (the NAS's MinIO
-# on :9000 is scraped the same way). None of the four hosts filters inbound traffic today.
+# on :9000 is scraped the same way). None of the three hosts filters inbound traffic today.
 #
 # Not under Argo. Apply this file on its own (OWNER-STEPS step 5).
 apiVersion: monitoring.coreos.com/v1alpha1
@@ -34,11 +36,6 @@ spec:
   scrapeTimeout: 10s
   staticConfigs:
     - targets:
-        - 192.168.10.79:9100
-      labels:
-        scope: external
-        host: agent-06
-    - targets:
         - 192.168.10.20:9100
       labels:
         scope: external
@@ -54,8 +51,9 @@ spec:
         scope: external
         host: mini-52
 ---
-# SMART for the disks of 06 (one SATA SSD) and the NAS (three 12 TB SATA disks in RAID 5;
-# the M.2 SSD joins by itself once fitted). The exporter refreshes every 60s, so a faster
+# SMART for the disks of the NAS (three 12 TB SATA disks in RAID 5; the M.2 SSD joins by
+# itself once fitted). 06's SSD left with 06 (2026-11-24); the compute line reads it through
+# node-run's nvme-smart recipe when needed. The exporter refreshes every 60s, so a faster
 # scrape gains nothing. The Mac minis have one soldered SSD each and no exporter here.
 apiVersion: monitoring.coreos.com/v1alpha1
 kind: ScrapeConfig
@@ -72,11 +70,6 @@ spec:
   scrapeInterval: 60s
   scrapeTimeout: 30s
   staticConfigs:
-    - targets:
-        - 192.168.10.79:9633
-      labels:
-        scope: external
-        host: agent-06
     - targets:
         - 192.168.10.20:9633
       labels:

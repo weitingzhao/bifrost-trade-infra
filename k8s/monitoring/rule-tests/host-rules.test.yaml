@@ -15,8 +15,6 @@ tests:
       # The NAS answers until 120s and is gone from 150s.
       - series: 'up{job="node-exporter",scope="external",host="nas",instance="192.168.10.20:9100"}'
         values: '1x4 0x12'
-      - series: 'up{job="node-exporter",scope="external",host="agent-06",instance="192.168.10.79:9100"}'
-        values: '1x16'
       - series: 'up{job="node-exporter",scope="external",host="mini-50",instance="192.168.10.50:9100"}'
         values: '1x16'
       - series: 'up{job="node-exporter",scope="external",host="mini-52",instance="192.168.10.52:9100"}'
@@ -40,19 +38,18 @@ tests:
               instance: 192.168.10.20:9100
             exp_annotations:
               summary: "Host nas (192.168.10.20:9100) is not answering"
-              description: "node_exporter on nas has not answered for a minute: the host is off, hung or off the network, or only node_exporter stopped. agent-06: both agentd stop. nas: registry, MinIO backups, WAL archive and Prometheus's disk. mini-50: the ntfy relay (no other page gets through). mini-52: the watchdog over that relay. A Mac mini with FileVault waits at the unlock screen after a reboot until someone logs in."
+              description: "node_exporter on nas has not answered for a minute: the host is off, hung or off the network, or only node_exporter stopped. nas: registry, MinIO backups, WAL archive and Prometheus's disk. mini-50: the ntfy relay (no other page gets through). mini-52: the watchdog over that relay. A Mac mini with FileVault waits at the unlock screen after a reboot until someone logs in."
       - eval_time: 8m
         alertname: BifrostHostTargetsMissing
         exp_alerts: []
 
+  # 2026-11-26: agent-06 left the list (06 rejoined the cluster); mini-52 is the one dropped here.
   - name: a host dropped from the target list is noticed
     interval: 1m
     input_series:
       - series: 'up{job="node-exporter",scope="external",host="nas",instance="192.168.10.20:9100"}'
         values: '1x15'
       - series: 'up{job="node-exporter",scope="external",host="mini-50",instance="192.168.10.50:9100"}'
-        values: '1x15'
-      - series: 'up{job="node-exporter",scope="external",host="mini-52",instance="192.168.10.52:9100"}'
         values: '1x15'
     alert_rule_test:
       - eval_time: 9m
@@ -65,10 +62,10 @@ tests:
               severity: warning
               job: node-exporter
               scope: external
-              host: agent-06
+              host: mini-52
             exp_annotations:
-              summary: "Host agent-06 is not among Prometheus's targets"
-              description: "ScrapeConfig monitoring/bifrost-hosts-node gives Prometheus no target for agent-06, so BifrostHostDown cannot fire for it. Check that k8s/monitoring/bifrost-hosts-external.yaml is applied and lists all four."
+              summary: "Host mini-52 is not among Prometheus's targets"
+              description: "ScrapeConfig monitoring/bifrost-hosts-node gives Prometheus no target for mini-52, so BifrostHostDown cannot fire for it. Check that k8s/monitoring/bifrost-hosts-external.yaml is applied and lists all three."
 
   - name: SMART failing, unreadable sectors and a vanished disk page; a healthy disk does not
     interval: 1m
@@ -136,9 +133,9 @@ tests:
   - name: a prefail attribute at threshold (exit status bit 4) pages even while health still says PASSED
     interval: 1m
     input_series:
-      - series: 'smartctl_device_smart_status{job="smartctl",scope="external",host="agent-06",instance="192.168.10.79:9633",device="sda"}'
+      - series: 'smartctl_device_smart_status{job="smartctl",scope="external",host="nas",instance="192.168.10.20:9633",device="sdc"}'
         values: '1x15'
-      - series: 'smartctl_device_smartctl_exit_status{job="smartctl",scope="external",host="agent-06",instance="192.168.10.79:9633",device="sda"}'
+      - series: 'smartctl_device_smartctl_exit_status{job="smartctl",scope="external",host="nas",instance="192.168.10.20:9633",device="sdc"}'
         values: '0x4 16x10'
     alert_rule_test:
       - eval_time: 11m
@@ -148,12 +145,12 @@ tests:
               severity: critical
               job: smartctl
               scope: external
-              host: agent-06
-              instance: 192.168.10.79:9633
-              device: sda
+              host: nas
+              instance: 192.168.10.20:9633
+              device: sdc
             exp_annotations:
-              summary: "Disk sda on agent-06 reports SMART failing"
-              description: "smartctl says sda on agent-06 is failing or about to. On the NAS it is one of the three RAID 5 disks: a second failure loses /volume1. Replace it; read `smartctl -a /dev/sda` as root on the host first."
+              summary: "Disk sdc on nas reports SMART failing"
+              description: "smartctl says sdc on nas is failing or about to. On the NAS it is one of the three RAID 5 disks: a second failure loses /volume1. Replace it; read `smartctl -a /dev/sdc` as root on the host first."
 
   - name: Gitea failing through one path pages after 2 minutes
     interval: 30s
@@ -186,12 +183,12 @@ tests:
         alertname: BifrostGiteaProbeDown
         exp_alerts: []
 
-  # Review 537 A2: one of two SMART targets missing. The old rule (up == 0 or absent of the
-  # whole job) stayed silent while agent-06 alone answered.
-  - name: the NAS's SMART target missing while agent-06's answers still fires
+  # Review 537 A2: the NAS's SMART target missing fires on its own. Until 2026-11-24 agent-06
+  # answered beside it (the old rule, up == 0 or absent of the whole job, stayed silent then).
+  - name: the NAS's SMART target missing fires while its node_exporter answers
     interval: 1m
     input_series:
-      - series: 'up{job="smartctl",scope="external",host="agent-06",instance="192.168.10.79:9633"}'
+      - series: 'up{job="node-exporter",scope="external",host="nas",instance="192.168.10.20:9100"}'
         values: '1x20'
     alert_rule_test:
       - eval_time: 14m
@@ -222,13 +219,6 @@ tests:
       - eval_time: 16m
         alertname: BifrostHostSmartExporterDown
         exp_alerts:
-          - exp_labels:
-              severity: warning
-              job: smartctl
-              host: agent-06
-            exp_annotations:
-              summary: "No SMART data from agent-06"
-              description: "smartctl_exporter on agent-06 has not answered for 15 minutes, or ScrapeConfig monitoring/bifrost-hosts-smartctl has no target for it. If the host is down, BifrostHostDown has paged already."
           - exp_labels:
               severity: warning
               job: smartctl

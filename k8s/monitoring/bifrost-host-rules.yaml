@@ -47,8 +47,7 @@ spec:
             summary: "Host {{ $labels.host }} ({{ $labels.instance }}) is not answering"
             description: >-
               node_exporter on {{ $labels.host }} has not answered for a minute: the host
-              is off, hung or off the network, or only node_exporter stopped. agent-06: both
-              agentd stop. nas: registry, MinIO backups, WAL archive and Prometheus's disk.
+              is off, hung or off the network, or only node_exporter stopped. nas: registry, MinIO backups, WAL archive and Prometheus's disk.
               mini-50: the ntfy relay (no other page gets through). mini-52: the watchdog
               over that relay. A Mac mini with FileVault waits at the unlock screen after
               a reboot until someone logs in.
@@ -58,8 +57,7 @@ spec:
         # One absent() per host, so the alert names the one that is missing.
         - alert: BifrostHostTargetsMissing
           expr: |
-            absent(up{job="node-exporter",scope="external",host="agent-06"})
-            or absent(up{job="node-exporter",scope="external",host="nas"})
+            absent(up{job="node-exporter",scope="external",host="nas"})
             or absent(up{job="node-exporter",scope="external",host="mini-50"})
             or absent(up{job="node-exporter",scope="external",host="mini-52"})
           for: 10m
@@ -70,7 +68,7 @@ spec:
             description: >-
               ScrapeConfig monitoring/bifrost-hosts-node gives Prometheus no target for
               {{ $labels.host }}, so BifrostHostDown cannot fire for it. Check that
-              k8s/monitoring/bifrost-hosts-external.yaml is applied and lists all four.
+              k8s/monitoring/bifrost-hosts-external.yaml is applied and lists all three.
 
         - alert: BifrostHostDiskSpaceLow
           expr: |
@@ -192,11 +190,11 @@ spec:
               fire. Run `smartctl -a /dev/{{ $labels.device }}` as root on the host.
 
         # A target that answers 0, or one of the two expected targets missing altogether
-        # (absent() per host: with only agent-06 left, nas still fires).
+        # (absent() per host, so a host that is missing is named; only the NAS is expected
+        # since 06 rejoined the cluster on 2026-11-24).
         - alert: BifrostHostSmartExporterDown
           expr: |
             up{job="smartctl"} == 0
-            or absent(up{job="smartctl",host="agent-06"})
             or absent(up{job="smartctl",host="nas"})
           for: 15m
           labels:
