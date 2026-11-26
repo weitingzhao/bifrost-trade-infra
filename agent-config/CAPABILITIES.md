@@ -144,9 +144,10 @@
 | 改规矩文字（CLAUDE.md、OWNER_LAW.md、OWNER_EXEC.md、AGENTS.md） | 11-station | 把改后原文发 Station 落；或自己落但要过 `check-governance-consistency.sh` 第 8 节 | Agent 推 agent-config 会被 auto mode 拦，治理改动单独提交 | `CARD/win2-workshop.yaml:12-13`、`infra:scripts/landing/admission.yaml:61-65` |
 | 进名册、换坐席的 Agent、交身份卡 | 11-station | 发工坊信箱；名册 `CH/seats.yaml`，对账 `agent-config/scripts/check-seats.py`，卡 `render-card.py <席位>` | 卡一屏以内、六栏 | `CH/11-station.md`（原 9-crew 章程已并入） |
 | 问「某席位谁在坐、谁请来的」 | 11-station | 读 `seats.yaml` 或问工坊 | — | `CARD/11-station.yaml`（原 9-crew 卡已删） |
-| 一块活做完了，要有人验 | 12-audit | 发 Audit 信箱；结论写在 `NOTES/domains/2-lineage/audit/<日期>-<块>.md`（落点是占位） | 验收人不能是写方案或做活的人；只认系统产的数 | `CH/12-audit.md:25`、`CARD/12-audit.yaml:11,29` |
-| 问「某条规则拦过谁、几次」 | 12-audit | 发 Audit 信箱 | — | `CARD/12-audit.yaml:16-18` |
-| 没达到，该动哪里（法、Agent、工具）；起草改法 | 1-plan（立法） | 发立法信箱（11-24 起法的原文、墙的单子、改法提议归立法，Audit 只给事实） | 改法一条一次 | `CH/1-plan.md`、`CH/12-audit.md` |
+| 一块活做完了，要有人验 | 12-audit | 发 Audit 信箱；结论贴在计划步骤上（`post_plan_note`，平台记成 plan_step_judged，`GET /api/v1/agentrt/laws` 的 steps 读得到），Console 的 Command → Audit conclusions 能看；过程记录在 `NOTES/domains/2-lineage/audit/ledger-plan-round1.md` | 验收人不能是写方案或做活的人；只认系统产的数 | `CH/12-audit.md:25`、`CARD/12-audit.yaml:11,29` |
+| 问「某条规则拦过谁、几次」 | 任何人直接读；要解读找 12-audit | `get_evaluation_readings` name=`guard_blocks`（按天、按规则分，系统存档） | 解读发 Audit 信箱 | `CARD/12-audit.yaml:16-18` |
+| 没达到，判原因：该动哪里（法、Agent、工具） | 12-audit | 发 Audit 信箱；记成 plan_step_attributed | — | `CH/12-audit.md` |
+| 起草改法；法的原文、墙的单子 | 1-plan（立法） | 发立法信箱 | 改法一条一次 | `CH/1-plan.md` |
 | 改 City / Console 页面、我的系统要进 City | 10-cockpit | 发 Cockpit 信箱；翻译层要交的合约：places、cards、trips、alerts、techTree | 用别的领域的数据只走它的读口；卡上写「推 bifrost-ui main 前先给 Owner 看」（该线有更新的说法以它为准） | `CARD/10-cockpit.yaml:16-17,26`、`CH/10-cockpit.md:125` |
 | 存首页城市布局 | 10-cockpit | `PUT /api/v1/home/layout`（动作 `save_home_layout`，B）；写只给 Owner | base_version | `CH/10-cockpit.md:122`、`CAT:262` |
 
@@ -208,7 +209,7 @@
 
 ### audit（12-audit；11-23 起 Triage 并入）
 - 管：做完的活对着完成标准验一次；每条拦过人的规则的记数；特权三数。`CARD/12-audit.yaml:5-9`
-- 口子：结论文件（占位落点）；读 `get_evaluation_readings`、`get_commit_lineage`。`CH/12-audit.md:25-26`。`DOM:598` 合约为空。
+- 口子：计划步骤上的结论和归因（plan_step_judged、plan_step_attributed）；建卡前的量法复核（frame.review，LAW-1 三）；审计结论页（Console Command → Audit conclusions）；读 `get_evaluation_readings`、`get_commit_lineage`。`CH/12-audit.md:25-26`。归属表合约由 12-audit 自己补。
 - 能为别人做的事：验你的活（只给 达到 / 部分 / 没达到 / 没核，不开药方）；答某条规则拦过谁几次。
 
 ### 不是领域、但常被找的
