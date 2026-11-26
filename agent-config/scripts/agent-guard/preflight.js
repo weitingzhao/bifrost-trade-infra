@@ -322,6 +322,9 @@ function shellCommands(cmd) {
   let target = false // 下一个词是重定向的目标，不是参数
   let delimiter = null // 这个目标是 heredoc 的定界词：{ dash }
   const heredocs = [] // 这一行里等着正文的 heredoc，按出现的先后
+  // 每条命令记下它在第几层括号里（子 shell、命令替换）和前后的分隔符，cd 是否影响后面的命令要看这些
+  let depth = 0
+  let before = ''
   const endWord = () => {
     if (word !== null) {
       if (target) {
@@ -332,12 +335,18 @@ function shellCommands(cmd) {
     }
     word = null
   }
-  const endCommand = () => {
+  const endCommand = (sep = '') => {
     endWord()
     if (target) ok = false
     target = false
-    if (words.length > 0) commands.push(words)
+    if (words.length > 0) {
+      words.depth = depth
+      words.before = before
+      words.after = sep
+      commands.push(words)
+    }
     words = []
+    before = sep
   }
   const begin = tilde => {
     if (word === null) word = { text: '', tilde, quoted: false }
@@ -389,7 +398,7 @@ function shellCommands(cmd) {
     } else if (c === ' ' || c === '\t' || c === '\r') {
       endWord()
     } else if (c === '\n') {
-      endCommand()
+      endCommand('\n')
       // 这一行的 heredoc 正文：逐行跳过，直到各自的定界词那一行
       while (heredocs.length > 0 && i < s.length) {
         const nl = s.indexOf('\n', i + 1)
@@ -399,7 +408,18 @@ function shellCommands(cmd) {
         i = nl === -1 ? s.length : nl
       }
     } else if (';&|()'.includes(c)) {
-      endCommand()
+      if ((c === '&' || c === '|') && s[i + 1] === c) {
+        endCommand(c + c)
+        i++
+      } else if (c === '(') {
+        endCommand('(')
+        depth++
+      } else if (c === ')') {
+        endCommand(')')
+        depth = Math.max(0, depth - 1)
+      } else {
+        endCommand(c)
+      }
     } else if (c === '#' && word === null) {
       const nl = s.indexOf('\n', i)
       i = nl === -1 ? s.length : nl - 1
@@ -743,7 +763,7 @@ function githubPushRule(cmd, cwd) {
     `${repo} 以 Gitea 为主（agent-config/gitea-primary.txt）：推 Gitea，GitHub 由集群同步（k8s/cicd/github-sync），不从这里推`
   const unclear = why =>
     `看不出这次 git push 推到哪里（${why}）。闸门要从命令本身读出是哪个仓库、推到哪个远端：` +
-    `不要先 cd 再推，写成一条 \`git -C <检出目录的绝对路径> push origin <提交号>:refs/heads/<分支>\`，单独成一条命令`
+    `写成 \`git -C <检出目录的绝对路径> push origin <提交号>:refs/heads/<分支>\`，或者在同一层 shell 里先 \`cd <检出目录>\` 再推（子 shell、管道里的 cd 不算）`
   const githubRemote = '`github` 远端只读：以 Gitea 为主的仓库推 Gitea（origin），GitHub 由集群同步（k8s/cicd/github-sync）'
   // 名单空着也拦 github 远端：文本匹配认得出包在引号里的（sh -c "git push github …"），下面的分词认不出；
   // 文本匹配只在不是读、写文件的命令上用（同 pushMainRule）
@@ -764,7 +784,10 @@ function githubPushRule(cmd, cwd) {
   let dir = cwd || process.cwd()
   for (const words of commands) {
     if (/^(cd|pushd|popd)$/.test(commandWord(words))) {
-      dir = cdTarget(words, dir)
+      // A cd in a subshell, a command substitution, a pipeline or the background does not move this
+      // shell: what follows it runs where it was. The directory is then unknown, not the cd's target.
+      const sameShell = words.depth === 0 && !['|', '&'].includes(words.before) && ['', ';', '&&', '||', '\n'].includes(words.after)
+      dir = sameShell ? cdTarget(words, dir) : null
       continue
     }
     const call = gitCall(words)
@@ -783,7 +806,7 @@ function githubPushRule(cmd, cwd) {
     if (!listed) continue
     // 不写远端时 git 按 branch.<分支>.pushRemote、remote.pushDefault、branch.<分支>.remote、origin 挑（复核 244 A3）
     if (dests.length === 0) return unclear('没写远端，默认推送远端由配置决定')
-    if (dir === null) return unclear('前面 cd 到的目录看不出（变量、cd -、popd）')
+    if (dir === null) return unclear('前面 cd 到的目录看不出（变量、cd -、popd，或 cd 在子 shell、管道、后台里）')
     const globals = resolvedGlobals(call.globals)
     if (globals === null) return unclear('全局选项里有变量或命令替换')
     for (const dest of dests) {

@@ -387,6 +387,14 @@ const cases = [
   // (GitHub) and the variable-cd row are the controls.
   ['gitea-primary', 'ALLOW', '先 cd 到检出再推 Gitea', bashIn(`cd ${PRIMARY.repo} && git push origin x:refs/heads/x`, PRIMARY.outside)],
   ['gitea-primary', 'DENY', 'cd 到变量目录再推', bashIn('cd $REPO && git push origin x:refs/heads/x', PRIMARY.outside)],
+  // 事故 2026-11-26，墙核查：子 shell 里的 cd 不影响后面的推送；db87e572 把它当成生效，放行了在当前目录推到 GitHub 的写法。
+  ['gitea-primary', 'DENY', '子 shell 里 cd 到 Gitea 检出，外面推 GitHub 远端', bashIn(`(cd ${PRIMARY.outside}/work) ; git push backup x:refs/heads/x`, PRIMARY.repo)],
+  ['gitea-primary', 'DENY', '子 shell 里 cd，外面推 origin（目录看不出）', bashIn(`(cd ${PRIMARY.repo}) ; git push origin x:refs/heads/x`, PRIMARY.outside)],
+  ['gitea-primary', 'DENY', '管道里的 cd 不算', bashIn(`true | cd ${PRIMARY.repo} ; git push origin x:refs/heads/x`, PRIMARY.outside)],
+  ['gitea-primary', 'DENY', '后台的 cd 不算', bashIn(`cd ${PRIMARY.repo} & git push origin x:refs/heads/x`, PRIMARY.outside)],
+  ['gitea-primary', 'DENY', 'bash -c 里 cd 再推', bashIn(`bash -c "cd ${PRIMARY.repo} && git push origin x:refs/heads/x"`, PRIMARY.outside)],
+  ['gitea-primary', 'DENY', 'xargs 包着推', bashIn(`echo abc | xargs -I{} git push origin {}:refs/heads/x`, PRIMARY.repo)],
+  ['gitea-primary', 'ALLOW', '同一层 shell 里 cd 再用 || 接推送', bashIn(`cd ${PRIMARY.repo} || exit 1 ; git push origin x:refs/heads/x`, PRIMARY.outside)],
   ['gitea-primary', 'DENY', 'bash -c 里推', bash("bash -c 'git push backup v1:refs/tags/v1'")],
   ['gitea-primary', 'DENY', 'xargs 包着推', bash('echo backup | xargs -I{} git push {} v1:refs/tags/v1')],
   ['gitea-primary', 'DENY', '-c 定义的别名', bash('git -c alias.p=push p backup v1:refs/tags/v1')],
