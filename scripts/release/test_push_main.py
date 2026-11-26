@@ -506,7 +506,8 @@ class PushMain(_Fixture):
         (self.work / "p.txt").write_text("p\n")
         _git(self.work, "add", "p.txt")
         _commit(self.work, "unlined", lineage=())
-        env = self._wrapped_git('  *"trailers:key=Change-Id"*) echo "fatal: injected" >&2; exit 128 ;;')
+        # The log push-main reads the trailers from (walls review [79]: by scripts/landing/trailers.py).
+        env = self._wrapped_git('  *"%H%x1f%B"*) echo "fatal: injected" >&2; exit 128 ;;')
         r = self._push(env=env)
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertIn("cannot read the trailers", r.stderr)
@@ -612,6 +613,8 @@ class PushMain(_Fixture):
         (infra / "scripts" / "release").mkdir(parents=True)
         shutil.copy(PUSH_MAIN, infra / "scripts" / "release" / "push-main.sh")
         shutil.copy(HERE / "ci_gate.py", infra / "scripts" / "release" / "ci_gate.py")  # its CI step (W-31 3.4 ②)
+        (infra / "scripts" / "landing").mkdir(parents=True, exist_ok=True)  # its trailer rules (walls review [79])
+        shutil.copy(HERE.parent / "landing" / "trailers.py", infra / "scripts" / "landing" / "trailers.py")
         _git(ws, "init", "--quiet", "--initial-branch=main", str(infra))
         _git(infra, "add", "scripts")
         _commit(infra, "infra")
@@ -1420,6 +1423,8 @@ class PushMainCI(_Fixture):
         lone = Path(self._tmp.name) / "lone"
         lone.mkdir()
         shutil.copy(PUSH_MAIN, lone / "push-main.sh")
+        (lone.parent / "landing").mkdir(exist_ok=True)  # its trailer rules, so the CI step is reached
+        shutil.copy(HERE.parent / "landing" / "trailers.py", lone.parent / "landing" / "trailers.py")
         self._code_change()
         r = subprocess.run(["bash", str(lone / "push-main.sh"), str(self.work)],
                            env=self._env(FAKE_CI_STATE="True", PUSH_MAIN_SCAN=str(SCAN), PUSH_MAIN_CI_WAIT="600"),

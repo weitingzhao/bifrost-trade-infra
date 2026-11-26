@@ -222,7 +222,6 @@ spec:
               TOKEN_FILE = '/etc/gitea-merger/password'  # kubernetes.io/basic-auth, put-reader-token.sh merger
               USER_FILE = '/etc/gitea-merger/username'
               POLICY = '/etc/release-policy/policy.yaml'  # canonical JSON
-              TRAILER = re.compile(r'^[A-Za-z0-9-]+: \S')
               RUNS = 'https://kubernetes.default.svc/apis/tekton.dev/v1/namespaces/cicd/pipelineruns'
               SA = '/var/run/secrets/kubernetes.io/serviceaccount/'
               RESULTS = '/tekton/results/'
@@ -375,6 +374,9 @@ spec:
                       return None, 'refused: the branch moved after this run started; its new push has its own run'
                   return pull, ''
 
+              # BEGIN shared trailer rules: scripts/landing/trailers.py and the land task of pipeline-land.yaml hold this block alike (walls review [79]).
+              TRAILER = re.compile(r'^[A-Za-z0-9-]+: \S')
+
               def change_id(message):
                   """The Change-Id trailer of a commit message, or None. A trailer is a line of the last
                   paragraph, and that paragraph holds trailers only: the same words in the body are text."""
@@ -419,6 +421,12 @@ spec:
                                   for line in last) and not any(line.startswith('Change-Id:') for line in last):
                       return body + '\nChange-Id: ' + made + '\n'
                   return body + '\n\nChange-Id: ' + made + '\n'
+
+              def session_of(message):
+                  """The commit's Claude-Session trailer (the thread that made it), or ''."""
+                  found = re.findall(r'^Claude-Session:\s*(\S+)\s*$', message or '', re.M)
+                  return found[-1] if found else ''
+              # END shared trailer rules
 
               def amend_trailers(user, token, remote, branch, head, commits, fixes, host=GITEA):
                   """(the branch's new head, '') after the commits of `fixes` ({sha: message}) were given those
@@ -494,11 +502,6 @@ spec:
                   return commits[::-1], sha, ''
 
               SHARED_FILES = ('go.mod', 'go.sum', 'package.json', 'package-lock.json')
-
-              def session_of(message):
-                  """The commit's Claude-Session trailer (the thread that made it), or ''."""
-                  found = re.findall(r'^Claude-Session:\s*(\S+)\s*$', message or '', re.M)
-                  return found[-1] if found else ''
 
               def messages(token, api, shas):
                   """The commit messages of `shas` ('' for one that cannot be read)."""

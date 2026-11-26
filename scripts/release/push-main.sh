@@ -332,17 +332,16 @@ fi
 # only when written by hand. A cherry-pick or rebase keeps them.
 # The log is read whole first: a git log that fails refuses the push
 # (review td400-1 B1), rather than reading as no commit at all.
-lineage="$(git -C "$top" log --format='%h%x1f%(trailers:key=Change-Id,valueonly,separator=%x2C)%x1f%(trailers:key=Claude-Session,valueonly,separator=%x2C)%x1f%s' "origin/main..$commit")" ||
+# The trailers are read by the landing's own rules (scripts/landing/trailers.py,
+# walls review [79]): a Change-Id counts only in the message's last paragraph.
+# A pipe, not a variable: the records are NUL-separated. Either side failing
+# refuses the push (review td400-1 B1), rather than reading as no commit at all.
+lineage="$(set -o pipefail; git -C "$top" log -z --format='%H%x1f%B' "origin/main..$commit" |
+  python3 -I "$HERE/../landing/trailers.py" missing)" ||
   die "cannot read the trailers of origin/main..$commit in $top; nothing pushed"
 missing=()
-while IFS=$'\x1f' read -r short change session subject; do
-  [[ -n "$short" ]] || continue
-  lacks=()
-  [[ -n "${change//[[:space:],]/}" ]] || lacks+=("Change-Id")
-  [[ -n "${session//[[:space:],]/}" ]] || lacks+=("Claude-Session")
-  if [[ ${#lacks[@]} -gt 0 ]]; then
-    missing+=("$short (no ${lacks[*]}) $subject")
-  fi
+while IFS= read -r line; do
+  [[ -n "$line" ]] && missing+=("$line")
 done <<<"$lineage"
 if [[ ${#missing[@]} -gt 0 ]]; then
   if [[ -z "$NO_LINEAGE" ]]; then
