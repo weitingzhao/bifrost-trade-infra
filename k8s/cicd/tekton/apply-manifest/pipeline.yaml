@@ -320,8 +320,12 @@ spec:
                 name=$(jq -r '.metadata.name' "$work/object.json")
                 eligible=false
                 # The policy checker has already verified group/kind against cicd_resources.
+                # monitoring's Prometheus objects (2026-11-25, metrics line): ScrapeConfigs and
+                # PrometheusRules applied by hand before the applier carry kubectl's old
+                # managers and blocked every plan; the same rule takes them over, no other.
                 case "$ns/$kind" in
                   cicd/Pipeline|cicd/Task|cicd/TriggerTemplate|cicd/TriggerBinding|cicd/EventListener|cicd/CronJob|cicd/Deployment) eligible=true ;;
+                  monitoring/PrometheusRule|monitoring/ScrapeConfig|monitoring/ServiceMonitor|monitoring/PodMonitor) eligible=true ;;
                 esac
                 classify
                 jq --arg ns "$ns" --arg kind "$kind" --arg name "$name" --arg ownership "$ownership" '

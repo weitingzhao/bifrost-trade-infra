@@ -54,6 +54,21 @@ class Ownership(unittest.TestCase):
             self.assertTrue(any('--force-conflicts' in a for a in c))
             self.assertTrue(any(a[0]=='annotate' for a in c))
 
+    def test_monitoring_prometheus_objects_migrate_the_same_way(self):
+        """2026-11-25, metrics line: monitoring's ScrapeConfigs bifrost-hosts-node and -smartctl and
+        PrometheusRule bifrost-host-rules, applied by hand once, blocked their plans
+        (plan-0562854b-1795654916, -1795655006). They take the cicd kinds' rule; a foreign manager
+        (helm, the operator) and other monitoring kinds still refuse (positive control)."""
+        for kind in ('PrometheusRule', 'ScrapeConfig', 'ServiceMonitor', 'PodMonitor'):
+            r,c,o=self.run_case('kubectl-client-side-apply', ns='monitoring', kind=kind)
+            self.assertEqual(r.returncode,0,r.stderr)
+            self.assertEqual(o[0]['ownership'],'migrate')
+        for kwargs in ({'manager':'helm','ns':'monitoring','kind':'PrometheusRule'},
+                       {'manager':'kubectl-client-side-apply','ns':'monitoring','kind':'ConfigMap'}):
+            r,c,_=self.run_case(**kwargs)
+            self.assertNotEqual(r.returncode,0)
+            self.assertFalse(any('--force-conflicts' in a for a in c))
+
     def test_ssa(self):
         r,c,o=self.run_case('')
         self.assertEqual(r.returncode,0,r.stderr)
