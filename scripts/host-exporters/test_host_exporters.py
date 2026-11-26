@@ -130,7 +130,7 @@ class HostExporters(unittest.TestCase):
         self.assertEqual(self.ssh_calls(), [])
 
     def test_nothing_runs_before_the_files_are_on_main(self) -> None:
-        for step in (["mini", "50"], ["agent-06"], ["nas"], ["cluster"]):
+        for step in (["mini", "50"], ["nas"], ["cluster"]):
             r = self.run_step(*step)
             self.assertNotEqual(r.returncode, 0, step)
             self.assertIn("is not on origin/main yet", r.stderr, step)
@@ -147,26 +147,6 @@ class HostExporters(unittest.TestCase):
         self.assertTrue(call[-1].endswith('install-mac.sh" 192.168.10.52'), call[-1])
         self.assertEqual(self.tar_names(call[-1]),
                          {"scripts/host-exporters/install-mac.sh", "scripts/host-exporters/versions.env"})
-
-    def test_agent06_uses_the_node_key_only_and_sudo_without_a_prompt(self) -> None:
-        self.land()
-        r = self.run_step("agent-06")
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        (call,) = self.ssh_calls()
-        for opt in ("-F", "/dev/null", "IdentityAgent=none", "IdentitiesOnly=yes", str(self.node_key),
-                    "vision@192.168.10.79"):
-            self.assertIn(opt, call)
-        self.assertIn("| sudo -n bash -c", call[-1])
-        self.assertIn('install-linux.sh" 192.168.10.79', call[-1])
-        self.assertEqual(self.tar_names(call[-1]),
-                         {"scripts/host-exporters/install-linux.sh", "scripts/host-exporters/versions.env"})
-
-    def test_agent06_needs_the_node_key(self) -> None:
-        self.land()
-        self.node_key.unlink()
-        r = self.run_step("agent-06")
-        self.assertNotEqual(r.returncode, 0)
-        self.assertEqual(self.ssh_calls(), [])
 
     def test_nas_runs_as_the_owners_admin_account_into_roots_own_directory(self) -> None:
         # Review 540 A1: root work on the NAS never goes through k8s_admin (home was 777).
@@ -235,7 +215,6 @@ class HostExporters(unittest.TestCase):
         (bindir / "sudo").chmod(0o755)
         shells = ["bash"] + (["zsh"] if shutil.which("zsh") else [])
         cases = [(["mini", "52"], "this Mac does not own 192.168.10.52|expects macOS arm64"),
-                 (["agent-06"], "run as root"),
                  (["nas"], "run as root"),
                  (["nas-home"], "/home/k8s_admin is a link or not a directory")]
         for step, guard in cases:

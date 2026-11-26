@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# host-exporters.sh — W-68 B4 ①: put the exporters on the four hosts outside the cluster,
+# host-exporters.sh — W-68 B4 ①: put the exporters on the three hosts outside the cluster,
 # and the scrape configs, rules and dashboard that read them into the cluster. Run from
 # the Mac Pro. agent-config/work/multi-agent/OWNER-STEPS-w68-b4-2026-10-24.md says who
 # runs which step and what each prints.
@@ -7,8 +7,6 @@
 #   bash host-exporters.sh mini 50      Mac mini .50 (mini 52 for .52), as vision, no sudo,
 #                                       ~/.ssh/id_ed25519 (no passphrase): the coordinator
 #                                       can run this one if the Owner says so
-#   bash host-exporters.sh agent-06     ubt-k3s-06: the Owner's node key (passphrase asked
-#                                       once), passwordless sudo there
 #   bash host-exporters.sh nas-home     the NAS as the Owner's admin account (Wzhao): check
 #                                       /home/k8s_admin as root without logging in as
 #                                       k8s_admin; chmod 700 only when clean (nas-home check:
@@ -21,8 +19,8 @@
 #
 # Every step takes its files from origin/main (git fetch, then git archive / git show),
 # never from the working tree, so what runs is what was merged. Files reach a host in the
-# same ssh session that runs them, into a fresh mktemp directory (root's own on 06 and
-# the NAS), so nothing waits in a writable place between copy and run. Each step stops at
+# same ssh session that runs them, into a fresh mktemp directory (root's own on the
+# NAS), so nothing waits in a writable place between copy and run. Each step stops at
 # its first error with a non-zero exit, and none prints a credential.
 set -euo pipefail
 
@@ -36,7 +34,6 @@ if [[ -z $REPO ]]; then
 fi
 [[ -d $REPO/.git || -f $REPO/.git ]] || { echo "host-exporters: no git checkout at $REPO" >&2; exit 1; }
 REF=${HOST_EXPORTERS_REF:-origin/main}
-NODE_KEY=${HOST_EXPORTERS_NODE_KEY:-$HOME/.bifrost-owner/ssh/node}
 ADMIN_KUBECONFIG=${HOST_EXPORTERS_KUBECONFIG:-$HOME/.bifrost-owner/kube/admin.yaml}
 LAN_KEY=${HOST_EXPORTERS_LAN_KEY:-$HOME/.ssh/id_ed25519}
 # Root work on the NAS goes through the Owner's admin account, whose home is 700, not
@@ -44,8 +41,6 @@ LAN_KEY=${HOST_EXPORTERS_LAN_KEY:-$HOME/.ssh/id_ed25519}
 NAS_ADMIN=${HOST_EXPORTERS_NAS_ADMIN:-Wzhao}
 MONITORING=(bifrost-hosts-external.yaml bifrost-blackbox.yaml bifrost-host-rules.yaml grafana-dashboard-hosts.yaml)
 ENDPOINTS=(
-  "agent-06 192.168.10.79:9100 node_exporter_build_info"
-  "agent-06 192.168.10.79:9633 smartctl_device_smart_status"
   "nas 192.168.10.20:9100 node_md_disks"
   "nas 192.168.10.20:9633 smartctl_device_smart_status"
   "mini-50 192.168.10.50:9100 node_exporter_build_info"
@@ -55,7 +50,7 @@ ENDPOINTS=(
 die() { echo "host-exporters: $*" >&2; exit 1; }
 
 usage() {
-  sed -n '7,21p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+  sed -n '7,19p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
   exit 2
 }
 
@@ -87,16 +82,8 @@ step_mini() {
     "t=\$(mktemp -d) && trap 'rm -r \"\$t\"' EXIT && printf '%s' '$b64' | base64 -d | tar -C \"\$t\" -xf - && bash \"\$t/scripts/host-exporters/install-mac.sh\" $addr"
 }
 
-step_agent06() {
-  [[ -r $NODE_KEY ]] || die "node key ${NODE_KEY} not found"
-  need_ref scripts/host-exporters/install-linux.sh scripts/host-exporters/versions.env
-  local b64
-  b64=$(archive_b64 scripts/host-exporters/install-linux.sh scripts/host-exporters/versions.env)
-  echo "==> agent-06 (192.168.10.79): ssh asks for the node key's passphrase once; type it within 2 minutes"
-  ssh -F /dev/null -o IdentitiesOnly=yes -o IdentityAgent=none -o PreferredAuthentications=publickey \
-    -o ConnectTimeout=15 -i "$NODE_KEY" vision@192.168.10.79 \
-    "printf '%s' '$b64' | base64 -d | sudo -n bash -c 't=\$(mktemp -d) && trap \"rm -r \$t\" EXIT && tar -C \"\$t\" -xf - && bash \"\$t/scripts/host-exporters/install-linux.sh\" 192.168.10.79'"
-}
+# ubt-k3s-06 had a step here until it rejoined the cluster on 2026-11-24: it is a cluster
+# node now and the node-exporter DaemonSet owns :9100 there, so a host install would clash.
 
 step_nas_home() {
   local mode=${1:-fix}
@@ -168,7 +155,6 @@ step_check() {
 
 case "${1:-}" in
   mini) step_mini "${2:-}" ;;
-  agent-06) step_agent06 ;;
   nas-home) step_nas_home "${2:-fix}" ;;
   nas) step_nas ;;
   cluster) step_cluster ;;
