@@ -243,8 +243,7 @@ deliver-stg / prod / platform / platform-prod 没有这一步，窗口靠起 run
 （Owner 在 Console 批卡发版时由平台替这次 run 占窗口），`push-main.sh` 与 `release.sh` 自己查窗口。
 `release.sh stg|prod` 会先 `POST /api/v1/delivery/mirrors/sync`，再要求该 SHA 有 Succeeded 的 `ci-*`（Owner 用 `--allow-red <原因>` 放行，原因写进日志）。
 
-- **窗口开着：等它关，或者问 Owner**，不推、不起 run。进程退出或 ttl 到期后窗口自然放开。
-  `release.sh window --clear` 提交审批，由 Owner 决定。
+- **窗口开着：等它关，或者问 Owner**，不推、不起 run。进程退出或 ttl 到期后窗口自然放开；只有持有者能放开窗口，没有强清。
 - **一次发布只由一个会话执行**：窗口在 `release.sh` 运行期间由它持有（平台起的 run 由平台持有）；别的会话不并行发同一批，也不替它续跑。
   哪些流水线受窗口约束以代码为准：`bifrost-platform/api/internal/delivery/release_window.go` 的 `windowPipelines`。
 - **Agent 进 infra 和 platform 的 main 走 `ready/<名字>`**（2026-11-13 起，`bifrost-trade-infra/docs/RELEASE.md`「怎么进 main」）：从最新的 main 牵分支，推到 `ready/<名字>`（refspec 写全），CI 在集群里跑，绿了自动进 main。这一步不读发布窗口，所以先推、进了 main 之后再持窗口。推之前先读 `bifrost-trade-infra/scripts/landing/admission.yaml`（要带什么、每一种被拒怎么办），再跑 `python3 bifrost-trade-infra/scripts/station/precheck.py <检出目录>`。
