@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict'
 // node agent-config/claude/hooks/report-owner-said.test.js — exits non-zero on failure.
-// Origin: 2026-11-25, the Owner chose automatic collection of what he says (「我觉得B好，需要自动收集」): only his own
+// Origin: 决定 2026-11-25 (ISSUE-104): what the Owner types is collected automatically: only his own
 // typed messages go (origin.kind human), each once, and a failed post is read again next time.
 const assert = require('node:assert/strict')
 const fs = require('node:fs')

@@ -82,7 +82,7 @@
 - 平台审计（PROD statefile 键 `audit-audit-api-json`）记录这几种：`approval.create`（动作、级别、发起方）、`approval.approve`（渠道）、`approval.execute`（状态或错误）、`approval.reject`、`approval.expire`。证据：`handler.go:52-55`、`handler.go:114-122`、`handler.go:136-138`；`service.go:253`。
 - 缺口：
   - Owner 手工执行的结果只在 Owner 本机的 `run-log.jsonl` 里，平台不知道；
-  - 「只记录」的动作在审计里显示 `executed`，看起来像已经执行了（TD-286：10-10 Owner 批了 `rolling_reboot`，单子显示 `executed`，其实只是记录了批准）；
+  - 「只记录」的动作在审计里显示 `executed`，看起来像已经执行了（TD-286：10-10 批了 `rolling_reboot`，单子显示 `executed`，其实只是记录了批准）；
   - apply 只记审批单号和 `plan_id`，不记 run 名（0.1 节 D-12）。
 
 ### 1.6 通知

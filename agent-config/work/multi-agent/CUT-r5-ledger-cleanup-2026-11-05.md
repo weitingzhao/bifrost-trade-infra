@@ -127,7 +127,7 @@
 
 **P2 · ops-platform · a push to infra main that touches the production platform's manifests is deployed by Argo at once, with no approval and no release check**
 
-- **状态**：未开始（2026-10-13 11:34 护栏 ⑤ 选路时记下：Owner 选了走标签，钉住清单的做法留到第 3 轮和全自动发布一起看）
+- **状态**：未开始（2026-10-13 11:34 护栏 ⑤ 选路时记下：决定走标签，钉住清单的做法留到第 3 轮和全自动发布一起看）
 - **Claim**: the Application `bifrost-platform-prod` follows `main` of the infra repository with automated sync, prune and selfHeal. Any session that pushes a change under `k8s/overlays/platform-prod` or `k8s/base-platform` changes production; the approval request, the release window and the source check of the delivery pipeline are not on that path. Twelve repositories and several agent sessions push to that branch every day.
 - **Measured**: MEASURED 2026-10-12 22:45 read-only: `targetRevision=main`, `automated={prune:true,selfHeal:true}`, no `ignoreDifferences`. About 20 commits touched those two directories in the month before (counted for the design, `agent-work` notes; NOT re-counted here).
 - **Evidence**: `k8s/cicd/applications/bifrost-platform-prod.yaml:12-22`; `bifrost-trade-infra/CLAUDE.md` ("推 main 即改运行时"); the three design drafts and reviews 141, 143, 148 of guardrail 5 (pinning the Application to a commit advanced by the delivery pipeline closes this, and was not chosen now: three drafts still had wrong-answer paths).

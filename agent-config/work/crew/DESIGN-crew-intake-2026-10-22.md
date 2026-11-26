@@ -11,7 +11,7 @@
 > **削薄首批**（B1、B2）：每个问题同时只有一个在途 mission；不做跨人 join；合并只限还没接单的；本机桥只做 V1 证实能用的那一种，离线 outbox 后移；真问题试点排在 Console 五视图之前（第十节）。表还是七张，列和约束都留着，只是晚开放操作。
 > 第六节已按 2026-10-22 的更正改写：太太在她 Mac 上用 ChatGPT 桌面版，能读本机文件、操作屏幕和 Chrome、经插件跑本机命令，所以推荐路线是她 Mac 上的本机桥，不开公网入口。
 > 第七节按 Owner 当晚的第二条补充加了「接需求的工作流」：需求说明和方案分开、按风险分级定闸、本设计自己就是 BI-1（大级，先独立复核再交他定）。
-> **Owner 原话**（10-22 晚）：「业务接不到，和谈后续的执行、实现啊」。提业务的人是谁，以他当晚的说明为准（第一节）。
+> 出处：10-22 晚，业务接不进来，后面的执行、实现就无从谈起。提业务的人是谁，以当晚的说明为准（第一节）。
 > **输入**：`work/crew/DESIGN-screening-loop-2026-10-22.md`（3.2-1）、`PROFILE-screening.md` 第五、六、九节；记忆 `project_crew_intake_requesters`、`project_crew_business_issue_handoff`、
 > `project_crew_product_takeover_design`、`bifrost_dual_flywheel_vision`；`multi-agent/DESIGN-agent-runtime-2026-10-08.md`（v4）、v5；`AGENT_FACTS.md` §8b、§8c；复核 515 第 1 轮报告；复核 516 第 2 轮报告。
 > **代码基线**：bifrost-platform `36481b90`（10-22 20:00 CDT）；bifrost-trade-infra `b7535a57`（和第 2 轮读的 `19a917eb` 相比，本稿引到的 infra 文件没有变化）。`路径:行` 指 `bifrost-platform/api/internal/agentrt/` 下，另注明的除外（迁移在 `agentrt/migrations/`，不在 `api/migrations/`；`auth.go` 指 `api/internal/actuation/auth.go`）。

@@ -61,7 +61,7 @@ bash bifrost-trade-infra/scripts/agentrt/rule.sh sign bifrost-trade-infra/agent-
 
 ## 后续：计划格式里的 `core`（决定 2026-10-19：核心字段 A）
 
-Owner 原话：「核心字段 A：计划格式加可选的 core，参谋长按规则判断哪件是核心类，路由照现有核心类规则走。」实现在平台分支 `w31/plan-core`。
+做法：计划格式加可选的 `core`，参谋长按规则判断哪件是核心类，路由照现有核心类规则走。实现在平台分支 `w31/plan-core`。
 
 **定义只有一处**：核心类 = 运行时自己的核心（设计 v5 §0 第 6 条、决定 2026-10-13：数据层、Redis 数据形式、内核接口、agentd、总线与叫停）。落到仓库是 `Repos` 里每个仓库新加的 `Core` 目录（`store/repos.go`）：bifrost-platform 的 `api/internal/agentrt/`、`api/internal/agentd/`、`api/cmd/agentd/`；别的仓库（infra 等）没有核心类。核心目录下的外围活（测试样板、文档、按已定接口填的页面）不算核心类。计划者和参谋长的提示都用同一段文字（`CoreText()`，从 `Repos` 生成），程序校验也读同一份目录。
 
